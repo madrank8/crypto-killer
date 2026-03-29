@@ -3,6 +3,9 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 
+// Claude API needs 30-60s for full review generation
+export const maxDuration = 60
+
 /**
  * POST /api/admin/reviews/generate
  * Generate a scam review article using Claude API
