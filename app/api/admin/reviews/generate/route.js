@@ -65,7 +65,9 @@ Output valid JSON with these fields:
 - faq: Array of 5-8 objects with {question: string, answer: string}. Common questions about this scam.
 - full_article: Complete markdown article (1200-1800 words) combining all sections with proper headings. Structure: ## Verdict → ## Key Statistics → ## How {Brand} Works → ## Red Flags → ## What To Do If You've Been Scammed → ## FAQ → ## Final Verdict
 
-Be concise but specific — cite exact numbers from the data. Every red flag must be backed by evidence.`
+Be concise but specific — cite exact numbers from the data. Every red flag must be backed by evidence.
+
+CRITICAL: Output ONLY the JSON object. No markdown code fences, no explanation before or after. Ensure all strings are properly escaped (newlines as \\n, quotes as \\"). Do not use trailing commas.`
 
     const userPrompt = `Generate a scam review article for: ${brandData.name}
 
@@ -140,7 +142,15 @@ Generate a detailed scam review article with comprehensive red flags, evidence-b
       if (!jsonMatch) {
         throw new Error('No JSON found in response')
       }
-      reviewContent = JSON.parse(jsonMatch[0])
+      let jsonStr = jsonMatch[0]
+
+      // Repair common LLM JSON issues:
+      // 1. Trailing commas before ] or }
+      jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
+      // 2. Unescaped newlines inside string values
+      jsonStr = jsonStr.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n')
+
+      reviewContent = JSON.parse(jsonStr)
     } catch (parseError) {
       throw new Error(`Failed to parse Claude response: ${parseError.message}`)
     }
