@@ -51,23 +51,25 @@ export async function POST(request) {
 
     const creativeSample = Array.isArray(creatives) ? creatives : []
 
-    // Build Claude prompt
+    // Build Claude prompt — NO full_article in JSON to avoid parsing issues
     const systemPrompt = `You are an investigative journalist writing a crypto scam review article. Write a comprehensive, evidence-backed article grounded in the ad intelligence data provided.
 
 Output valid JSON with these fields:
 - title: SEO title, format "Is {Brand} a Scam? [2026 Investigation]" (under 60 chars)
 - headline: Short verdict headline like "{Brand}: Confirmed Scam — {N} Red Flags Found"
 - meta_description: SEO meta description (under 155 chars)
-- summary: Opening verdict paragraph (200-300 words). Lead with the verdict. Cite specific numbers.
-- how_it_works: Detailed explanation of how the scam operates (300-400 words). Reference specific evidence from the data.
-- red_flags: Array of 5-8 objects with {flag: string, detail: string}. Each must cite specific evidence from the data (countries, celebrity names, creative counts).
-- verdict: Final verdict and recommendations (150-200 words). Include what to do if scammed.
-- faq: Array of 5-8 objects with {question: string, answer: string}. Common questions about this scam.
-- full_article: Complete markdown article (1200-1800 words) combining all sections with proper headings. Structure: ## Verdict → ## Key Statistics → ## How {Brand} Works → ## Red Flags → ## What To Do If You've Been Scammed → ## FAQ → ## Final Verdict
+- summary: Opening verdict paragraph (150-200 words). Lead with the verdict. Cite specific numbers.
+- how_it_works: Detailed explanation of how the scam operates (200-300 words). Reference specific evidence.
+- red_flags: Array of 5-8 objects with {"flag": "string", "detail": "string"}. Each must cite specific evidence.
+- verdict: Final verdict and recommendations (100-150 words). Include what to do if scammed.
+- faq: Array of 5-8 objects with {"question": "string", "answer": "string"}.
 
-Be concise but specific — cite exact numbers from the data. Every red flag must be backed by evidence.
-
-CRITICAL: Output ONLY the JSON object. No markdown code fences, no explanation before or after. Ensure all strings are properly escaped (newlines as \\n, quotes as \\"). Do not use trailing commas.`
+CRITICAL RULES:
+1. Output ONLY the JSON object — no markdown fences, no text before/after
+2. All string values must be single-line (no literal newlines — use spaces instead)
+3. Escape quotes with \\"
+4. No trailing commas
+5. Keep each string value under 2000 characters`
 
     const userPrompt = `Generate a scam review article for: ${brandData.name}
 
@@ -147,16 +149,27 @@ Generate a detailed scam review article with comprehensive red flags, evidence-b
       // Repair common LLM JSON issues:
       // 1. Trailing commas before ] or }
       jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
-      // 2. Unescaped newlines inside string values
-      jsonStr = jsonStr.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n')
 
       reviewContent = JSON.parse(jsonStr)
     } catch (parseError) {
       throw new Error(`Failed to parse Claude response: ${parseError.message}`)
     }
 
+    // Build full_article server-side from structured sections
+    const redFlagsList = (reviewContent.red_flags || [])
+      .map((rf, i) => `${i + 1}. **${rf.flag}** — ${rf.detail}`)
+      .join('\n\n')
+
+    const faqList = (reviewContent.faq || [])
+      .map(f => `**${f.question}**\n\n${f.answer}`)
+      .join('\n\n')
+
+    const fullArticle = `## Verdict\n\n${reviewContent.summary || ''}\n\n## Key Statistics\n\n- **Scam Score:** ${brandData.scam_score}/100\n- **Total Creatives:** ${brandData.total_creatives}\n- **Countries Targeted:** ${brandData.total_geos}\n- **Celebrities Exploited:** ${brandData.total_celebrities}\n- **7-Day Velocity:** ${brandData.velocity_7d} new creatives\n\n## How ${brandData.name} Works\n\n${reviewContent.how_it_works || ''}\n\n## Red Flags\n\n${redFlagsList}\n\n## What To Do If You've Been Scammed\n\n${reviewContent.verdict || ''}\n\n## FAQ\n\n${faqList}\n\n## Final Verdict\n\n${reviewContent.verdict || ''}`
+
+    reviewContent.full_article = fullArticle
+
     // Calculate word count
-    const wordCount = (reviewContent.full_article || '').split(/\s+/).length
+    const wordCount = fullArticle.split(/\s+/).length
 
     // Check if review already exists for this brand
     const existingReview = await supabaseRequest(

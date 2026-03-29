@@ -70,7 +70,7 @@ export default function AdminDashboard() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  const [generatingReviewId, setGeneratingReviewId] = useState(null);
+  const [creatingReviewId, setCreatingReviewId] = useState(null);
 
   // Fetch stats
   useEffect(() => {
@@ -134,11 +134,11 @@ export default function AdminDashboard() {
     fetchBrands();
   }, [token, sortBy, trendFilter, reviewFilter, page]);
 
-  const handleGenerateReview = async (brandId) => {
-    setGeneratingReviewId(brandId);
+  const handleCreateReview = async (brandId) => {
+    setCreatingReviewId(brandId);
 
     try {
-      const res = await fetch('/api/admin/reviews/generate', {
+      const res = await fetch('/api/admin/reviews/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -151,13 +151,13 @@ export default function AdminDashboard() {
         const data = await res.json();
         router.push(`/admin/review/${data.review_id}`);
       } else {
-        alert('Error generating review');
+        alert('Error creating review');
       }
     } catch (err) {
-      console.error('Error generating review:', err);
-      alert('Error generating review');
+      console.error('Error creating review:', err);
+      alert('Error creating review');
     } finally {
-      setGeneratingReviewId(null);
+      setCreatingReviewId(null);
     }
   };
 
@@ -340,13 +340,13 @@ export default function AdminDashboard() {
                       </Link>
                     ) : (
                       <button
-                        onClick={() => handleGenerateReview(brand.id)}
-                        disabled={generatingReviewId === brand.id}
+                        onClick={() => handleCreateReview(brand.id)}
+                        disabled={creatingReviewId === brand.id}
                         className="btn btn-primary text-sm"
                       >
-                        {generatingReviewId === brand.id
-                          ? 'Generating...'
-                          : 'Generate Review'}
+                        {creatingReviewId === brand.id
+                          ? 'Creating...'
+                          : 'Create Review'}
                       </button>
                     )}
                   </td>
