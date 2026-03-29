@@ -1,7 +1,12 @@
-import { supabaseRequest } from '@/lib/supabase'
+import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
+
+// Supabase Storage public URL for creative images
+const STORAGE_BASE = SUPABASE_URL
+  ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
+  : ''
 
 // Claude API needs 30-60s for full review generation
 export const maxDuration = 60
@@ -52,6 +57,60 @@ export async function POST(request) {
     )
 
     const creativeSample = Array.isArray(creatives) ? creatives : []
+
+    // ─── SELECT DIVERSE CREATIVE IMAGES ───
+    // Pick 3-10 photo creatives with diverse geos/celebrities for article evidence
+    const photoCreatives = creativeSample.filter(c => !c.is_video)
+    const imageCreatives = []
+    const seenGeos = new Set()
+    const seenCelebs = new Set()
+
+    // Priority 1: Diverse celebrities
+    for (const c of photoCreatives) {
+      if (imageCreatives.length >= 10) break
+      if (c.celebrity_name && c.celebrity_name !== 'Not mentioned' && !seenCelebs.has(c.celebrity_name)) {
+        seenCelebs.add(c.celebrity_name)
+        seenGeos.add(c.geo)
+        imageCreatives.push(c)
+      }
+    }
+    // Priority 2: Diverse geos
+    for (const c of photoCreatives) {
+      if (imageCreatives.length >= 10) break
+      if (!seenGeos.has(c.geo) && !imageCreatives.find(ic => ic.id === c.id)) {
+        seenGeos.add(c.geo)
+        imageCreatives.push(c)
+      }
+    }
+    // Priority 3: Fill remaining up to at least 3
+    for (const c of photoCreatives) {
+      if (imageCreatives.length >= 10) break
+      if (imageCreatives.length < 3 && !imageCreatives.find(ic => ic.id === c.id)) {
+        imageCreatives.push(c)
+      }
+    }
+
+    // Check which images exist in Supabase Storage
+    let availableImages = []
+    if (STORAGE_BASE && imageCreatives.length > 0) {
+      const checkPromises = imageCreatives.map(async (c) => {
+        try {
+          const imgUrl = `${STORAGE_BASE}/${c.id}.webp`
+          const headRes = await fetch(imgUrl, { method: 'HEAD' })
+          if (headRes.ok) {
+            return {
+              id: c.id,
+              url: imgUrl,
+              celebrity: c.celebrity_name && c.celebrity_name !== 'Not mentioned' ? c.celebrity_name : null,
+              geo: c.geo,
+              offer: c.offer_name || c.normalized_offer,
+            }
+          }
+          return null
+        } catch { return null }
+      })
+      availableImages = (await Promise.all(checkPromises)).filter(Boolean)
+    }
 
     // Calculate longevity
     const firstSeen = brandData.first_seen_at ? new Date(brandData.first_seen_at) : null
@@ -214,8 +273,45 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
       .map(f => `<h3>${escHtml(f.question)}</h3>\n<p>${escHtml(f.answer)}</p>`)
       .join('\n\n')
 
+    // Build evidence image HTML blocks
+    const buildImageHtml = (img, caption) => {
+      const altText = img.celebrity
+        ? `${escHtml(brandData.name)} scam ad impersonating ${escHtml(img.celebrity)} (${img.geo})`
+        : `${escHtml(brandData.name)} scam advertisement detected in ${img.geo}`
+      return `<figure><img src="${img.url}" alt="${altText}" /><figcaption>${escHtml(caption)}</figcaption></figure>`
+    }
+
+    // Distribute images across article sections
+    const summaryImages = availableImages.slice(0, 2) // 1-2 images after summary
+    const howItWorksImages = availableImages.slice(2, 4) // 1-2 images in how it works
+    const redFlagImages = availableImages.slice(4, 7) // 1-3 images in red flags
+    const extraImages = availableImages.slice(7, 10) // remaining in FAQ section
+
+    const summaryImagesHtml = summaryImages
+      .map(img => buildImageHtml(img, img.celebrity
+        ? `SpyOwl detected this ${escHtml(brandData.name)} ad impersonating ${escHtml(img.celebrity)} targeting ${img.geo} users.`
+        : `Scam ad for ${escHtml(brandData.name)} detected by SpyOwl in ${img.geo}.`
+      )).join('\n')
+
+    const howItWorksImagesHtml = howItWorksImages
+      .map(img => buildImageHtml(img, img.celebrity
+        ? `Fake endorsement ad using ${escHtml(img.celebrity)}'s likeness without consent.`
+        : `${escHtml(brandData.name)} ad creative captured by SpyOwl surveillance.`
+      )).join('\n')
+
+    const redFlagImagesHtml = redFlagImages
+      .map(img => buildImageHtml(img,
+        `Evidence: ${escHtml(brandData.name)} ad targeting ${img.geo}${img.celebrity ? ` using ${escHtml(img.celebrity)}` : ''}.`
+      )).join('\n')
+
+    const extraImagesHtml = extraImages
+      .map(img => buildImageHtml(img,
+        `Additional scam ad variant detected in ${img.geo}.`
+      )).join('\n')
+
     const fullArticle = `<h2>${escHtml(brandData.name)}: Investigation Summary</h2>
 <p>${escHtml(reviewContent.summary)}</p>
+${summaryImagesHtml}
 
 <h2>Key Threat Intelligence</h2>
 <ul>
@@ -229,17 +325,20 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
 
 <h2>How the ${escHtml(brandData.name)} Scam Works</h2>
 <p>${escHtml(reviewContent.how_it_works)}</p>
+${howItWorksImagesHtml}
 
 <h2>Red Flags</h2>
 <ol>
 ${redFlagsHtml}
 </ol>
+${redFlagImagesHtml}
 
 <h2>What To Do If You've Been Scammed</h2>
 <p>${escHtml(reviewContent.verdict)}</p>
 
 <h2>Frequently Asked Questions</h2>
 ${faqHtml}
+${extraImagesHtml}
 
 <h2>Final Verdict</h2>
 <p>${escHtml(reviewContent.verdict)}</p>`
@@ -299,6 +398,7 @@ ${faqHtml}
       brand_slug: brandData.slug,
       status: 'draft',
       word_count: wordCount,
+      images_embedded: availableImages.length,
     })
   } catch (error) {
     if (error.message.includes('Unauthorized')) {
