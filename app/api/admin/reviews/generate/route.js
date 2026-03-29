@@ -105,7 +105,7 @@ Generate a detailed scam review article with comprehensive red flags, evidence-b
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          model: 'claude-haiku-4-5-20251001',
           max_tokens: 4096,
           system: systemPrompt,
           messages: [
@@ -174,7 +174,7 @@ Generate a detailed scam review article with comprehensive red flags, evidence-b
       full_article: reviewContent.full_article,
       scam_score: brandData.scam_score || 0,
       status: 'draft',
-      ai_model: 'claude-sonnet-4-6',
+      ai_model: 'claude-haiku-4-5-20251001',
       word_count: wordCount,
       updated_at: new Date().toISOString(),
     }
