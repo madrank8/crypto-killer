@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: linear-gradient(135deg, #0a0a0f 0%, #111118 100%);
+  color: #e0e0e0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  .card {
+    @apply bg-dark-card border border-gray-800 rounded-lg p-6 hover:border-gray-700 transition-all duration-300;
+  }
+
+  .badge {
+    @apply inline-block px-3 py-1 rounded-full text-xs font-semibold;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-950 text-red-200;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-950 text-amber-200;
+  }
+
+  .badge-success {
+    @apply badge bg-green-950 text-green-200;
+  }
+
+  .badge-info {
+    @apply badge bg-blue-950 text-blue-200;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-lg font-semibold transition-all duration-300;
+  }
+
+  .btn-primary {
+    @apply btn bg-red-600 hover:bg-red-700 text-white;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-700 hover:bg-gray-600 text-white;
+  }
+
+  .section-title {
+    @apply text-3xl font-bold mb-8 text-white;
+  }
+
+  .stat-card {
+    @apply card text-center;
+  }
+
+  .stat-value {
+    @apply text-4xl font-bold text-red-400 mb-2;
+  }
+
+  .stat-label {
+    @apply text-gray-400 text-sm;
+  }
+}
+
+/* Scam score gauge styling */
+.gauge-container {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  margin: 0 auto;
+}
+
+.gauge-svg {
+  filter: drop-shadow(0 4px 12px rgba(220, 38, 38, 0.2));
+}
+
+/* Search input styling */
+.search-input {
+  @apply w-full px-4 py-3 bg-dark-card border border-gray-800 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-red-500 transition-all duration-300;
+}
+
+/* Table styling */
+.table-container {
+  @apply overflow-x-auto;
+}
+
+table {
+  @apply w-full border-collapse;
+}
+
+thead {
+  @apply border-b border-gray-800;
+}
+
+th {
+  @apply px-4 py-3 text-left text-sm font-semibold text-gray-400;
+}
+
+td {
+  @apply px-4 py-3 border-b border-gray-900 text-sm;
+}
+
+tbody tr {
+  @apply hover:bg-dark-card transition-colors;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #404050;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #505060;
+}
