@@ -63,9 +63,9 @@ Output valid JSON with these fields:
 - red_flags: Array of 5-8 objects with {flag: string, detail: string}. Each must cite specific evidence from the data (countries, celebrity names, creative counts).
 - verdict: Final verdict and recommendations (150-200 words). Include what to do if scammed.
 - faq: Array of 5-8 objects with {question: string, answer: string}. Common questions about this scam.
-- full_article: Complete markdown article (2000-2500 words) combining all sections with proper headings. Structure: ## Verdict → ## Key Statistics → ## How {Brand} Works → ## Red Flags → ## What To Do If You've Been Scammed → ## FAQ → ## Final Verdict
+- full_article: Complete markdown article (1200-1800 words) combining all sections with proper headings. Structure: ## Verdict → ## Key Statistics → ## How {Brand} Works → ## Red Flags → ## What To Do If You've Been Scammed → ## FAQ → ## Final Verdict
 
-Write in an authoritative but accessible tone. Be specific — cite exact numbers from the data. Every red flag must be backed by evidence.`
+Be concise but specific — cite exact numbers from the data. Every red flag must be backed by evidence.`
 
     const userPrompt = `Generate a scam review article for: ${brandData.name}
 
@@ -85,7 +85,7 @@ Countries: ${(brandData.geo_list || []).join(', ') || 'Unknown'}
 
 Sample Creatives (${creativeSample.length} found):
 ${creativeSample
-  .slice(0, 10)
+  .slice(0, 5)
   .map(
     (c, i) =>
       `${i + 1}. Offer: "${c.offer_name || c.normalized_offer}", Geo: ${c.geo || 'N/A'}, Celebrity: ${c.celebrity_name || 'None'}, Video: ${c.is_video ? 'Yes' : 'No'}`
@@ -106,7 +106,7 @@ Generate a detailed scam review article with comprehensive red flags, evidence-b
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 8000,
+          max_tokens: 4096,
           system: systemPrompt,
           messages: [
             {
