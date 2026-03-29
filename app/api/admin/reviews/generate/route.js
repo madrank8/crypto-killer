@@ -135,7 +135,7 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
         },
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
-          max_tokens: 4096,
+          max_tokens: 8192,
           system: systemPrompt,
           messages: [
             {
@@ -156,6 +156,11 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
 
     const anthropicData = await anthropicResponse.json()
 
+    // Check for truncation
+    if (anthropicData.stop_reason === 'max_tokens') {
+      console.warn('Claude response was truncated at max_tokens — attempting repair')
+    }
+
     // Extract JSON from Claude response
     const responseText =
       anthropicData.content[0].type === 'text'
@@ -173,9 +178,28 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
       // Repair common LLM JSON issues
       jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
 
+      // If truncated, try to close open arrays/objects
+      if (anthropicData.stop_reason === 'max_tokens') {
+        // Count open brackets
+        const opens = (jsonStr.match(/[\[{]/g) || []).length
+        const closes = (jsonStr.match(/[\]}]/g) || []).length
+        const diff = opens - closes
+        // Remove any trailing incomplete string value
+        jsonStr = jsonStr.replace(/,?\s*"[^"]*$/, '')
+        // Remove any trailing incomplete object/array entry
+        jsonStr = jsonStr.replace(/,?\s*\{[^}]*$/, '')
+        jsonStr = jsonStr.replace(/,?\s*"[^"]*":\s*"[^"]*$/, '')
+        // Close remaining brackets
+        for (let i = 0; i < diff; i++) {
+          // Guess whether to close ] or } based on last open
+          const lastOpen = jsonStr.lastIndexOf('[') > jsonStr.lastIndexOf('{') ? ']' : '}'
+          jsonStr += lastOpen
+        }
+      }
+
       reviewContent = JSON.parse(jsonStr)
     } catch (parseError) {
-      throw new Error(`Failed to parse Claude response: ${parseError.message}`)
+      throw new Error(`Failed to parse Claude response (stop_reason: ${anthropicData.stop_reason}, text length: ${responseText.length}): ${parseError.message}`)
     }
 
     // ─── BUILD HTML ARTICLE SERVER-SIDE ───
