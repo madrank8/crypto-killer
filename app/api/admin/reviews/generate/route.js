@@ -777,7 +777,7 @@ ${disclaimerHtml}`
 
     // Check if review already exists for this brand
     const existingReview = await supabaseRequest(
-      `/reviews?brand_id=eq.${brand_id}&select=id`
+      `/reviews?brand_id=eq.${brand_id}&select=id,status`
     )
 
     let reviewId
@@ -789,7 +789,10 @@ ${disclaimerHtml}`
       meta_description: reviewContent.meta_description,
       summary: reviewContent.summary,
       how_it_works: reviewContent.how_it_works,
-      red_flags: reviewContent.red_flags,
+      red_flags: (reviewContent.red_flags || []).map(rf => ({
+        ...rf,
+        flag: `${getRedFlagIcon(rf.flag)} ${rf.flag}`,
+      })),
       verdict: reviewContent.verdict,
       faq: reviewContent.faq,
       full_article: fullArticle,
