@@ -112,7 +112,24 @@ export async function POST(request) {
       }
     }
 
-          send({ step: 'images', progress: 25, message: `Fetching ${evidenceGrid.length} evidence images...` })
+          send({ step: 'images', progress: 25, message: `Found ${evidenceGrid.length} evidence candidates. Cookie: ${SPYOWL_COOKIE ? SPYOWL_COOKIE.length + ' chars' : 'MISSING'}` })
+
+    // Verify SpyOwl auth if cookie is present
+    if (SPYOWL_COOKIE) {
+      try {
+        const authCheck = await fetch(`${SPYOWL_API}/user/me`, { headers: { 'Cookie': SPYOWL_COOKIE } })
+        console.log(`[evidence] SpyOwl auth check: ${authCheck.status}`)
+        if (!authCheck.ok) {
+          console.log(`[evidence] SpyOwl auth FAILED — cookie may be expired`)
+          send({ step: 'images', progress: 25, message: `SpyOwl auth failed (${authCheck.status}) — cookie expired?` })
+        } else {
+          const user = await authCheck.json().catch(() => ({}))
+          console.log(`[evidence] SpyOwl auth OK: ${user.email || 'unknown'}`)
+        }
+      } catch (e) {
+        console.log(`[evidence] SpyOwl auth error: ${e.message}`)
+      }
+    }
 
     // Fetch images from SpyOwl API → upload to Supabase Storage → get public URLs
     let availableImages = []
