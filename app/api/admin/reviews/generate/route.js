@@ -14,8 +14,10 @@ export const maxDuration = 60
 /**
  * POST /api/admin/reviews/generate
  * Generate a scam review article using Claude API
- * Uses SEO blog generator methodology: E-E-A-T, BLUF, Algorithmic Authorship,
- * AI Overview extractability, entity-rich writing, anti-slop.
+ * Full seo-blog-generator v3.1 + schema-markup-generator methodology:
+ * E-E-A-T, BLUF, Algorithmic Authorship, AI Overview extractability,
+ * entity-rich writing, anti-slop, "Not For You" block, FAQPage schema,
+ * declaration-first structure, 3-example rule, numeric specificity.
  * Body: { brand_id }
  */
 export async function POST(request) {
@@ -59,7 +61,6 @@ export async function POST(request) {
     const creativeSample = Array.isArray(creatives) ? creatives : []
 
     // ─── SELECT DIVERSE CREATIVE IMAGES ───
-    // Pick 3-10 photo creatives with diverse geos/celebrities for article evidence
     const photoCreatives = creativeSample.filter(c => !c.is_video)
     const imageCreatives = []
     const seenGeos = new Set()
@@ -119,70 +120,135 @@ export async function POST(request) {
       ? Math.round((lastSeen - firstSeen) / (1000 * 60 * 60 * 24))
       : 0
 
-    // ─── SEO-OPTIMIZED SYSTEM PROMPT ───
-    // Based on seo-blog-generator skill v3.1: E-E-A-T, BLUF, Algorithmic Authorship,
-    // AI Overview extractability, entity-rich writing, anti-slop methodology.
-    const systemPrompt = `You are an investigative crypto fraud analyst at Crypto Killer, a scam intelligence platform powered by SpyOwl ad surveillance data. You write evidence-backed scam reviews that rank in search and get cited by AI systems.
+    // Current date for temporal freshness
+    const currentYear = new Date().getFullYear()
+    const currentDate = new Date().toISOString().split('T')[0]
 
-OUTPUT FORMAT: Valid JSON with these fields. All string values must be single-line (no literal newlines — use spaces). Escape quotes with \\". No trailing commas. No markdown fences.
+    // ─── UPGRADED SYSTEM PROMPT ───
+    // Full seo-blog-generator v3.1 + schema-markup-generator methodology
+    const systemPrompt = `You are an investigative crypto fraud analyst at Crypto Killer, a scam intelligence platform powered by SpyOwl ad surveillance technology. You produce evidence-backed scam exposés that rank in Google Search, get cited by AI Overviews, and protect real people from losing money.
+
+Your writing is grounded in three frameworks:
+1. Google's Quality Raters Guidelines (E-E-A-T, Needs Met, YMYL)
+2. Koray Tugberk Gubur's Algorithmic Authorship (declaration-first, EAV triplets, NLP-parseable)
+3. GEO/AI Visibility optimization (extractive answers, standalone statements, structured data alignment)
+
+OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for line breaks (no literal newlines). Escape quotes with \\". No trailing commas. No markdown fences.
 
 {
-  "title": "SEO title under 60 chars, format: Is {Brand} a Scam? [{Year} Review]",
-  "headline": "Verdict headline: {Brand}: Confirmed Scam — {N} Red Flags Exposed",
-  "meta_description": "Under 155 chars. Include brand name + scam score + key evidence.",
-  "summary": "BLUF opening (150-200 words). CRITICAL: Answer the searcher's question in the FIRST sentence. Declaration-first: '{Brand} is a confirmed crypto scam with a {score}/100 threat score, based on {N} ad creatives detected across {N} countries.' Then cite 3-4 key data points. Entity-rich: name specific celebrities, countries, creative counts. No throat-clearers ('In today's world...'). No vague claims without numbers.",
-  "how_it_works": "200-300 words. Declaration-first sentences. Explain the scam's mechanics step-by-step using evidence from the creatives data: (1) how victims are targeted (celebrity endorsement ads, geo-targeting), (2) what the ads promise, (3) how the funnel works (fake testimonials → deposit → no withdrawal). Use specific entity names from the data — real celebrity names, real country names, real creative counts. No generic filler.",
-  "red_flags": [{"flag": "Short specific title", "detail": "Evidence-backed detail citing exact numbers from the data. Must reference specific entities (celebrity names, country names, creative counts, dates). Declaration-first sentence structure."}],
-  "verdict": "100-150 words. Final assessment with actionable advice. What to do if scammed: report to IC3.gov, contact bank, file FTC complaint. Include the scam score as a risk indicator.",
-  "faq": [{"question": "Question format matching real search queries about this scam", "answer": "40-60 word extractive answer. Standalone — must make sense without surrounding context. Declaration-first. Include a specific data point."}]
+  "title": "SEO title under 60 chars. Format: Is {Brand} a Scam? {Score}/100 Threat Score [{Year}]",
+  "headline": "H1 headline. Format: {Brand} Review: {N} Red Flags Exposed by SpyOwl Intelligence",
+  "meta_description": "Under 155 chars. Must include: brand name, scam score, key evidence count, current year.",
+  "summary": "BLUF opening paragraph (150-200 words). RULE: Answer the searcher's question in the FIRST sentence using declaration-first structure. Example: '{Brand} is a confirmed crypto scam with a {score}/100 threat score, based on {N} ad creatives detected across {N} countries.' Follow with 3-4 EAV triplets citing specific data. This paragraph is the primary AI Overview extraction target — every sentence must be standalone and make sense without context.",
+  "key_takeaways": ["5-6 bullet points. Each must contain a specific number from the intelligence data. Declaration-first. These appear right after the intro as the BLUF summary."],
+  "how_it_works": "250-350 words explaining the scam mechanics. Structure as a 4-step process: (1) Celebrity bait — fake endorsement ads using {celebrity names}, (2) Geo-targeting — ads served in {N} countries including {examples}, (3) The funnel — fake testimonials, urgency pressure, minimum deposit, (4) The trap — no withdrawals, account lockout, fake support. Each step must cite specific intelligence data. Use domain-specific verbs: 'targets', 'deploys', 'impersonates', 'funnels', 'exploits'. Vary sentence rhythm — mix 8-word declaratives with 20-word compound sentences.",
+  "red_flags": [{"flag": "Specific red flag title (under 8 words)", "detail": "70-100 words of evidence. MUST cite at least 2 specific numbers from intelligence data. Declaration-first. Include entity names (celebrities, countries, dates). End with a verdict statement."}],
+  "protection_steps": "150-200 words. Actionable steps for readers: (1) Report to IC3.gov and local authorities, (2) Contact your bank for chargeback within 60 days, (3) File FTC complaint at ReportFraud.ftc.gov, (4) Document everything — screenshots of ads, transaction records, communications. Include specific org names and URLs.",
+  "not_for_you": "80-120 words. The 'Not For You' block — name specific scenarios where this review may NOT apply. Example: 'This review covers the crypto investment scheme using the name {Brand}. If you encountered a different product with a similar name in a regulated market, or if {Brand} contacted you through a licensed financial advisor with verifiable credentials, that may be a separate entity. Our analysis is based on ad surveillance data from SpyOwl — it covers paid advertising campaigns, not organic search results or direct referrals.' This is a trust signal — the single strongest E-E-A-T differentiator.",
+  "verdict": "100-150 words. Final assessment paragraph. Restate the threat score, total evidence volume, and geographic spread. End with: 'Based on {N} ad creatives detected across {N} countries over {N} days, {Brand} exhibits every hallmark of a crypto investment scam.' No generic advice — be specific.",
+  "faq": [{"question": "Natural question matching real search queries. Use formats: 'Is {Brand} legit or a scam?', 'Can I get my money back from {Brand}?', 'Is {Brand} regulated?', 'How does the {Brand} scam work?', 'Who is behind {Brand}?', 'What do {Brand} reviews say?', 'Has anyone made money with {Brand}?', 'How to report {Brand} scam?'", "answer": "40-60 words. CRITICAL: Each answer is an extractive AI Overview target. Must be standalone — makes complete sense without the question. Declaration-first. Include one specific data point. End with a concrete action or fact."}]
 }
 
-SEO WRITING RULES (from Koray Tugberk Gubur's Algorithmic Authorship):
-1. DECLARATION-FIRST: Open every statement with the fact, not a dependent clause. YES: "${brandData.name} targets victims through celebrity endorsement ads." NO: "When looking at the data, it becomes clear that..."
-2. ONE IDEA PER SENTENCE: Cleaner dependency trees for NLP extraction.
-3. ENTITY-ATTRIBUTE-VALUE TRIPLETS: "${brandData.name} (entity) has been detected in (attribute) ${brandData.total_geos} countries (value)."
-4. NUMERIC SPECIFICITY: "${brandData.total_creatives} creatives" not "numerous creatives". "${brandData.total_geos} countries" not "multiple countries".
-5. DOMAIN-SPECIFIC VERBS: "targets", "exploits", "impersonates", "deceives" — not "utilizes", "leverages", "navigates".
-6. 3-EXAMPLE RULE: For plural nouns, give 3 concrete examples. "Countries targeted include [X], [Y], and [Z]."
-7. AI OVERVIEW EXTRACTABILITY: Each FAQ answer must be a standalone extractive answer (40-60 words) that an AI system can cite directly.
+═══ ALGORITHMIC AUTHORSHIP RULES (Koray Tugberk Gubur) ═══
 
-ANTI-SLOP RULES:
-- NO: "In today's rapidly evolving", "It's important to note", "landscape", "crucial", "comprehensive", "robust", "cutting-edge", "game-changer", "deep dive", "at the end of the day", "it's worth noting"
-- NO: Copula avoidance ("serves as" → just use "is"). No synonym cycling. No significance inflation.
-- YES: Plain, direct language. Short sentences mixed with longer ones. Specific numbers over vague qualifiers.
+1. DECLARATION-FIRST: Open every sentence with the fact, not a subordinate clause.
+   YES: "${brandData.name} targets victims through ${brandData.total_creatives} fraudulent advertisements."
+   NO: "When examining the evidence, it becomes apparent that this platform may be targeting..."
 
-RED FLAGS REQUIREMENTS: Generate 5-8 flags. Each flag.detail MUST cite at least one specific number from the intelligence data. Cover these categories when data supports it: (1) Celebrity impersonation, (2) Geographic spread, (3) Ad volume/velocity, (4) False promises, (5) No regulatory compliance, (6) Fake testimonials, (7) Urgency tactics, (8) No verifiable company info.
+2. ONE IDEA PER SENTENCE: Clean dependency trees for NLP extraction. Break compound thoughts.
 
-FAQ REQUIREMENTS: Generate 5-8 Q&As. Questions must match real search queries: "Is {Brand} legit?", "Can I get my money back from {Brand}?", "Is {Brand} regulated?", "How does the {Brand} scam work?", "Who is behind {Brand}?"
+3. ENTITY-ATTRIBUTE-VALUE TRIPLETS: Every section must contain complete EAV triplets.
+   "{Entity} {has/uses/targets} {specific value}."
+   "${brandData.name} (entity) impersonates (attribute) ${brandData.total_celebrities} celebrities (value)."
+
+4. NUMERIC SPECIFICITY: "${brandData.total_creatives} ad creatives" not "numerous ads".
+   "${brandData.total_geos} countries" not "multiple regions". Always cite the exact number.
+
+5. 3-EXAMPLE RULE: For every plural noun, provide 3 concrete examples from the data.
+   "Countries targeted include {X}, {Y}, and {Z}."
+   "Celebrities impersonated include {A}, {B}, and {C}."
+
+6. DOMAIN-SPECIFIC VERBS: "targets", "exploits", "impersonates", "deploys", "funnels", "deceives", "fabricates"
+   NEVER: "utilizes", "leverages", "navigates", "harnesses", "delves", "unlocks"
+
+7. SALIENCE PRINCIPLE: Primary entity in subject position of every opening sentence.
+
+8. SEMANTIC FRESHNESS: Reference ${currentYear} and current data. Use present tense for active scams.
+
+═══ AI OVERVIEW & LLM EXTRACTABILITY ═══
+
+- Every FAQ answer must work as a standalone citation (40-60 words)
+- H2-level content opens with a 40-60 word extractive answer before expanding
+- Lists and tables for factual data (AI systems parse these directly)
+- Front-load the best information — AI Overviews extract from early content
+- Question-format thinking: write as if answering "Is {Brand} a scam?"
+
+═══ ANTI-SLOP RULES (STRICT) ═══
+
+BANNED PHRASES — instant quality failure:
+"In today's rapidly evolving", "It's important to note", "It's worth mentioning", "At the end of the day", "In the world of", "When it comes to", "Let's dive in", "Without further ado", "In this comprehensive", "Whether you're a beginner or", "One thing is clear", "The question remains", "Only time will tell", "As we navigate", "Stay tuned"
+
+BANNED VOCABULARY:
+"landscape", "crucial", "comprehensive", "robust", "cutting-edge", "game-changer", "deep dive", "paradigm", "synergy", "empower", "transform", "unlock", "harness", "delve", "explore" (as verb for reading), "journey", "realm", "Moreover", "Furthermore", "Notably"
+
+STRUCTURE RULES:
+- No copula avoidance: "is a scam" not "serves as a scam" or "functions as a scam"
+- No synonym cycling: don't swap "scam/fraud/scheme/deception" every sentence
+- No significance inflation: "detected" not "staggering number detected"
+- No narrator-from-a-distance: "SpyOwl detected" not "It has been observed that"
+- Vary rhythm: mix 6-word sentences with 22-word sentences. No metronomic pattern.
+- Every section ends on a verdict or action, not a trail-off
+
+═══ RED FLAGS REQUIREMENTS ═══
+Generate 6-8 flags. Each flag.detail MUST cite at least 2 specific numbers. Cover these categories (when data supports):
+1. Celebrity impersonation (names + count)
+2. Geographic spread (countries + count)
+3. Ad volume and velocity (creative count + 7d rate)
+4. Campaign longevity (days active + date range)
+5. No regulatory compliance (absence of license)
+6. Fake testimonials and social proof
+7. High-pressure tactics and urgency
+8. No verifiable company information
+
+═══ FAQ REQUIREMENTS ═══
+Generate 6-8 Q&As. Each answer is an AI Overview extraction target.
 
 CRITICAL: Output ONLY the JSON object. No explanation before or after.`
 
-    const userPrompt = `Generate an SEO-optimized scam review for: ${brandData.name}
+    const userPrompt = `Generate a ${currentYear} scam review for: ${brandData.name}
 
-INTELLIGENCE DATA (cite these numbers directly):
+INTELLIGENCE DATA (cite these numbers directly — every claim must trace to this data):
 - Threat Score: ${brandData.scam_score}/100
 - Total Ad Creatives Detected: ${brandData.total_creatives}
 - Geographic Spread: ${brandData.total_geos} countries
 - Celebrities Impersonated: ${brandData.total_celebrities}
 - 7-Day Ad Velocity: ${brandData.velocity_7d} new creatives
 - Velocity Trend: ${brandData.velocity_trend}
-- Campaign Duration: ${longevityDays} days (${brandData.first_seen_at} to ${brandData.last_seen_at})
+- Campaign Duration: ${longevityDays} days (first seen: ${brandData.first_seen_at}, last seen: ${brandData.last_seen_at})
+- Brand Status: ${brandData.status}
 
-CELEBRITY NAMES: ${(brandData.celebrity_list || []).join(', ') || 'None detected'}
-COUNTRIES TARGETED: ${(brandData.geo_list || []).join(', ') || 'Unknown'}
+CELEBRITY NAMES (use in 3-example rule): ${(brandData.celebrity_list || []).join(', ') || 'None detected'}
+COUNTRIES TARGETED (use in 3-example rule): ${(brandData.geo_list || []).join(', ') || 'Unknown'}
 
 AD CREATIVE SAMPLES (${creativeSample.length} of ${brandData.total_creatives} total):
 ${creativeSample
-  .slice(0, 5)
+  .slice(0, 8)
   .map(
     (c, i) =>
       `${i + 1}. "${c.offer_name || c.normalized_offer}" | Geo: ${c.geo || 'N/A'} | Celebrity: ${c.celebrity_name || 'None'} | Video: ${c.is_video ? 'Yes' : 'No'}`
   )
   .join('\n')}
 
-Write a review that would pass Google's E-E-A-T quality rater assessment. Every claim must trace to the intelligence data above. No fabricated statistics.`
+EVIDENCE IMAGES AVAILABLE: ${availableImages.length} verified screenshots in database
 
-    // Call Claude API
+Write a review that:
+1. Passes Google's E-E-A-T quality rater assessment for YMYL content
+2. Gets extracted by AI Overviews for "Is ${brandData.name} a scam?" queries
+3. Every single claim traces to the intelligence data above — zero fabrication
+4. Includes the "Not For You" trust block (strongest E-E-A-T differentiator)
+5. Uses ${currentYear} temporal markers for semantic freshness`
+
+    // ─── Call Claude API ───
     const anthropicResponse = await fetch(
       'https://api.anthropic.com/v1/messages',
       {
@@ -215,12 +281,10 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
 
     const anthropicData = await anthropicResponse.json()
 
-    // Check for truncation
     if (anthropicData.stop_reason === 'max_tokens') {
       console.warn('Claude response was truncated at max_tokens — attempting repair')
     }
 
-    // Extract JSON from Claude response
     const responseText =
       anthropicData.content[0].type === 'text'
         ? anthropicData.content[0].text
@@ -239,18 +303,13 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
 
       // If truncated, try to close open arrays/objects
       if (anthropicData.stop_reason === 'max_tokens') {
-        // Count open brackets
         const opens = (jsonStr.match(/[\[{]/g) || []).length
         const closes = (jsonStr.match(/[\]}]/g) || []).length
         const diff = opens - closes
-        // Remove any trailing incomplete string value
         jsonStr = jsonStr.replace(/,?\s*"[^"]*$/, '')
-        // Remove any trailing incomplete object/array entry
         jsonStr = jsonStr.replace(/,?\s*\{[^}]*$/, '')
         jsonStr = jsonStr.replace(/,?\s*"[^"]*":\s*"[^"]*$/, '')
-        // Close remaining brackets
         for (let i = 0; i < diff; i++) {
-          // Guess whether to close ] or } based on last open
           const lastOpen = jsonStr.lastIndexOf('[') > jsonStr.lastIndexOf('{') ? ']' : '}'
           jsonStr += lastOpen
         }
@@ -261,41 +320,32 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
       throw new Error(`Failed to parse Claude response (stop_reason: ${anthropicData.stop_reason}, text length: ${responseText.length}): ${parseError.message}`)
     }
 
-    // ─── BUILD HTML ARTICLE SERVER-SIDE ───
-    // Structured for TipTap editor, SEO-optimized with proper heading hierarchy
+    // ─── BUILD HTML ARTICLE ───
     const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-    const redFlagsHtml = (reviewContent.red_flags || [])
-      .map(rf => `<li><strong>${escHtml(rf.flag)}</strong> — ${escHtml(rf.detail)}</li>`)
-      .join('\n')
-
-    const faqHtml = (reviewContent.faq || [])
-      .map(f => `<h3>${escHtml(f.question)}</h3>\n<p>${escHtml(f.answer)}</p>`)
-      .join('\n\n')
 
     // Build evidence image HTML blocks
     const buildImageHtml = (img, caption) => {
       const altText = img.celebrity
-        ? `${escHtml(brandData.name)} scam ad impersonating ${escHtml(img.celebrity)} (${img.geo})`
-        : `${escHtml(brandData.name)} scam advertisement detected in ${img.geo}`
+        ? `${escHtml(brandData.name)} scam ad impersonating ${escHtml(img.celebrity)} detected in ${img.geo}`
+        : `${escHtml(brandData.name)} fraudulent advertisement detected in ${img.geo}`
       return `<figure><img src="${img.url}" alt="${altText}" /><figcaption>${escHtml(caption)}</figcaption></figure>`
     }
 
-    // Distribute images across article sections
-    const summaryImages = availableImages.slice(0, 2) // 1-2 images after summary
-    const howItWorksImages = availableImages.slice(2, 4) // 1-2 images in how it works
-    const redFlagImages = availableImages.slice(4, 7) // 1-3 images in red flags
-    const extraImages = availableImages.slice(7, 10) // remaining in FAQ section
+    // Distribute images across sections
+    const summaryImages = availableImages.slice(0, 2)
+    const howItWorksImages = availableImages.slice(2, 4)
+    const redFlagImages = availableImages.slice(4, 7)
+    const extraImages = availableImages.slice(7, 10)
 
     const summaryImagesHtml = summaryImages
       .map(img => buildImageHtml(img, img.celebrity
         ? `SpyOwl detected this ${escHtml(brandData.name)} ad impersonating ${escHtml(img.celebrity)} targeting ${img.geo} users.`
-        : `Scam ad for ${escHtml(brandData.name)} detected by SpyOwl in ${img.geo}.`
+        : `Scam advertisement for ${escHtml(brandData.name)} detected by SpyOwl in ${img.geo}.`
       )).join('\n')
 
     const howItWorksImagesHtml = howItWorksImages
       .map(img => buildImageHtml(img, img.celebrity
-        ? `Fake endorsement ad using ${escHtml(img.celebrity)}'s likeness without consent.`
+        ? `Fake celebrity endorsement ad using ${escHtml(img.celebrity)}'s likeness without consent.`
         : `${escHtml(brandData.name)} ad creative captured by SpyOwl surveillance.`
       )).join('\n')
 
@@ -309,49 +359,167 @@ Write a review that would pass Google's E-E-A-T quality rater assessment. Every 
         `Additional scam ad variant detected in ${img.geo}.`
       )).join('\n')
 
+    // Key takeaways HTML
+    const keyTakeawaysHtml = (reviewContent.key_takeaways || [])
+      .map(t => `<li>${escHtml(t)}</li>`)
+      .join('\n')
+
+    // Red flags HTML
+    const redFlagsHtml = (reviewContent.red_flags || [])
+      .map(rf => `<li><strong>${escHtml(rf.flag)}</strong> — ${escHtml(rf.detail)}</li>`)
+      .join('\n')
+
+    // FAQ HTML with proper semantic structure (optimized for AI extraction)
+    const faqHtml = (reviewContent.faq || [])
+      .map(f => `<h3>${escHtml(f.question)}</h3>\n<p>${escHtml(f.answer)}</p>`)
+      .join('\n\n')
+
+    // Protection steps — split by numbered items if present
+    const protectionHtml = escHtml(reviewContent.protection_steps || reviewContent.verdict || '')
+
+    // Not For You block
+    const notForYouHtml = reviewContent.not_for_you
+      ? `<blockquote><strong>Important Disclaimer:</strong> ${escHtml(reviewContent.not_for_you)}</blockquote>`
+      : ''
+
+    // ─── FULL ARTICLE HTML ───
+    // Structured for SEO: proper H2 hierarchy, extractive answers first,
+    // BLUF intro, Key Takeaways, evidence images distributed
     const fullArticle = `<h2>${escHtml(brandData.name)}: Investigation Summary</h2>
 <p>${escHtml(reviewContent.summary)}</p>
+
+<h3>Key Takeaways</h3>
+<ul>
+${keyTakeawaysHtml}
+</ul>
 ${summaryImagesHtml}
 
-<h2>Key Threat Intelligence</h2>
-<ul>
-<li><strong>Threat Score:</strong> ${brandData.scam_score}/100</li>
-<li><strong>Ad Creatives Detected:</strong> ${brandData.total_creatives}</li>
-<li><strong>Countries Targeted:</strong> ${brandData.total_geos}</li>
-<li><strong>Celebrities Impersonated:</strong> ${brandData.total_celebrities}</li>
-<li><strong>7-Day Velocity:</strong> ${brandData.velocity_7d} new creatives</li>
-<li><strong>Campaign Duration:</strong> ${longevityDays} days</li>
-</ul>
+<h2>Threat Intelligence Overview</h2>
+<p>${escHtml(brandData.name)} has been flagged by SpyOwl's ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
+<table>
+<thead><tr><th>Metric</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Threat Score</td><td><strong>${brandData.scam_score}/100</strong></td></tr>
+<tr><td>Ad Creatives Detected</td><td>${brandData.total_creatives}</td></tr>
+<tr><td>Countries Targeted</td><td>${brandData.total_geos}</td></tr>
+<tr><td>Celebrities Impersonated</td><td>${brandData.total_celebrities}</td></tr>
+<tr><td>7-Day Velocity</td><td>${brandData.velocity_7d} new creatives</td></tr>
+<tr><td>Campaign Duration</td><td>${longevityDays} days</td></tr>
+<tr><td>First Detected</td><td>${brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
+<tr><td>Last Active</td><td>${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
+</tbody>
+</table>
 
 <h2>How the ${escHtml(brandData.name)} Scam Works</h2>
 <p>${escHtml(reviewContent.how_it_works)}</p>
 ${howItWorksImagesHtml}
 
-<h2>Red Flags</h2>
+<h2>Red Flags: ${(reviewContent.red_flags || []).length} Warning Signs</h2>
 <ol>
 ${redFlagsHtml}
 </ol>
 ${redFlagImagesHtml}
 
-<h2>What To Do If You've Been Scammed</h2>
-<p>${escHtml(reviewContent.verdict)}</p>
+<h2>What To Do If You've Been Targeted</h2>
+<p>${protectionHtml}</p>
 
-<h2>Frequently Asked Questions</h2>
+${notForYouHtml ? `<h2>When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
+
+<h2>Frequently Asked Questions About ${escHtml(brandData.name)}</h2>
 ${faqHtml}
 ${extraImagesHtml}
 
-<h2>Final Verdict</h2>
+<h2>${escHtml(brandData.name)}: Final Verdict</h2>
 <p>${escHtml(reviewContent.verdict)}</p>`
 
-    // Calculate word count from HTML (strip tags)
+    // Calculate word count
     const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(w => w).length
+
+    // ─── BUILD JSON-LD SCHEMA ───
+    // Article + FAQPage (AI-extractable even without rich results) + Review
+    const schemaJsonLd = {
+      '@context': 'https://schema.org',
+      '@graph': [
+        {
+          '@type': 'Organization',
+          '@id': 'https://crypto-killer.vercel.app/#organization',
+          name: 'Crypto Killer',
+          url: 'https://crypto-killer.vercel.app',
+          description: 'Scam intelligence platform powered by SpyOwl ad surveillance technology.',
+          knowsAbout: [
+            'Cryptocurrency Scams',
+            'Crypto Fraud Detection',
+            'Ad Surveillance',
+            'Investment Scam Analysis',
+            'Celebrity Impersonation Scams'
+          ],
+        },
+        {
+          '@type': 'WebSite',
+          '@id': 'https://crypto-killer.vercel.app/#website',
+          url: 'https://crypto-killer.vercel.app',
+          name: 'Crypto Killer',
+          publisher: { '@id': 'https://crypto-killer.vercel.app/#organization' },
+        },
+        {
+          '@type': 'Article',
+          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#article`,
+          headline: reviewContent.headline || reviewContent.title,
+          description: reviewContent.meta_description,
+          datePublished: currentDate,
+          dateModified: currentDate,
+          wordCount: wordCount,
+          publisher: { '@id': 'https://crypto-killer.vercel.app/#organization' },
+          isPartOf: { '@id': 'https://crypto-killer.vercel.app/#website' },
+          about: {
+            '@type': 'Thing',
+            name: brandData.name,
+            description: `Alleged cryptocurrency investment scam with ${brandData.scam_score}/100 threat score`,
+          },
+          mentions: [
+            ...(brandData.celebrity_list || []).slice(0, 5).map(celeb => ({
+              '@type': 'Person',
+              name: celeb,
+            })),
+          ],
+        },
+        {
+          '@type': 'Review',
+          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#review`,
+          itemReviewed: {
+            '@type': 'Thing',
+            name: brandData.name,
+            description: `Cryptocurrency investment platform`,
+          },
+          reviewRating: {
+            '@type': 'Rating',
+            ratingValue: Math.max(1, Math.round((100 - brandData.scam_score) / 20)),
+            bestRating: 5,
+            worstRating: 1,
+          },
+          author: { '@id': 'https://crypto-killer.vercel.app/#organization' },
+          reviewBody: reviewContent.verdict,
+        },
+        {
+          '@type': 'FAQPage',
+          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#faqpage`,
+          mainEntity: (reviewContent.faq || []).map(f => ({
+            '@type': 'Question',
+            name: f.question,
+            acceptedAnswer: {
+              '@type': 'Answer',
+              text: f.answer,
+            },
+          })),
+        },
+      ],
+    }
 
     // Check if review already exists for this brand
     const existingReview = await supabaseRequest(
       `/reviews?brand_id=eq.${brand_id}&select=id`
     )
 
-    // Generate slug from brand name
     const slug = brandData.slug || brandData.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -373,7 +541,9 @@ ${extraImagesHtml}
       scam_score: brandData.scam_score || 0,
       status: 'draft',
       ai_model: 'claude-haiku-4-5-20251001',
+      ai_prompt_version: 'seo-blog-v3.1-schema-v1',
       word_count: wordCount,
+      schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
     }
 
@@ -399,6 +569,7 @@ ${extraImagesHtml}
       status: 'draft',
       word_count: wordCount,
       images_embedded: availableImages.length,
+      schema_types: ['Article', 'Review', 'FAQPage'],
     })
   } catch (error) {
     if (error.message.includes('Unauthorized')) {
