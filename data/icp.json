@@ -1,0 +1,375 @@
+{
+  "project_domain": "crypto-killer.vercel.app",
+  "generated_at": "2026-03-30",
+  "total_sources_mined": 55,
+  "source_breakdown": {
+    "reddit": 30,
+    "forums": 5,
+    "reviews": 8,
+    "qa_platforms": 3,
+    "official_reports": 6,
+    "media": 3
+  },
+  "search_validation": {
+    "pig_butchering_scam": { "volume": 20000, "difficulty": 52 },
+    "quantum_ai_elon_musk": { "volume": 5500, "difficulty": 56 },
+    "crypto_scams": { "volume": 4000, "difficulty": 75 },
+    "crypto_scam": { "volume": 2300, "difficulty": 74 },
+    "bitcoin_scammer_list": { "volume": 1500, "difficulty": 77 },
+    "quantum_ai_scam": { "volume": 150, "difficulty": 24, "traffic_potential": 4900 },
+    "is_quantum_ai_legit": { "volume": 200, "difficulty": 20, "traffic_potential": 4500 },
+    "immediate_edge_scam": { "volume": 90, "difficulty": 2, "traffic_potential": 900 },
+    "crypto_scam_recovery": { "volume": 300, "difficulty": 60, "traffic_potential": 5900 }
+  },
+  "sections": {
+    "audience_description": {
+      "summary": "People who encounter crypto investment ads — often featuring AI trading bots or celebrity endorsements — and search the brand name plus 'scam' or 'review' before depositing. They range from crypto-curious newcomers to experienced investors. A significant secondary audience is family members trying to warn or help loved ones who've already been targeted. They're looking for fast, authoritative confirmation that a specific platform is fraudulent.",
+      "key_findings": [
+        {
+          "finding": "Searchers are in a time-sensitive verification moment — they've seen an ad or been contacted, and are Googling the brand name before acting",
+          "frequency": "38/55 (69%)",
+          "quotes": [
+            { "text": "I saw a BBC-style article about Musk's Quantum AI. I deposited $250 but couldn't withdraw a cent.", "source": "ScamFindings.com", "engagement": "featured review" },
+            { "text": "Can someone explain the Quantum-AI.io scam to me? My 80 year old grandfather has been using it to manage his money", "source": "Reddit r/Scams", "engagement": "high comment thread" }
+          ]
+        },
+        {
+          "finding": "Family members searching on behalf of vulnerable loved ones (elderly parents, romantic partners, sons/daughters)",
+          "frequency": "12/55 (22%)",
+          "quotes": [
+            { "text": "My parent just got into major debt with crypto pig butchering scam", "source": "Reddit r/Scams" },
+            { "text": "Son scammed of 20k who do we report it to?", "source": "Reddit r/legaladvice" },
+            { "text": "Boyfriend has fallen victim to cryptocurrency trading", "source": "Reddit r/Scams" }
+          ]
+        }
+      ]
+    },
+    "demographics": {
+      "summary": "Skews 35-65+ age range. Victims include retirees with savings (highest loss amounts $50K-$267K), mid-career professionals who invested loan money, and younger adults targeted through dating apps. Geographic concentration: US, UK, Australia, Canada. Education level varies widely — scams target emotional triggers, not intelligence gaps.",
+      "key_findings": [
+        {
+          "finding": "Elderly/retirees are disproportionately targeted and lose the largest amounts",
+          "frequency": "18/55 (33%)",
+          "quotes": [
+            { "text": "Americans, often retirees, lost around $240 million to crypto ATM scams in the first six months of 2025", "source": "CNN Investigation" },
+            { "text": "My 80 year old grandfather has been using Quantum-AI.io to manage his money", "source": "Reddit r/Scams" }
+          ]
+        },
+        {
+          "finding": "Romance/dating app victims tend to be 25-50 and lose $2,500-$50,000",
+          "frequency": "8/55 (15%)",
+          "quotes": [
+            { "text": "Romance scam involving crypto - met on Tinder", "source": "Reddit r/Scams" },
+            { "text": "David convinced her to invest — loss of over $2,500", "source": "Reddit r/CryptoCurrency" }
+          ]
+        }
+      ]
+    },
+    "goals_aspirations": {
+      "summary": "Before the scam: financial freedom, passive income, getting in early on crypto. During doubt: confirmation that their suspicion is right. After the scam: recovery of funds, reporting the scammer, warning others, emotional closure.",
+      "key_findings": [
+        {
+          "finding": "Verify whether a specific platform is a scam BEFORE losing more money",
+          "frequency": "28/55 (51%)",
+          "quotes": [
+            { "text": "Is this legit or a scam? AI Crypto Trading Bot that promises 3% daily returns on a 50k stake", "source": "Reddit r/CryptoScams" },
+            { "text": "I just want to know the signs that a cryptocurrency might be a scam", "source": "Quora" }
+          ]
+        },
+        {
+          "finding": "Recover lost funds or understand if recovery is even possible",
+          "frequency": "22/55 (40%)",
+          "quotes": [
+            { "text": "I've been scammed. Is there any way to recover losses?", "source": "Reddit r/CryptoScams" },
+            { "text": "I lost money in a crypto scam and contacted a recovery company. They claim they found and froze my funds", "source": "Reddit r/Scams" }
+          ]
+        },
+        {
+          "finding": "Warn others to prevent them from falling for the same scam",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "A warning to others — I lost $5000 to a scam", "source": "Reddit r/Bitcoin" },
+            { "text": "Thank you r/scams for teaching me about pig butchering", "source": "Reddit r/Scams" }
+          ]
+        }
+      ]
+    },
+    "pain_points": {
+      "summary": "The core pain is financial devastation compounded by shame. Victims describe losing life savings, going into debt, and then being targeted AGAIN by recovery scammers. The emotional toll — shame, isolation, fear of judgment — often exceeds the financial damage.",
+      "key_findings": [
+        {
+          "finding": "Catastrophic financial loss — life savings, loans taken, debt incurred",
+          "frequency": "35/55 (64%)",
+          "quotes": [
+            { "text": "I ended up putting in $267,000 before I realized I was never getting it back", "source": "Medium personal story" },
+            { "text": "Lost 15k to a crypto scam — 10k loans and borrow", "source": "Reddit r/Scams" },
+            { "text": "My family lost 200K from a crypto scam", "source": "Reddit r/CryptoScams" },
+            { "text": "I think I just lost my life savings to a liquidity mining pool", "source": "Reddit r/CryptoScams" }
+          ]
+        },
+        {
+          "finding": "Withdrawal blocked — deposits succeed, cash-outs don't",
+          "frequency": "30/55 (55%)",
+          "quotes": [
+            { "text": "Deposits succeeded, cash-outs didn't. After three misfires, support halted me", "source": "Trustpilot Bitcoin Trader" },
+            { "text": "When I tried to withdraw, I ran into all kinds of roadblocks. First they said I needed to pay a small fee. Then it was a tax", "source": "Medium personal story" },
+            { "text": "When I requested my withdrawal, they started acting up and they did not want to pay me back", "source": "Trustpilot" }
+          ]
+        },
+        {
+          "finding": "Relentless harassment — phone calls, pressure to deposit more",
+          "frequency": "18/55 (33%)",
+          "quotes": [
+            { "text": "I have told them many times I am not interested and they keep harassing me with 20 calls a day from different numbers", "source": "Trustpilot Quantum AI" },
+            { "text": "They sell your information to a whole series of agents who harass you day and night from all sorts of strange numbers", "source": "Trustpilot Bitcoin Trader" },
+            { "text": "It's a nightmare. There is no way to block them and I dread my phone ringing", "source": "Trustpilot" }
+          ]
+        },
+        {
+          "finding": "Recovery scams prey on already-victimized people",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "Any of these that say they can recover your funds are scammers themselves. I lost money with two of them", "source": "Reddit r/CryptoScams" },
+            { "text": "Scammers will be direct messaging you, alleging they can recover your money", "source": "Reddit r/CryptoScams" },
+            { "text": "Even people that claim they can recover your funds are scammers", "source": "Reddit r/CryptoScams" }
+          ]
+        }
+      ]
+    },
+    "decision_triggers": {
+      "summary": "The moment someone decides to search is triggered by: a withdrawal attempt that fails, discovering the celebrity endorsement is fake, a family member raising alarm, seeing the brand name in a scam warning online, or being asked to deposit an unusually large amount.",
+      "key_findings": [
+        {
+          "finding": "First failed withdrawal attempt triggers the search",
+          "frequency": "25/55 (45%)",
+          "quotes": [
+            { "text": "After months of constant investment I decided to ask for a payout", "source": "Reddit r/personalfinance" },
+            { "text": "In the beginning they were acting good, but when I requested my withdrawal, they started acting up", "source": "Trustpilot" }
+          ]
+        },
+        {
+          "finding": "Pressure to deposit more money raises suspicion",
+          "frequency": "18/55 (33%)",
+          "quotes": [
+            { "text": "When I'm like ok, can I start with something small like $25, he's like no, you should start with $1000", "source": "Reddit r/Scams" },
+            { "text": "They kept calling to ask for more money. When I refused, they blocked my account", "source": "ScamFindings.com" }
+          ]
+        },
+        {
+          "finding": "Discovering the celebrity endorsement is AI-generated or fake",
+          "frequency": "12/55 (22%)",
+          "quotes": [
+            { "text": "The Elon Musk video seemed real, but I later realized it was AI-generated. I had already lost my money", "source": "ScamFindings.com" }
+          ]
+        }
+      ]
+    },
+    "primary_complaints": {
+      "summary": "No legitimate withdrawal mechanism, fake celebrity endorsements, aggressive phone harassment, no real customer support, fake trading dashboards showing fictional profits, and the industry's failure to shut these platforms down despite years of complaints.",
+      "key_findings": [
+        {
+          "finding": "Fake dashboards show profits that don't exist",
+          "frequency": "20/55 (36%)",
+          "quotes": [
+            { "text": "The apps fake the appearance of profitable trades using demo servers while real trades lose money", "source": "Chainalysis" },
+            { "text": "No trading took place on the trading platforms, which were fake", "source": "SEC" }
+          ]
+        },
+        {
+          "finding": "Celebrity endorsement deepfakes lend false credibility",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "AI-generated videos of celebrities — Elon Musk, Warren Buffett, Martin Lewis — endorsing fake trading platforms that simply don't exist", "source": "ForexGDP" }
+          ]
+        }
+      ]
+    },
+    "objections": {
+      "summary": "Before engaging with Crypto Killer content, the audience wonders: Is THIS site also a scam? Are they trying to sell me something? Can I actually trust a review site? Is recovery really impossible or are they just saying that?",
+      "key_findings": [
+        {
+          "finding": "Trust deficit — how do I know this review site isn't also a scam?",
+          "frequency": "20/55 (36%)",
+          "quotes": [
+            { "text": "Users there make it seem as if it's a credible crypto while some here will say that they are scams", "source": "Reddit r/CryptoCurrency" },
+            { "text": "How do I know this isn't just another scam?", "source": "Reddit r/Scams" }
+          ]
+        },
+        {
+          "finding": "Hope that recovery is still possible makes them vulnerable to secondary scams",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "Is this crypto recovery real or scam?", "source": "Reddit r/Scams" }
+          ]
+        }
+      ]
+    },
+    "dreams_promises": {
+      "summary": "The dream BEFORE the scam: passive income, financial independence, getting in early. The dream AFTER: getting their money back, seeing the scammers caught, preventing others from suffering. Crypto Killer content should speak to the AFTER dream — validation, protection, and justice.",
+      "key_findings": [
+        {
+          "finding": "Validation that they were right to be suspicious (pre-scam searchers)",
+          "frequency": "28/55 (51%)",
+          "quotes": [
+            { "text": "I'm pretty sure it's a scam site and they'll never see the money back — need help convincing them", "source": "Reddit r/CryptoCurrency" }
+          ]
+        },
+        {
+          "finding": "Actionable next steps — what to do RIGHT NOW",
+          "frequency": "22/55 (40%)",
+          "quotes": [
+            { "text": "Who do we report it to?", "source": "Reddit r/legaladvice" }
+          ]
+        }
+      ]
+    },
+    "bad_habits_consequences": {
+      "summary": "Depositing before researching, trusting celebrity endorsements at face value, sending more money to 'unlock' withdrawals, not telling family/friends due to shame, and engaging with recovery scammers after the initial loss.",
+      "key_findings": [
+        {
+          "finding": "Depositing before doing any research",
+          "frequency": "25/55 (45%)",
+          "quotes": [
+            { "text": "All the research I did after depositing my funds should have been done beforehand", "source": "Medium Coinmonks" },
+            { "text": "I was enticed enough to try it out without doing further due diligent research", "source": "Medium Coinmonks" }
+          ]
+        },
+        {
+          "finding": "Sending more money trying to unlock withdrawals",
+          "frequency": "18/55 (33%)",
+          "quotes": [
+            { "text": "When the victim asks to withdraw their funds, they are told they must first pay a fee to release the money; even if these fees are paid, no money is paid out", "source": "Bitdefender" }
+          ]
+        }
+      ]
+    },
+    "false_solutions": {
+      "summary": "Recovery companies that promise to retrieve stolen crypto (almost all are secondary scams), chargeback services, hiring hackers, and trusting platforms that show fake profits as proof of legitimacy.",
+      "key_findings": [
+        {
+          "finding": "Crypto recovery services are almost universally secondary scams",
+          "frequency": "22/55 (40%)",
+          "quotes": [
+            { "text": "Any of these that say they can recover your funds are scammers themselves. I lost money with two of them and got nowhere", "source": "Reddit r/CryptoScams" },
+            { "text": "No hacker online can get back what you've lost", "source": "Reddit r/CryptoScams" },
+            { "text": "Recovery scammers are just trying to see how much more money they can get", "source": "Reddit r/legaladvice" }
+          ]
+        },
+        {
+          "finding": "Trusting fake dashboard profits as evidence of legitimacy",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "The interest rates completely turned the prefrontal cortex part of my brain off", "source": "Medium Coinmonks" },
+            { "text": "I was just looking for reasons to convince myself that I had just found a goldmine", "source": "Medium Coinmonks" }
+          ]
+        }
+      ]
+    },
+    "mistaken_beliefs": {
+      "summary": "That AI trading bots can guarantee returns, that celebrity endorsements mean legitimacy, that regulated-looking websites are actually regulated, that lost crypto can be recovered by hiring experts, and that 'only stupid people get scammed.'",
+      "key_findings": [
+        {
+          "finding": "AI trading bots can generate guaranteed returns",
+          "frequency": "20/55 (36%)",
+          "quotes": [
+            { "text": "No trading bot can guarantee profits. If one claims otherwise, it's a scam", "source": "CFTC Official Alert" },
+            { "text": "Scammers claim AI-created algorithms can generate huge returns — sometimes tens of thousands of percent", "source": "CFTC" }
+          ]
+        },
+        {
+          "finding": "Celebrity endorsement = legitimacy",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "The Elon Musk video seemed real, but I later realized it was AI-generated", "source": "ScamFindings.com" }
+          ]
+        },
+        {
+          "finding": "Only stupid people get scammed (prevents victims from seeking help)",
+          "frequency": "12/55 (22%)",
+          "quotes": [
+            { "text": "Although I was ashamed and embarrassed about the fact that I got scammed", "source": "Medium Coinmonks" },
+            { "text": "This whole situation has made me feel so dumb", "source": "Reddit r/Scams" }
+          ]
+        }
+      ]
+    },
+    "success_myths": {
+      "summary": "The crypto industry promotes 'DYOR' (do your own research) as sufficient protection, implies that regulation makes platforms safe, and normalizes astronomical returns as possible. These myths create the trust gap scammers exploit.",
+      "key_findings": [
+        {
+          "finding": "DYOR is insufficient when scam sites are designed to pass surface-level research",
+          "frequency": "15/55 (27%)",
+          "quotes": [
+            { "text": "The account had a lot of retweets and only a handful of actual tweets that may resemble an actual legitimate platform", "source": "Medium Coinmonks" },
+            { "text": "Even video chats and online trading platforms which appear real can be fake", "source": "CFTC" }
+          ]
+        }
+      ]
+    },
+    "market_forces": {
+      "summary": "AI-generated deepfakes making celebrity scam ads more convincing, pig butchering operations scaling globally ($75B+ stolen since 2020), social media platforms failing to remove scam ads, and a growing regulatory response (FBI IC3, CFTC, SEC enforcement actions).",
+      "key_findings": [
+        {
+          "finding": "AI deepfakes are making scam ads dramatically more convincing",
+          "frequency": "18/55 (33%)",
+          "quotes": [
+            { "text": "AI-generated videos of celebrities endorsing fake trading platforms, investments or secret algorithms that simply don't exist", "source": "ForexGDP" }
+          ]
+        },
+        {
+          "finding": "Scale of the problem is massive and growing — $9.3B lost in US alone in 2024",
+          "frequency": "10/55 (18%)",
+          "quotes": [
+            { "text": "In 2024, Americans lost an estimated $9.3 billion to crypto fraud, according to the FBI", "source": "Twitter/X" },
+            { "text": "More than $75 billion USD may have been stolen from victims worldwide through pig butchering scams since 2020", "source": "Twitter/X" }
+          ]
+        }
+      ]
+    }
+  },
+  "top_audience_language": {
+    "pain_phrases": [
+      "lost my life savings",
+      "lost everything and then some",
+      "scammed out of",
+      "couldn't withdraw a cent",
+      "deposits succeeded, cash-outs didn't",
+      "they keep harassing me with 20 calls a day",
+      "it's a nightmare",
+      "felt completely helpless",
+      "dread my phone ringing"
+    ],
+    "search_phrases": [
+      "is [brand] legit",
+      "[brand] scam",
+      "[brand] review",
+      "can I get my money back",
+      "how to report crypto scam",
+      "crypto recovery scam",
+      "pig butchering scam"
+    ],
+    "emotional_language": [
+      "felt so dumb",
+      "ashamed and embarrassed",
+      "devastating moment",
+      "drain you mentally and emotionally",
+      "I was constantly on edge",
+      "jumping at every email and notification",
+      "it hit me — I had been scammed"
+    ],
+    "decision_language": [
+      "after months of constant investment I decided to ask for a payout",
+      "the interest rates completely turned my brain off",
+      "I was just looking for reasons to convince myself",
+      "all the research I did after depositing should have been done beforehand",
+      "when I asked for a small amount, they insisted on $1000"
+    ],
+    "warning_language": [
+      "anyone who tells you to pay by cryptocurrency is a scammer",
+      "no trading bot can guarantee profits",
+      "any recovery service is just another scam",
+      "even video chats and online platforms which appear real can be fake",
+      "if one claims guaranteed returns, it's a scam"
+    ]
+  }
+}

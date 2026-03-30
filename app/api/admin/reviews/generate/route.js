@@ -213,6 +213,28 @@ Generate 6-8 flags. Each flag.detail MUST cite at least 2 specific numbers. Cove
 ═══ FAQ REQUIREMENTS ═══
 Generate 6-8 Q&As. Each answer is an AI Overview extraction target.
 
+═══ ICP AUDIENCE LANGUAGE (mined from 55+ real victim conversations) ═══
+
+Your reader is one of these people:
+A) PRE-SCAM SEARCHER: Saw an ad, Googled "[brand] scam" before depositing. Needs instant confirmation.
+B) MID-SCAM DOUBTER: Already deposited, withdrawal failed, now searching. Needs validation + action steps.
+C) POST-SCAM VICTIM: Lost money, feeling shame. Needs to know they're not stupid, recovery scams are real, and what to report.
+D) CONCERNED FAMILY: Searching on behalf of elderly parent, romantic partner, or child. Needs evidence to show their loved one.
+
+WRITE IN THEIR LANGUAGE — these are real phrases from victim conversations:
+- Pain: "lost my life savings", "couldn't withdraw a cent", "deposits succeeded, cash-outs didn't", "they keep harassing me with 20 calls a day", "felt completely helpless"
+- Emotion: "felt so dumb", "ashamed and embarrassed", "drain you mentally and emotionally", "it's a nightmare", "it hit me — I had been scammed"
+- Search intent: "is [brand] legit", "[brand] scam", "can I get my money back", "how to report crypto scam"
+- Decision moments: "after months I decided to ask for a payout", "the interest rates turned my brain off", "all the research I did after depositing should have been done beforehand"
+- Warning phrases: "anyone who tells you to pay by cryptocurrency is a scammer", "no trading bot can guarantee profits", "recovery services are just another scam"
+
+TONE CALIBRATION:
+- Never mock or condescend. Victims include retirees, professionals, and educated people — scams exploit emotions, not intelligence.
+- Validate the reader's suspicion ("You're right to be suspicious" / "The fact that you're researching this is the smartest move you can make")
+- Address shame directly — "Being targeted by a sophisticated scam does not reflect on your intelligence"
+- When discussing recovery scams, be firm but compassionate — victims are desperate and vulnerable to secondary exploitation
+- Use "targeted" not "fell for" — the scam targeted them, they didn't fail
+
 CRITICAL: Output ONLY the JSON object. No explanation before or after.`
 
     const userPrompt = `Generate a ${currentYear} scam review for: ${brandData.name}
@@ -246,7 +268,12 @@ Write a review that:
 2. Gets extracted by AI Overviews for "Is ${brandData.name} a scam?" queries
 3. Every single claim traces to the intelligence data above — zero fabrication
 4. Includes the "Not For You" trust block (strongest E-E-A-T differentiator)
-5. Uses ${currentYear} temporal markers for semantic freshness`
+5. Uses ${currentYear} temporal markers for semantic freshness
+6. Speaks to ALL FOUR ICP segments — the pre-scam searcher (open with instant answer), mid-scam doubter (validate withdrawal failure pattern), post-scam victim (no shame + concrete reporting steps), and concerned family member (shareable evidence)
+7. Uses real victim language in the summary and how_it_works: reference patterns like "deposits succeed but cash-outs don't", "relentless phone calls from changing numbers", "fees to unlock withdrawals that never arrive"
+8. FAQ must include at least one recovery question ("Can I get my money back from ${brandData.name}?") and one family question ("How do I convince someone ${brandData.name} is a scam?")
+9. protection_steps must warn about recovery scams — "Any company claiming they can recover your crypto for an upfront fee is a secondary scam targeting people who've already lost money"
+10. The summary's first sentence must directly answer the search query "Is ${brandData.name} a scam?" — this is the AI Overview extraction target`
 
     // ─── Call Claude API ───
     const anthropicResponse = await fetch(
@@ -541,7 +568,7 @@ ${extraImagesHtml}
       scam_score: brandData.scam_score || 0,
       status: 'draft',
       ai_model: 'claude-haiku-4-5-20251001',
-      ai_prompt_version: 'seo-blog-v3.1-schema-v1',
+      ai_prompt_version: 'seo-blog-v3.1-schema-v1-icp-v1',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
