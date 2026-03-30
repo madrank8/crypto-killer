@@ -2,8 +2,17 @@ import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
-const SPYOWL_COOKIE = process.env.SPYOWL_COOKIE || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
+
+// Fetch SpyOwl cookie from Supabase settings (falls back to env var)
+async function getSpyOwlCookie() {
+  try {
+    const rows = await supabaseRequest("/settings?key=eq.spyowl_cookie&select=value")
+    const dbCookie = Array.isArray(rows) && rows[0]?.value ? rows[0].value : ''
+    if (dbCookie) return dbCookie
+  } catch { /* fall through */ }
+  return process.env.SPYOWL_COOKIE || ''
+}
 
 // Supabase Storage public URL for creative images
 const STORAGE_BASE = SUPABASE_URL
@@ -30,6 +39,9 @@ export async function POST(request) {
     if (!ANTHROPIC_API_KEY) {
       throw new Error('ANTHROPIC_API_KEY not configured')
     }
+
+    // Fetch SpyOwl cookie from Supabase (falls back to env var)
+    const SPYOWL_COOKIE = await getSpyOwlCookie()
 
     const { brand_id } = await request.json()
 
@@ -112,53 +124,29 @@ export async function POST(request) {
       }
     }
 
-          send({ step: 'images', progress: 25, message: `Found ${evidenceGrid.length} evidence candidates. Cookie: ${SPYOWL_COOKIE ? SPYOWL_COOKIE.length + ' chars' : 'MISSING'}` })
-
-    // Verify SpyOwl auth if cookie is present
-    if (SPYOWL_COOKIE) {
-      try {
-        const authCheck = await fetch(`${SPYOWL_API}/user/me`, { headers: { 'Cookie': SPYOWL_COOKIE } })
-        console.log(`[evidence] SpyOwl auth check: ${authCheck.status}`)
-        if (!authCheck.ok) {
-          console.log(`[evidence] SpyOwl auth FAILED — cookie may be expired`)
-          send({ step: 'images', progress: 25, message: `SpyOwl auth failed (${authCheck.status}) — cookie expired?` })
-        } else {
-          const user = await authCheck.json().catch(() => ({}))
-          console.log(`[evidence] SpyOwl auth OK: ${user.email || 'unknown'}`)
-        }
-      } catch (e) {
-        console.log(`[evidence] SpyOwl auth error: ${e.message}`)
-      }
-    }
+          send({ step: 'images', progress: 25, message: `Found ${evidenceGrid.length} evidence candidates${SPYOWL_COOKIE ? '' : ' — no SpyOwl cookie (set in Settings)'}` })
 
     // Fetch images from SpyOwl API → upload to Supabase Storage → get public URLs
     let availableImages = []
-    console.log(`[evidence] evidenceGrid has ${evidenceGrid.length} entries, STORAGE_BASE=${STORAGE_BASE ? 'set' : 'empty'}, SPYOWL_COOKIE=${SPYOWL_COOKIE ? 'set(' + SPYOWL_COOKIE.length + ' chars)' : 'empty'}`)
     if (STORAGE_BASE && evidenceGrid.length > 0) {
       const fetchPromises = evidenceGrid.map(async (entry) => {
         const publicUrl = `${STORAGE_BASE}/${entry.id}.webp`
         try {
           // Check if already in storage
           const headRes = await fetch(publicUrl, { method: 'HEAD' })
-          console.log(`[evidence] HEAD ${entry.id}: ${headRes.status}`)
           if (headRes.ok) {
             return { ...entry, url: publicUrl }
           }
           // Fetch from SpyOwl API
-          if (!SPYOWL_COOKIE) { console.log(`[evidence] No SPYOWL_COOKIE, skipping ${entry.id}`); return null }
-          const spyUrl = `${SPYOWL_API}/s3/creatives/${entry.id}/mediaFile.webp`
-          console.log(`[evidence] Fetching from SpyOwl: ${spyUrl}`)
-          const spyRes = await fetch(spyUrl, {
+          if (!SPYOWL_COOKIE) return null
+          const spyRes = await fetch(`${SPYOWL_API}/s3/creatives/${entry.id}/mediaFile.webp`, {
             headers: { 'Cookie': SPYOWL_COOKIE },
           })
-          console.log(`[evidence] SpyOwl response: ${spyRes.status} ${spyRes.statusText}`)
           if (!spyRes.ok) return null
           const imgBuffer = await spyRes.arrayBuffer()
-          console.log(`[evidence] Image buffer size: ${imgBuffer.byteLength} bytes`)
           if (imgBuffer.byteLength < 1000) return null
           // Upload to Supabase Storage
           const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`
-          console.log(`[evidence] Uploading to: ${uploadUrl}`)
           const uploadRes = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
@@ -169,17 +157,11 @@ export async function POST(request) {
             },
             body: imgBuffer,
           })
-          console.log(`[evidence] Upload response: ${uploadRes.status} ${uploadRes.statusText}`)
-          if (!uploadRes.ok) {
-            const errText = await uploadRes.text().catch(() => 'no body')
-            console.log(`[evidence] Upload error: ${errText}`)
-            return null
-          }
+          if (!uploadRes.ok) return null
           return { ...entry, url: publicUrl }
-        } catch (err) { console.log(`[evidence] Error for ${entry.id}: ${err.message}`); return null }
+        } catch { return null }
       })
       availableImages = (await Promise.all(fetchPromises)).filter(Boolean)
-      console.log(`[evidence] Final availableImages: ${availableImages.length}`)
     }
 
     // Calculate longevity
