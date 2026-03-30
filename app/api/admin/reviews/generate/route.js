@@ -116,25 +116,33 @@ export async function POST(request) {
 
     // Fetch images from SpyOwl API → upload to Supabase Storage → get public URLs
     let availableImages = []
+    console.log(`[evidence] evidenceGrid has ${evidenceGrid.length} entries, STORAGE_BASE=${STORAGE_BASE ? 'set' : 'empty'}, SPYOWL_COOKIE=${SPYOWL_COOKIE ? 'set(' + SPYOWL_COOKIE.length + ' chars)' : 'empty'}`)
     if (STORAGE_BASE && evidenceGrid.length > 0) {
       const fetchPromises = evidenceGrid.map(async (entry) => {
         const publicUrl = `${STORAGE_BASE}/${entry.id}.webp`
         try {
           // Check if already in storage
           const headRes = await fetch(publicUrl, { method: 'HEAD' })
+          console.log(`[evidence] HEAD ${entry.id}: ${headRes.status}`)
           if (headRes.ok) {
             return { ...entry, url: publicUrl }
           }
           // Fetch from SpyOwl API
-          if (!SPYOWL_COOKIE) return null
-          const spyRes = await fetch(`${SPYOWL_API}/s3/creatives/${entry.id}/mediaFile.webp`, {
+          if (!SPYOWL_COOKIE) { console.log(`[evidence] No SPYOWL_COOKIE, skipping ${entry.id}`); return null }
+          const spyUrl = `${SPYOWL_API}/s3/creatives/${entry.id}/mediaFile.webp`
+          console.log(`[evidence] Fetching from SpyOwl: ${spyUrl}`)
+          const spyRes = await fetch(spyUrl, {
             headers: { 'Cookie': SPYOWL_COOKIE },
           })
+          console.log(`[evidence] SpyOwl response: ${spyRes.status} ${spyRes.statusText}`)
           if (!spyRes.ok) return null
           const imgBuffer = await spyRes.arrayBuffer()
+          console.log(`[evidence] Image buffer size: ${imgBuffer.byteLength} bytes`)
           if (imgBuffer.byteLength < 1000) return null
           // Upload to Supabase Storage
-          const uploadRes = await fetch(`${STORAGE_UPLOAD_BASE}/${entry.id}.webp`, {
+          const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`
+          console.log(`[evidence] Uploading to: ${uploadUrl}`)
+          const uploadRes = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
               'apikey': SUPABASE_KEY,
@@ -144,11 +152,17 @@ export async function POST(request) {
             },
             body: imgBuffer,
           })
-          if (!uploadRes.ok) return null
+          console.log(`[evidence] Upload response: ${uploadRes.status} ${uploadRes.statusText}`)
+          if (!uploadRes.ok) {
+            const errText = await uploadRes.text().catch(() => 'no body')
+            console.log(`[evidence] Upload error: ${errText}`)
+            return null
+          }
           return { ...entry, url: publicUrl }
-        } catch { return null }
+        } catch (err) { console.log(`[evidence] Error for ${entry.id}: ${err.message}`); return null }
       })
       availableImages = (await Promise.all(fetchPromises)).filter(Boolean)
+      console.log(`[evidence] Final availableImages: ${availableImages.length}`)
     }
 
     // Calculate longevity
