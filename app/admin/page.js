@@ -4,6 +4,7 @@ import { useAdmin } from '@/lib/admin-context';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { GenerateProgressOverlay, useGenerateWithProgress } from '@/components/GenerateProgress';
 
 /* ─── Stat Card ─── */
 function StatCard({ label, value, icon, accent = 'text-red-400' }) {
@@ -102,6 +103,9 @@ export default function AdminDashboard() {
   const [generatingId, setGeneratingId] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
 
+  // AI Generate with progress tracking
+  const gen = useGenerateWithProgress(token);
+
   useEffect(() => {
     if (!token) return;
 
@@ -139,7 +143,7 @@ export default function AdminDashboard() {
   const handleOneClickGenerate = async (brandId) => {
     setGeneratingId(brandId);
     try {
-      // Create review + generate AI content in one flow
+      // Create review first
       const createRes = await fetch('/api/admin/reviews/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -149,24 +153,24 @@ export default function AdminDashboard() {
       if (!createRes.ok) throw new Error('Create failed');
       const { review_id } = await createRes.json();
 
-      // Now generate AI content
-      const genRes = await fetch('/api/admin/reviews/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ brand_id: brandId }),
-      });
+      // Now generate with progress tracking
+      await gen.generate(brandId);
 
-      if (genRes.ok) {
-        router.push(`/admin/review/${review_id}`);
-      } else {
-        alert('AI generation failed. Review created as empty draft.');
-        router.push(`/admin/review/${review_id}`);
-      }
+      // Store review_id for navigation after progress overlay closes
+      setGeneratingId({ brandId, reviewId: review_id });
     } catch (err) {
       console.error('Generate error:', err);
       alert('Error creating review');
-    } finally {
       setGeneratingId(null);
+    }
+  };
+
+  const handleGenDone = () => {
+    const reviewId = generatingId?.reviewId;
+    gen.reset();
+    setGeneratingId(null);
+    if (reviewId) {
+      router.push(`/admin/review/${reviewId}`);
     }
   };
 
@@ -188,6 +192,17 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* AI Generation Progress Overlay */}
+      {gen.isGenerating && (
+        <GenerateProgressOverlay
+          progress={gen.progress}
+          step={gen.step}
+          message={gen.message}
+          error={gen.error}
+          onClose={handleGenDone}
+        />
+      )}
+
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Command Center</h1>
@@ -290,7 +305,7 @@ export default function AdminDashboard() {
                   creatives={b.total_creatives}
                   velocity={b.velocity_7d}
                   onGenerate={() => handleOneClickGenerate(b.id)}
-                  generating={generatingId === b.id}
+                  generating={generatingId === b.id || (generatingId?.brandId === b.id)}
                 />
               ))}
             </div>

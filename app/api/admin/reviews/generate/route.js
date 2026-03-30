@@ -13,11 +13,8 @@ export const maxDuration = 60
 
 /**
  * POST /api/admin/reviews/generate
- * Generate a scam review article using Claude API
- * Full seo-blog-generator v3.1 + schema-markup-generator methodology:
- * E-E-A-T, BLUF, Algorithmic Authorship, AI Overview extractability,
- * entity-rich writing, anti-slop, "Not For You" block, FAQPage schema,
- * declaration-first structure, 3-example rule, numeric specificity.
+ * Generate a scam review article using Claude API — now with SSE progress streaming.
+ * Full seo-blog-generator v3.1 + schema-markup-generator + ICP methodology.
  * Body: { brand_id }
  */
 export async function POST(request) {
@@ -37,19 +34,31 @@ export async function POST(request) {
       )
     }
 
-    // Fetch brand data
+    // ─── SSE STREAM SETUP ───
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (data) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        }
+
+        try {
+          // ─── STEP 1: Fetch brand data ───
+          send({ step: 'brand', progress: 5, message: 'Loading brand intelligence...' })
+
     const brand = await supabaseRequest(
       `/scam_brands?id=eq.${brand_id}&select=*`
     )
 
     if (!Array.isArray(brand) || brand.length === 0) {
-      return Response.json(
-        { error: 'Brand not found' },
-        { status: 404 }
-      )
+      send({ step: 'error', progress: 0, message: 'Brand not found', error: true })
+      controller.close()
+      return
     }
 
     const brandData = brand[0]
+
+          send({ step: 'creatives', progress: 15, message: `Fetching ad creatives for ${brandData.name}...` })
 
     // Fetch sample creatives for this brand
     const creatives = await supabaseRequest(
@@ -91,6 +100,8 @@ export async function POST(request) {
       }
     }
 
+          send({ step: 'images', progress: 25, message: `Checking ${imageCreatives.length} evidence images...` })
+
     // Check which images exist in Supabase Storage
     let availableImages = []
     if (STORAGE_BASE && imageCreatives.length > 0) {
@@ -123,6 +134,8 @@ export async function POST(request) {
     // Current date for temporal freshness
     const currentYear = new Date().getFullYear()
     const currentDate = new Date().toISOString().split('T')[0]
+
+          send({ step: 'ai', progress: 35, message: 'Calling Claude AI — generating review (this takes 15-30s)...' })
 
     // ─── UPGRADED SYSTEM PROMPT ───
     // Full seo-blog-generator v3.1 + schema-markup-generator methodology
@@ -299,6 +312,8 @@ Write a review that:
       }
     )
 
+          send({ step: 'ai_done', progress: 70, message: 'AI response received — parsing content...' })
+
     if (!anthropicResponse.ok) {
       const errorText = await anthropicResponse.text()
       throw new Error(
@@ -346,6 +361,8 @@ Write a review that:
     } catch (parseError) {
       throw new Error(`Failed to parse Claude response (stop_reason: ${anthropicData.stop_reason}, text length: ${responseText.length}): ${parseError.message}`)
     }
+
+          send({ step: 'building', progress: 78, message: 'Building HTML article + schema markup...' })
 
     // ─── BUILD HTML ARTICLE ───
     const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -542,6 +559,8 @@ ${extraImagesHtml}
       ],
     }
 
+          send({ step: 'saving', progress: 90, message: 'Saving to database...' })
+
     // Check if review already exists for this brand
     const existingReview = await supabaseRequest(
       `/reviews?brand_id=eq.${brand_id}&select=id`
@@ -590,13 +609,34 @@ ${extraImagesHtml}
       reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id
     }
 
-    return Response.json({
-      review_id: reviewId,
-      brand_slug: brandData.slug,
-      status: 'draft',
-      word_count: wordCount,
-      images_embedded: availableImages.length,
-      schema_types: ['Article', 'Review', 'FAQPage'],
+          send({
+            step: 'done',
+            progress: 100,
+            message: 'Review generated successfully!',
+            result: {
+              review_id: reviewId,
+              brand_slug: brandData.slug,
+              status: 'draft',
+              word_count: wordCount,
+              images_embedded: availableImages.length,
+              schema_types: ['Article', 'Review', 'FAQPage'],
+            },
+          })
+
+        } catch (innerError) {
+          send({ step: 'error', progress: 0, message: innerError.message, error: true })
+        } finally {
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
     })
   } catch (error) {
     if (error.message.includes('Unauthorized')) {

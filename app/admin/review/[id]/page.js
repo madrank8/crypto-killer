@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
+import { GenerateProgressOverlay, useGenerateWithProgress } from '@/components/GenerateProgress';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ssr: false,
@@ -181,8 +182,10 @@ export default function ReviewEditor({ params }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [publishError, setPublishError] = useState('');
+
+  // AI Generate with progress tracking
+  const gen = useGenerateWithProgress(token);
 
   const [title, setTitle] = useState('');
   const [headline, setHeadline] = useState('');
@@ -306,16 +309,13 @@ export default function ReviewEditor({ params }) {
 
   const handleAIGenerate = async () => {
     if (!confirm('Generate AI content? This will replace all current content.')) return;
+    await gen.generate(review.brand_id);
+  };
 
-    setGenerating(true);
-    try {
-      const res = await fetch('/api/admin/reviews/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ brand_id: review.brand_id }),
-      });
-
-      if (res.ok) {
+  // When generation completes, refresh the review data
+  const handleGenDone = async () => {
+    if (gen.result) {
+      try {
         const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -331,16 +331,11 @@ export default function ReviewEditor({ params }) {
           setVerdict(data.verdict || '');
           setEditorKey((k) => k + 1);
         }
-      } else {
-        const err = await res.json();
-        alert(`AI generation failed: ${err.error || 'Unknown error'}`);
+      } catch (err) {
+        console.error('Error refreshing review:', err);
       }
-    } catch (err) {
-      console.error('AI generate error:', err);
-      alert('AI generation failed');
-    } finally {
-      setGenerating(false);
     }
+    gen.reset();
   };
 
   if (loading) {
@@ -395,10 +390,10 @@ export default function ReviewEditor({ params }) {
           {/* AI Generate */}
           <button
             onClick={handleAIGenerate}
-            disabled={generating}
+            disabled={gen.isGenerating}
             className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-600/20 transition"
           >
-            {generating ? (
+            {gen.isGenerating ? (
               <><span className="animate-spin">⟳</span> Generating...</>
             ) : (
               <><span>✦</span> AI Generate</>
@@ -433,6 +428,17 @@ export default function ReviewEditor({ params }) {
           )}
         </div>
       </div>
+
+      {/* AI Generation Progress Overlay */}
+      {gen.isGenerating && (
+        <GenerateProgressOverlay
+          progress={gen.progress}
+          step={gen.step}
+          message={gen.message}
+          error={gen.error}
+          onClose={handleGenDone}
+        />
+      )}
 
       {publishError && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
