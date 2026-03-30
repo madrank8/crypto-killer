@@ -576,10 +576,17 @@ ${disclaimerHtml}`
       .replace('{{WORD_COUNT}}', wordCount.toString())
       .replace('{{READ_TIME}}', Math.ceil(wordCount / 250).toString())
 
+    // ─── COMPUTE SLUG (needed by schema below and DB save) ───
+    const baseSlug = brandData.slug || brandData.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+    const slug = baseSlug.endsWith('-review') ? baseSlug : `${baseSlug}-review`
+
     // ─── BUILD JSON-LD SCHEMA (@graph pattern) ───
     // Organization → Person/Author → WebSite → Article → Review → ClaimReview → FAQPage
     // Full E-E-A-T entity graph with @id cross-references
-    const reviewUrl = `https://crypto-killer.vercel.app/reviews/${brandData.slug}/`
+    const reviewUrl = `https://crypto-killer.vercel.app/reviews/${slug}/`
     const siteUrl = 'https://crypto-killer.vercel.app'
 
     const schemaJsonLd = {
@@ -744,11 +751,6 @@ ${disclaimerHtml}`
       `/reviews?brand_id=eq.${brand_id}&select=id`
     )
 
-    const slug = brandData.slug || brandData.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-
     let reviewId
     const reviewPayload = {
       brand_id: brand_id,
@@ -816,7 +818,7 @@ ${disclaimerHtml}`
             message: 'Review generated successfully!',
             result: {
               review_id: reviewId,
-              brand_slug: brandData.slug,
+              brand_slug: slug,
               status: 'draft',
               word_count: wordCount,
               images_embedded: availableImages.length,
