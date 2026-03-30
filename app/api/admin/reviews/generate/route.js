@@ -2,11 +2,17 @@ import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
+const SPYOWL_COOKIE = process.env.SPYOWL_COOKIE || ''
+const SPYOWL_API = 'https://api.spyowl.icu'
 
 // Supabase Storage public URL for creative images
 const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
   : ''
+const STORAGE_UPLOAD_BASE = SUPABASE_URL
+  ? `${SUPABASE_URL}/storage/v1/object/creative-images`
+  : ''
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Claude API needs 30-60s for full review generation — bumped for E-E-A-T depth
 export const maxDuration = 90
@@ -69,59 +75,80 @@ export async function POST(request) {
 
     const creativeSample = Array.isArray(creatives) ? creatives : []
 
-    // ─── SELECT DIVERSE CREATIVE IMAGES ───
-    const photoCreatives = creativeSample.filter(c => !c.is_video)
-    const imageCreatives = []
-    const seenGeos = new Set()
-    const seenCelebs = new Set()
+    // ─── EVIDENCE GRID: Top 3 countries × Top 3 celebs per country ───
+    // Query ALL creatives for this brand to find the best evidence
+    const allCreatives = await supabaseRequest(
+      `/creatives?normalized_offer=eq.${encodeURIComponent(
+        brandData.normalized_name
+      )}&is_video=eq.false&celebrity_name=neq.&select=id,geo,celebrity_name&order=last_seen_at.desc&limit=500`
+    )
+    const photoCreatives = (Array.isArray(allCreatives) ? allCreatives : [])
+      .filter(c => c.celebrity_name && c.celebrity_name !== 'Not mentioned')
 
-    // Priority 1: Diverse celebrities
+    // Count creatives per geo, then pick top 3 geos
+    const geoCounts = {}
     for (const c of photoCreatives) {
-      if (imageCreatives.length >= 10) break
-      if (c.celebrity_name && c.celebrity_name !== 'Not mentioned' && !seenCelebs.has(c.celebrity_name)) {
-        seenCelebs.add(c.celebrity_name)
-        seenGeos.add(c.geo)
-        imageCreatives.push(c)
+      geoCounts[c.geo] = (geoCounts[c.geo] || 0) + 1
+    }
+    const topGeos = Object.entries(geoCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([geo]) => geo)
+
+    // For each top geo, find top 3 celebs by count, pick one creative per celeb
+    const evidenceGrid = [] // [{ geo, celebrity, id }]
+    for (const geo of topGeos) {
+      const geoCreatives = photoCreatives.filter(c => c.geo === geo)
+      const celebCounts = {}
+      for (const c of geoCreatives) {
+        celebCounts[c.celebrity_name] = (celebCounts[c.celebrity_name] || 0) + 1
+      }
+      const topCelebs = Object.entries(celebCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+      for (const [celeb] of topCelebs) {
+        const creative = geoCreatives.find(c => c.celebrity_name === celeb)
+        if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
       }
     }
-    // Priority 2: Diverse geos
-    for (const c of photoCreatives) {
-      if (imageCreatives.length >= 10) break
-      if (!seenGeos.has(c.geo) && !imageCreatives.find(ic => ic.id === c.id)) {
-        seenGeos.add(c.geo)
-        imageCreatives.push(c)
-      }
-    }
-    // Priority 3: Fill remaining up to at least 3
-    for (const c of photoCreatives) {
-      if (imageCreatives.length >= 10) break
-      if (imageCreatives.length < 3 && !imageCreatives.find(ic => ic.id === c.id)) {
-        imageCreatives.push(c)
-      }
-    }
 
-          send({ step: 'images', progress: 25, message: `Checking ${imageCreatives.length} evidence images...` })
+          send({ step: 'images', progress: 25, message: `Fetching ${evidenceGrid.length} evidence images...` })
 
-    // Check which images exist in Supabase Storage
+    // Fetch images from SpyOwl API → upload to Supabase Storage → get public URLs
     let availableImages = []
-    if (STORAGE_BASE && imageCreatives.length > 0) {
-      const checkPromises = imageCreatives.map(async (c) => {
+    if (STORAGE_BASE && evidenceGrid.length > 0) {
+      const fetchPromises = evidenceGrid.map(async (entry) => {
+        const publicUrl = `${STORAGE_BASE}/${entry.id}.webp`
         try {
-          const imgUrl = `${STORAGE_BASE}/${c.id}.webp`
-          const headRes = await fetch(imgUrl, { method: 'HEAD' })
+          // Check if already in storage
+          const headRes = await fetch(publicUrl, { method: 'HEAD' })
           if (headRes.ok) {
-            return {
-              id: c.id,
-              url: imgUrl,
-              celebrity: c.celebrity_name && c.celebrity_name !== 'Not mentioned' ? c.celebrity_name : null,
-              geo: c.geo,
-              offer: c.offer_name || c.normalized_offer,
-            }
+            return { ...entry, url: publicUrl }
           }
-          return null
+          // Fetch from SpyOwl API
+          if (!SPYOWL_COOKIE) return null
+          const spyRes = await fetch(`${SPYOWL_API}/s3/creatives/${entry.id}/mediaFile.webp`, {
+            headers: { 'Cookie': SPYOWL_COOKIE },
+          })
+          if (!spyRes.ok) return null
+          const imgBuffer = await spyRes.arrayBuffer()
+          if (imgBuffer.byteLength < 1000) return null
+          // Upload to Supabase Storage
+          const uploadRes = await fetch(`${STORAGE_UPLOAD_BASE}/${entry.id}.webp`, {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': 'image/webp',
+              'x-upsert': 'true',
+            },
+            body: imgBuffer,
+          })
+          if (!uploadRes.ok) return null
+          return { ...entry, url: publicUrl }
         } catch { return null }
       })
-      availableImages = (await Promise.all(checkPromises)).filter(Boolean)
+      availableImages = (await Promise.all(fetchPromises)).filter(Boolean)
     }
 
     // Calculate longevity
@@ -423,41 +450,41 @@ E-E-A-T CRITICAL REQUIREMENTS:
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/\*([^*]+)\*/g, '<em>$1</em>')
 
-    // Build evidence image HTML blocks
-    const buildImageHtml = (img, caption) => {
-      const altText = img.celebrity
-        ? `${escHtml(brandData.name)} scam ad impersonating ${escHtml(img.celebrity)} detected in ${img.geo}`
-        : `${escHtml(brandData.name)} fraudulent advertisement detected in ${img.geo}`
-      return `<figure><img src="${img.url}" alt="${altText}" /><figcaption>${escHtml(caption)}</figcaption></figure>`
+    // ─── BUILD EVIDENCE GRID HTML (grouped by country) ───
+    const countryNames = { US: '🇺🇸 United States', GB: '🇬🇧 United Kingdom', CA: '🇨🇦 Canada', FR: '🇫🇷 France', DE: '🇩🇪 Germany', AU: '🇦🇺 Australia', IN: '🇮🇳 India', BR: '🇧🇷 Brazil', ES: '🇪🇸 Spain', IT: '🇮🇹 Italy', MX: '🇲🇽 Mexico', ZA: '🇿🇦 South Africa', NL: '🇳🇱 Netherlands', PL: '🇵🇱 Poland', SE: '🇸🇪 Sweden', AT: '🇦🇹 Austria', CH: '🇨🇭 Switzerland', BE: '🇧🇪 Belgium', CZ: '🇨🇿 Czechia', DK: '🇩🇰 Denmark', FI: '🇫🇮 Finland', NO: '🇳🇴 Norway', IE: '🇮🇪 Ireland', PT: '🇵🇹 Portugal', RO: '🇷🇴 Romania', HU: '🇭🇺 Hungary', GR: '🇬🇷 Greece', JP: '🇯🇵 Japan', KR: '🇰🇷 South Korea', SG: '🇸🇬 Singapore', MY: '🇲🇾 Malaysia', TH: '🇹🇭 Thailand', PH: '🇵🇭 Philippines', ID: '🇮🇩 Indonesia', NZ: '🇳🇿 New Zealand', NG: '🇳🇬 Nigeria', KE: '🇰🇪 Kenya', AR: '🇦🇷 Argentina', CO: '🇨🇴 Colombia', CL: '🇨🇱 Chile', HK: '🇭🇰 Hong Kong', RS: '🇷🇸 Serbia', BG: '🇧🇬 Bulgaria', HR: '🇭🇷 Croatia', SK: '🇸🇰 Slovakia', LT: '🇱🇹 Lithuania', LV: '🇱🇻 Latvia', EE: '🇪🇪 Estonia', EG: '🇪🇬 Egypt', PE: '🇵🇪 Peru' }
+    const getCountryName = (code) => countryNames[code] || `🌐 ${code}`
+
+    let evidenceGridHtml = ''
+    if (availableImages.length > 0) {
+      // Group by geo
+      const byGeo = {}
+      for (const img of availableImages) {
+        if (!byGeo[img.geo]) byGeo[img.geo] = []
+        byGeo[img.geo].push(img)
+      }
+
+      const imgStyle = 'width:100%;height:180px;object-fit:cover;border-radius:6px;border:1px solid rgba(255,255,255,0.1)'
+      const cardStyle = 'flex:1;min-width:140px;max-width:220px;text-align:center'
+      const captionStyle = 'font-size:12px;color:rgba(255,255,255,0.6);margin-top:6px;line-height:1.4'
+      const geoHeaderStyle = 'color:#f59e0b;font-size:15px;font-weight:600;margin:20px 0 10px;padding:6px 12px;background:rgba(245,158,11,0.08);border-radius:6px;display:inline-block'
+      const rowStyle = 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'
+
+      let geoSections = ''
+      for (const geo of Object.keys(byGeo)) {
+        const imgs = byGeo[geo]
+        const geoCount = geoCounts[geo] || 0
+        geoSections += `<div style="${geoHeaderStyle}">${getCountryName(geo)} — ${geoCount} ads detected</div>\n<div style="${rowStyle}">\n`
+        for (const img of imgs) {
+          const altText = `${escHtml(brandData.name)} scam ad impersonating ${escHtml(img.celebrity)} in ${img.geo}`
+          geoSections += `<div style="${cardStyle}"><img src="${img.url}" alt="${altText}" style="${imgStyle}" loading="lazy" /><p style="${captionStyle}">${escHtml(img.celebrity)}</p></div>\n`
+        }
+        geoSections += `</div>\n`
+      }
+
+      evidenceGridHtml = `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Evidence: Fraudulent Ad Creatives by Country</h2>
+<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.7);font-size:14px">The following screenshots were captured by SpyOwl ad surveillance. Each image shows a real scam advertisement impersonating a public figure without their consent.</p>
+${geoSections}`
     }
-
-    // Distribute images across sections
-    const summaryImages = availableImages.slice(0, 2)
-    const howItWorksImages = availableImages.slice(2, 4)
-    const redFlagImages = availableImages.slice(4, 7)
-    const extraImages = availableImages.slice(7, 10)
-
-    const summaryImagesHtml = summaryImages
-      .map(img => buildImageHtml(img, img.celebrity
-        ? `SpyOwl detected this ${escHtml(brandData.name)} ad impersonating ${escHtml(img.celebrity)} targeting ${img.geo} users.`
-        : `Scam advertisement for ${escHtml(brandData.name)} detected by SpyOwl in ${img.geo}.`
-      )).join('\n')
-
-    const howItWorksImagesHtml = howItWorksImages
-      .map(img => buildImageHtml(img, img.celebrity
-        ? `Fake celebrity endorsement ad using ${escHtml(img.celebrity)}'s likeness without consent.`
-        : `${escHtml(brandData.name)} ad creative captured by SpyOwl surveillance.`
-      )).join('\n')
-
-    const redFlagImagesHtml = redFlagImages
-      .map(img => buildImageHtml(img,
-        `Evidence: ${escHtml(brandData.name)} ad targeting ${img.geo}${img.celebrity ? ` using ${escHtml(img.celebrity)}` : ''}.`
-      )).join('\n')
-
-    const extraImagesHtml = extraImages
-      .map(img => buildImageHtml(img,
-        `Additional scam ad variant detected in ${img.geo}.`
-      )).join('\n')
 
     // Red flag icon mapping based on keywords
     const getRedFlagIcon = (flag) => {
@@ -547,7 +574,7 @@ E-E-A-T CRITICAL REQUIREMENTS:
 <ul style="list-style:none;padding:0;margin:0 0 20px">
 ${(reviewContent.key_takeaways || []).map(t => `<li style="padding:8px 12px;margin:6px 0;background:rgba(245,158,11,0.06);border-radius:6px;border-left:2px solid rgba(245,158,11,0.4);line-height:1.6;color:rgba(255,255,255,0.85)">✅ ${escHtml(t)}</li>`).join('\n')}
 </ul>
-${summaryImagesHtml}
+${evidenceGridHtml}
 
 ${methodologyHtml}
 ${experienceSignalsHtml}
@@ -584,12 +611,7 @@ ${(() => {
 </tbody>
 </table>` : ''}
 
-${howItWorksImagesHtml}
-${redFlagImagesHtml}
-
 ${notForYouHtml ? `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
-
-${extraImagesHtml}
 
 ${sourcesHtml}
 
