@@ -530,12 +530,17 @@ E-E-A-T CRITICAL REQUIREMENTS:
       : `<div class="disclaimer"><p><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
 
     // ─── FULL ARTICLE HTML ───
-    // E-E-A-T optimized: Author byline → BLUF → Key Takeaways → Methodology →
-    // Evidence → Red Flags → Protection → Disclaimer → Sources → FAQ → Verdict
+    // Contains ONLY the analytical deep-dive content that Base44 does NOT render
+    // from individual fields. Base44's ReviewDetail.jsx separately renders:
+    //   - Summary (hero section)
+    //   - How It Works (from how_it_works field)
+    //   - Red Flags (via <RedFlags> component)
+    //   - Protection Steps (via <ActionSteps> component)
+    //   - FAQs (via <FAQSection> component)
+    //   - Verdict (via verdict section)
+    // So full_article provides: byline, takeaways, methodology, investigation
+    // findings, threat intelligence tables, evidence images, sources, disclaimer.
     let fullArticle = `${authorBylineTemplate}
-
-<h2>${escHtml(brandData.name)}: Investigation Summary</h2>
-${(escHtml(reviewContent.summary) || '').split(/\\n\\n/).filter(p => p.trim()).map(p => `<p>${p.trim()}</p>`).join('\n')}
 
 <h3>Key Takeaways</h3>
 <ul>
@@ -547,7 +552,7 @@ ${methodologyHtml}
 ${experienceSignalsHtml}
 
 <h2>Threat Intelligence Overview</h2>
-<p>${escHtml(brandData.name)} has been flagged by SpyOwl's ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
+<p>${escHtml(brandData.name)} has been flagged by our ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
 <table>
 <thead><tr><th>Metric</th><th>Value</th></tr></thead>
 <tbody>
@@ -578,38 +583,12 @@ ${(() => {
 </tbody>
 </table>` : ''}
 
-<h2>How the ${escHtml(brandData.name)} Scam Works</h2>
-${(escHtml(reviewContent.how_it_works) || '').split(/\\n\\n|Stage \d+:|Step \d+:/).filter(p => p.trim()).map((para, i) => {
-      const stageLabels = ['Stage 1: Celebrity Bait', 'Stage 2: Geo-Targeting & Social Proof', 'Stage 3: The Funnel', 'Stage 4: The Trap']
-      const label = i > 0 && i <= 4 ? `<h3>${stageLabels[i-1] || 'Stage ' + i}</h3>` : ''
-      return `${label}<p>${para.trim()}</p>`
-    }).join('\n')}
 ${howItWorksImagesHtml}
-
-<h2>Red Flags: ${(reviewContent.red_flags || []).length} Warning Signs</h2>
-<ol>
-${redFlagsHtml}
-</ol>
 ${redFlagImagesHtml}
-
-<h2>🛡️ What To Do If You've Been Targeted</h2>
-<div class="protection-box" style="border:1px solid rgba(34,197,94,0.3);padding:1.5rem;border-radius:8px;margin:1.5rem 0;background:rgba(34,197,94,0.03);">
-${(protectionHtml || '').split(/\(\d+\)|\d+\./).filter(p => p.trim()).map((step, i) =>
-  i === 0 ? `<p>${step.trim()}</p>` : `<p><strong>Step ${i}:</strong> ${step.trim()}</p>`
-).join('\n')}
-</div>
 
 ${notForYouHtml ? `<h2>When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
 
-<h2>Frequently Asked Questions About ${escHtml(brandData.name)}</h2>
-${faqHtml}
 ${extraImagesHtml}
-
-<h2>⚠️ ${escHtml(brandData.name)}: Final Verdict</h2>
-<div class="verdict-box" style="border-left:4px solid #ef4444;padding:1rem 1.5rem;margin:2rem 0;background:rgba(239,68,68,0.05);border-radius:0 8px 8px 0;">
-${(escHtml(reviewContent.verdict) || '').split(/\\n\\n/).filter(p => p.trim()).map(p => `<p>${p.trim()}</p>`).join('\n')}
-<p style="font-size:1.25rem;font-weight:bold;margin-top:1rem;">Threat Score: ${brandData.scam_score}/100 — ${brandData.scam_score >= 80 ? 'CONFIRMED SCAM' : brandData.scam_score >= 50 ? 'HIGH RISK' : 'SUSPICIOUS'}</p>
-</div>
 
 ${sourcesHtml}
 
@@ -815,7 +794,7 @@ ${disclaimerHtml}`
       faq: reviewContent.faq,
       full_article: fullArticle,
       scam_score: brandData.scam_score || 0,
-      status: 'draft',
+      status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
       ai_model: 'claude-haiku-4-5-20251001',
       ai_prompt_version: 'eeat-v2.0-seo-v3.1-schema-v2-icp-v1',
       word_count: wordCount,
@@ -869,7 +848,7 @@ ${disclaimerHtml}`
             result: {
               review_id: reviewId,
               brand_slug: slug,
-              status: 'draft',
+              status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
               word_count: wordCount,
               images_embedded: availableImages.length,
               schema_types: ['Organization', 'Person', 'Article', 'Review', 'ClaimReview', 'FAQPage'],
