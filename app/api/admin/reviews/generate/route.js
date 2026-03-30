@@ -147,7 +147,7 @@ Your writing is grounded in four frameworks:
 3. GEO/AI Visibility optimization (extractive answers, standalone statements, structured data alignment)
 4. Source Ledger methodology — every factual claim traces to a cited source
 
-OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for line breaks (no literal newlines). Escape quotes with \\". No trailing commas. No markdown fences.
+OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for line breaks (no literal newlines). Escape quotes with \\". No trailing commas. No markdown fences. CRITICAL: Do NOT use markdown formatting (**bold**, *italic*, etc.) in any field. Use plain text only — HTML formatting is added by the rendering engine.
 
 {
   "title": "SEO title under 60 chars. Format: Is {Brand} a Scam? {Score}/100 Threat Score [{Year}]",
@@ -418,6 +418,11 @@ E-E-A-T CRITICAL REQUIREMENTS:
     // ─── BUILD HTML ARTICLE ───
     const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+    // Safety net: convert any residual markdown bold/italic to HTML after escaping
+    const cleanMarkdown = (str) => str
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+
     // Build evidence image HTML blocks
     const buildImageHtml = (img, caption) => {
       const altText = img.celebrity
@@ -568,6 +573,9 @@ ${sourcesHtml}
 
 ${disclaimerHtml}`
 
+    // Clean any residual markdown formatting leaked by Claude
+    fullArticle = cleanMarkdown(fullArticle)
+
     // Calculate word count
     const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(w => w).length
 
@@ -586,8 +594,8 @@ ${disclaimerHtml}`
     // ─── BUILD JSON-LD SCHEMA (@graph pattern) ───
     // Organization → Person/Author → WebSite → Article → Review → ClaimReview → FAQPage
     // Full E-E-A-T entity graph with @id cross-references
-    const reviewUrl = `https://crypto-killer.vercel.app/reviews/${slug}/`
-    const siteUrl = 'https://crypto-killer.vercel.app'
+    const siteUrl = 'https://crypto-killer.base44.app'
+    const reviewUrl = `${siteUrl}/reviews/${slug}`
 
     const schemaJsonLd = {
       '@context': 'https://schema.org',
