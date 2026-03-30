@@ -459,11 +459,6 @@ E-E-A-T CRITICAL REQUIREMENTS:
         `Additional scam ad variant detected in ${img.geo}.`
       )).join('\n')
 
-    // Key takeaways HTML
-    const keyTakeawaysHtml = (reviewContent.key_takeaways || [])
-      .map(t => `<li>${escHtml(t)}</li>`)
-      .join('\n')
-
     // Red flag icon mapping based on keywords
     const getRedFlagIcon = (flag) => {
       const f = (flag || '').toLowerCase()
@@ -494,40 +489,40 @@ E-E-A-T CRITICAL REQUIREMENTS:
 
     // Not For You block
     const notForYouHtml = reviewContent.not_for_you
-      ? `<blockquote><strong>Important Disclaimer:</strong> ${escHtml(reviewContent.not_for_you)}</blockquote>`
+      ? `<blockquote style="margin:16px 0;padding:16px 20px;background:rgba(59,130,246,0.08);border-left:3px solid #3b82f6;border-radius:0 8px 8px 0;color:rgba(255,255,255,0.85);line-height:1.7"><strong>Important Disclaimer:</strong> ${escHtml(reviewContent.not_for_you)}</blockquote>`
       : ''
 
     // ─── E-E-A-T CONTENT SECTIONS ───
     // Author byline HTML (word count placeholder replaced after fullArticle is built)
     const authorName = reviewContent.author_name || 'Crypto Killer Research Team'
     const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')
-    const authorBylineTemplate = `<div class="author-byline" itemscope itemtype="https://schema.org/Person">
-<p><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
-<p><em>${authorCredentials}</em></p>
-<p><time datetime="${currentDate}">Published: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</time> · {{WORD_COUNT}} words · {{READ_TIME}} min read</p>
+    const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
+<p style="margin:0 0 4px;font-size:15px"><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
+<p style="margin:0 0 4px;font-size:13px;opacity:0.8"><em>${authorCredentials}</em></p>
+<p style="margin:0;font-size:13px;opacity:0.7"><time datetime="${currentDate}">Published: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</time> · {{WORD_COUNT}} words · {{READ_TIME}} min read</p>
 </div>`
 
     // Methodology section HTML
     const methodologyHtml = reviewContent.methodology
-      ? `<h2>Our Investigation Methodology</h2>\n<p>${escHtml(reviewContent.methodology)}</p>`
+      ? `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Our Investigation Methodology</h2>\n<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.85)">${escHtml(reviewContent.methodology)}</p>`
       : ''
 
     // Experience signals HTML
     const experienceSignalsHtml = (reviewContent.experience_signals || []).length > 0
-      ? `<h3>Key Investigation Findings</h3>\n<ul>\n${(reviewContent.experience_signals || []).map(s => `<li>${escHtml(s)}</li>`).join('\n')}\n</ul>`
+      ? `<h3 style="color:#f59e0b;font-size:17px;margin:24px 0 12px">Key Investigation Findings</h3>\n<ul style="list-style:none;padding:0;margin:0 0 16px">\n${(reviewContent.experience_signals || []).map(s => `<li style="padding:8px 12px;margin:6px 0;background:rgba(245,158,11,0.06);border-radius:6px;border-left:2px solid rgba(245,158,11,0.4);line-height:1.6;color:rgba(255,255,255,0.85)">🔍 ${escHtml(s)}</li>`).join('\n')}\n</ul>`
       : ''
 
     // Sources section HTML
     const sourcesHtml = (reviewContent.sources || []).length > 0
-      ? `<h2>Sources &amp; References</h2>\n<ol>\n${(reviewContent.sources || []).map(s =>
-          `<li><a href="${escHtml(s.url)}" rel="nofollow noopener" target="_blank">${escHtml(s.title)}</a> (${escHtml(s.type)}, accessed ${escHtml(s.accessed_date || currentDate)})</li>`
+      ? `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Sources &amp; References</h2>\n<ol style="padding-left:20px;margin:0 0 16px">\n${(reviewContent.sources || []).map(s =>
+          `<li style="margin:6px 0;line-height:1.6;color:rgba(255,255,255,0.75)"><a href="${escHtml(s.url)}" rel="nofollow noopener" target="_blank" style="color:#f59e0b;text-decoration:none">${escHtml(s.title)}</a> <span style="opacity:0.6">(${escHtml(s.type)}, accessed ${escHtml(s.accessed_date || currentDate)})</span></li>`
         ).join('\n')}\n</ol>`
       : ''
 
     // Disclaimer HTML
     const disclaimerHtml = reviewContent.disclaimer
-      ? `<div class="disclaimer"><p><strong>Disclaimer:</strong> ${escHtml(reviewContent.disclaimer)}</p></div>`
-      : `<div class="disclaimer"><p><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
+      ? `<div style="margin:32px 0 16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1)"><p style="margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.5)"><strong>Disclaimer:</strong> ${escHtml(reviewContent.disclaimer)}</p></div>`
+      : `<div style="margin:32px 0 16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1)"><p style="margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.5)"><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
 
     // ─── FULL ARTICLE HTML ───
     // Contains ONLY the analytical deep-dive content that Base44 does NOT render
@@ -540,36 +535,42 @@ E-E-A-T CRITICAL REQUIREMENTS:
     //   - Verdict (via verdict section)
     // So full_article provides: byline, takeaways, methodology, investigation
     // findings, threat intelligence tables, evidence images, sources, disclaimer.
+    // Table cell styles
+    const thStyle = 'padding:10px 14px;text-align:left;font-size:13px;font-weight:600;color:#f59e0b;background:rgba(245,158,11,0.1);border-bottom:2px solid rgba(245,158,11,0.3)'
+    const tdLabelStyle = 'padding:10px 14px;font-size:14px;color:rgba(255,255,255,0.7);border-bottom:1px solid rgba(255,255,255,0.06)'
+    const tdValueStyle = 'padding:10px 14px;font-size:14px;color:rgba(255,255,255,0.95);border-bottom:1px solid rgba(255,255,255,0.06);font-weight:500'
+    const tableStyle = 'width:100%;border-collapse:collapse;margin:16px 0 24px;background:rgba(255,255,255,0.03);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)'
+
     let fullArticle = `${authorBylineTemplate}
 
-<h3>Key Takeaways</h3>
-<ul>
-${keyTakeawaysHtml}
+<h3 style="color:#f59e0b;font-size:17px;margin:28px 0 12px">Key Takeaways</h3>
+<ul style="list-style:none;padding:0;margin:0 0 20px">
+${(reviewContent.key_takeaways || []).map(t => `<li style="padding:8px 12px;margin:6px 0;background:rgba(245,158,11,0.06);border-radius:6px;border-left:2px solid rgba(245,158,11,0.4);line-height:1.6;color:rgba(255,255,255,0.85)">✅ ${escHtml(t)}</li>`).join('\n')}
 </ul>
 ${summaryImagesHtml}
 
 ${methodologyHtml}
 ${experienceSignalsHtml}
 
-<h2>Threat Intelligence Overview</h2>
-<p>${escHtml(brandData.name)} has been flagged by our ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
-<table>
-<thead><tr><th>Metric</th><th>Value</th></tr></thead>
+<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Threat Intelligence Overview</h2>
+<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.85)">${escHtml(brandData.name)} has been flagged by our ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
+<table style="${tableStyle}">
+<thead><tr><th style="${thStyle}">Metric</th><th style="${thStyle}">Value</th></tr></thead>
 <tbody>
-<tr><td>Threat Score</td><td><strong>${brandData.scam_score}/100</strong></td></tr>
-<tr><td>Ad Creatives Detected</td><td>${brandData.total_creatives}</td></tr>
-<tr><td>Countries Targeted</td><td>${brandData.total_geos}</td></tr>
-<tr><td>Celebrities Impersonated</td><td>${brandData.total_celebrities}</td></tr>
-<tr><td>7-Day Velocity</td><td>${brandData.velocity_7d} new creatives</td></tr>
-<tr><td>Campaign Duration</td><td>${longevityDays} days</td></tr>
-<tr><td>First Detected</td><td>${brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
-<tr><td>Last Active</td><td>${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
+<tr><td style="${tdLabelStyle}">Threat Score</td><td style="${tdValueStyle}"><strong style="color:#ef4444">${brandData.scam_score}/100</strong></td></tr>
+<tr><td style="${tdLabelStyle}">Ad Creatives Detected</td><td style="${tdValueStyle}">${brandData.total_creatives}</td></tr>
+<tr><td style="${tdLabelStyle}">Countries Targeted</td><td style="${tdValueStyle}">${brandData.total_geos}</td></tr>
+<tr><td style="${tdLabelStyle}">Celebrities Impersonated</td><td style="${tdValueStyle}">${brandData.total_celebrities}</td></tr>
+<tr><td style="${tdLabelStyle}">7-Day Velocity</td><td style="${tdValueStyle}">${brandData.velocity_7d} new creatives</td></tr>
+<tr><td style="${tdLabelStyle}">Campaign Duration</td><td style="${tdValueStyle}">${longevityDays} days</td></tr>
+<tr><td style="${tdLabelStyle}">First Detected</td><td style="${tdValueStyle}">${brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
+<tr><td style="${tdLabelStyle}">Last Active</td><td style="${tdValueStyle}">${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
 </tbody>
 </table>
 
-${(brandData.geo_list || []).length > 0 ? `<h3>Geographic Targeting Breakdown</h3>
-<table>
-<thead><tr><th>Region</th><th>Countries</th></tr></thead>
+${(brandData.geo_list || []).length > 0 ? `<h3 style="color:#f59e0b;font-size:17px;margin:24px 0 12px">Geographic Targeting Breakdown</h3>
+<table style="${tableStyle}">
+<thead><tr><th style="${thStyle}">Region</th><th style="${thStyle}">Countries</th></tr></thead>
 <tbody>
 ${(() => {
   const geos = brandData.geo_list || []
@@ -577,7 +578,7 @@ ${(() => {
   const regionMap = { 'GB': 'Europe', 'DE': 'Europe', 'FR': 'Europe', 'IT': 'Europe', 'ES': 'Europe', 'NL': 'Europe', 'PL': 'Europe', 'SE': 'Europe', 'AT': 'Europe', 'CH': 'Europe', 'BE': 'Europe', 'CZ': 'Europe', 'DK': 'Europe', 'FI': 'Europe', 'NO': 'Europe', 'IE': 'Europe', 'PT': 'Europe', 'RO': 'Europe', 'HU': 'Europe', 'GR': 'Europe', 'SK': 'Europe', 'BG': 'Europe', 'HR': 'Europe', 'SI': 'Europe', 'LT': 'Europe', 'LV': 'Europe', 'EE': 'Europe', 'US': 'Americas', 'CA': 'Americas', 'BR': 'Americas', 'MX': 'Americas', 'AR': 'Americas', 'CO': 'Americas', 'CL': 'Americas', 'PE': 'Americas', 'IN': 'Asia', 'JP': 'Asia', 'KR': 'Asia', 'SG': 'Asia', 'MY': 'Asia', 'TH': 'Asia', 'PH': 'Asia', 'ID': 'Asia', 'VN': 'Asia', 'TW': 'Asia', 'HK': 'Asia', 'AU': 'Oceania', 'NZ': 'Oceania', 'ZA': 'Africa', 'NG': 'Africa', 'KE': 'Africa', 'EG': 'Africa' }
   geos.forEach(g => { const r = regionMap[g] || 'Other'; regions[r].push(g) })
   return Object.entries(regions).filter(([,v]) => v.length > 0).map(([region, countries]) =>
-    `<tr><td><strong>${region}</strong></td><td>${countries.join(', ')} (${countries.length})</td></tr>`
+    `<tr><td style="${tdLabelStyle}"><strong>${region}</strong></td><td style="${tdValueStyle}">${countries.join(', ')} (${countries.length})</td></tr>`
   ).join('\n')
 })()}
 </tbody>
@@ -586,7 +587,7 @@ ${(() => {
 ${howItWorksImagesHtml}
 ${redFlagImagesHtml}
 
-${notForYouHtml ? `<h2>When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
+${notForYouHtml ? `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
 
 ${extraImagesHtml}
 
