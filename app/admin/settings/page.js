@@ -123,26 +123,23 @@ export default function SettingsPage() {
 
         {/* Instructions */}
         <div className="bg-blue-500/5 border border-blue-500/10 rounded-lg p-4 space-y-3">
-          <h3 className="text-blue-300 font-medium text-sm">How to refresh your SpyOwl cookie</h3>
+          <h3 className="text-blue-300 font-medium text-sm">How to refresh your SpyOwl token</h3>
           <ol className="text-gray-400 text-sm space-y-1.5 list-decimal list-inside">
             <li>Open <a href="https://app.spyowl.icu" target="_blank" rel="noopener" className="text-blue-400 hover:underline">app.spyowl.icu</a> and make sure you&apos;re logged in</li>
-            <li>Open DevTools (F12) → Application tab → Cookies → api.spyowl.icu</li>
-            <li>Copy all cookies as a single string in this format:</li>
+            <li>Open DevTools (F12) → Application → Cookies → api.spyowl.icu</li>
+            <li>Click <strong className="text-gray-200">__Secure-spyowl.session_token</strong> and copy the <strong className="text-gray-200">Value</strong></li>
           </ol>
-          <code className="block bg-gray-900 rounded p-2 text-xs text-gray-300 overflow-x-auto">
-            __Secure-spyowl.session_token=VALUE; cf_clearance=VALUE
-          </code>
-          <p className="text-gray-500 text-xs">Tip: In Network tab, find any request to api.spyowl.icu → right-click → Copy as cURL → extract the Cookie header value</p>
+          <p className="text-gray-500 text-xs mt-2">Just the token value — the cookie name is added automatically.</p>
         </div>
 
         {/* Cookie Input */}
         <div className="space-y-3">
-          <label className="text-sm text-gray-300 font-medium">Paste cookie string</label>
+          <label className="text-sm text-gray-300 font-medium">Paste session token value</label>
           <textarea
             value={cookieInput}
             onChange={(e) => setCookieInput(e.target.value)}
-            placeholder="__Secure-spyowl.session_token=...; cf_clearance=..."
-            rows={3}
+            placeholder="oYF9YHzpPbWKx3ighqo8kql..."
+            rows={2}
             className="w-full bg-gray-800/60 border border-gray-700/60 rounded-lg px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/40 font-mono"
           />
           <div className="flex items-center gap-3">

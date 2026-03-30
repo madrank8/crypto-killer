@@ -4,14 +4,18 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
 
-// Fetch SpyOwl cookie from Supabase settings (falls back to env var)
+// Build SpyOwl Cookie header from stored token (Supabase → env var fallback)
 async function getSpyOwlCookie() {
+  let token = ''
   try {
     const rows = await supabaseRequest("/settings?key=eq.spyowl_cookie&select=value")
-    const dbCookie = Array.isArray(rows) && rows[0]?.value ? rows[0].value : ''
-    if (dbCookie) return dbCookie
+    token = Array.isArray(rows) && rows[0]?.value ? rows[0].value.trim() : ''
   } catch { /* fall through */ }
-  return process.env.SPYOWL_COOKIE || ''
+  if (!token) token = process.env.SPYOWL_COOKIE || ''
+  if (!token) return ''
+  // If already has cookie name prefix, use as-is; otherwise prepend it
+  if (token.includes('=')) return token
+  return `__Secure-spyowl.session_token=${token}`
 }
 
 // Supabase Storage public URL for creative images

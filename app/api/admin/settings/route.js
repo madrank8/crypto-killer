@@ -3,6 +3,16 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const SPYOWL_API = 'https://api.spyowl.icu'
 
+/** Build full Cookie header from a raw token value or full cookie string */
+function buildCookieHeader(raw) {
+  if (!raw) return ''
+  const trimmed = raw.trim()
+  // If it already contains '=' it's a full cookie string — use as-is
+  if (trimmed.includes('=')) return trimmed
+  // Otherwise it's just the raw token value — prepend the cookie name
+  return `__Secure-spyowl.session_token=${trimmed}`
+}
+
 /**
  * GET /api/admin/settings
  * Returns settings + SpyOwl cookie health status
@@ -22,18 +32,19 @@ export async function GET(request) {
     }
 
     // Check SpyOwl cookie health
-    const cookie = settings.spyowl_cookie?.value || ''
-    let spyowlStatus = { ok: false, message: 'No cookie set' }
-    if (cookie) {
+    const rawToken = settings.spyowl_cookie?.value || ''
+    const cookieHeader = buildCookieHeader(rawToken)
+    let spyowlStatus = { ok: false, message: 'No token set' }
+    if (cookieHeader) {
       try {
         const res = await fetch(`${SPYOWL_API}/user/me`, {
-          headers: { 'Cookie': cookie },
+          headers: { 'Cookie': cookieHeader },
         })
         if (res.ok) {
           const user = await res.json().catch(() => ({}))
           spyowlStatus = { ok: true, message: `Authenticated as ${user.email || 'unknown'}`, email: user.email }
         } else {
-          spyowlStatus = { ok: false, message: `Auth failed (${res.status}) — cookie expired` }
+          spyowlStatus = { ok: false, message: `Auth failed (${res.status}) — token expired` }
         }
       } catch (e) {
         spyowlStatus = { ok: false, message: `Connection error: ${e.message}` }
@@ -42,8 +53,8 @@ export async function GET(request) {
 
     return Response.json({
       spyowl_cookie: {
-        set: !!cookie,
-        length: cookie.length,
+        set: !!rawToken,
+        length: rawToken.length,
         updated_at: settings.spyowl_cookie?.updated_at,
         status: spyowlStatus,
       },
@@ -84,23 +95,24 @@ export async function POST(request) {
       },
       body: JSON.stringify({
         key,
-        value,
+        value: value.trim(),
         updated_at: new Date().toISOString(),
       }),
     })
 
     // If SpyOwl cookie, verify it immediately
     let verification = null
-    if (key === 'spyowl_cookie' && value) {
+    if (key === 'spyowl_cookie' && value.trim()) {
+      const cookieHeader = buildCookieHeader(value.trim())
       try {
         const res = await fetch(`${SPYOWL_API}/user/me`, {
-          headers: { 'Cookie': value },
+          headers: { 'Cookie': cookieHeader },
         })
         if (res.ok) {
           const user = await res.json().catch(() => ({}))
           verification = { ok: true, message: `Authenticated as ${user.email || 'unknown'}` }
         } else {
-          verification = { ok: false, message: `Auth failed (${res.status}) — check cookie format` }
+          verification = { ok: false, message: `Auth failed (${res.status}) — check token` }
         }
       } catch (e) {
         verification = { ok: false, message: `Connection error: ${e.message}` }
