@@ -601,7 +601,9 @@ ${disclaimerHtml}`
             'Financial Consumer Protection',
             'Digital Advertising Fraud',
           ],
-          sameAs: [],
+          sameAs: [
+            'https://github.com/nicro296/crypto-killer',
+          ],
           subjectOf: {
             '@type': 'WebSite',
             '@id': `${siteUrl}/#website`,
@@ -667,7 +669,7 @@ ${disclaimerHtml}`
           })),
           speakable: {
             '@type': 'SpeakableSpecification',
-            cssSelector: ['.author-byline', 'h2', 'h3'],
+            cssSelector: ['.author-byline', 'h2', 'h3', '.card p:first-of-type'],
           },
         },
         // ── Review Entity (rating) ──
@@ -778,7 +780,7 @@ ${disclaimerHtml}`
       fact_check_status: 'ai_generated',
       disclaimer: reviewContent.disclaimer || null,
       key_takeaways: reviewContent.key_takeaways || [],
-      not_for_you: reviewContent.not_for_you || null,
+      not_for_you: reviewContent.not_for_you || `This review covers the cryptocurrency investment scheme advertising under the name ${brandData.name}. Our analysis is based on ad surveillance data collected by SpyOwl. If you encountered a different product with a similar name through a licensed financial advisor, that may be a separate entity.`,
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
