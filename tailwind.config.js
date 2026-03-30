@@ -10,6 +10,8 @@ module.exports = {
         'dark-bg': '#0a0a0f',
         'dark-surface': '#111118',
         'dark-card': '#1a1a2e',
+        'brand-green': '#00ff88',
+        'brand-red': '#dc2626',
       },
     },
   },

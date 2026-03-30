@@ -6,11 +6,10 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 
-// Dynamic import to avoid SSR issues with TipTap
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ssr: false,
   loading: () => (
-    <div className="border border-gray-700 rounded-lg p-8 text-gray-500 text-center">
+    <div className="border border-gray-700 rounded-lg p-8 text-gray-500 text-center bg-dark-bg">
       Loading editor...
     </div>
   ),
@@ -18,33 +17,38 @@ const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
 
 /* ─── Quality Sidebar ─── */
 function QualityCard({ wordCount, redFlagCount, faqCount, status }) {
-  const getWordCountColor = () => {
-    if (wordCount >= 1800) return 'text-green-400';
-    if (wordCount >= 1000) return 'text-amber-400';
-    return 'text-red-400';
-  };
+  const wordColor = wordCount >= 1800 ? 'text-green-400' : wordCount >= 1000 ? 'text-amber-400' : 'text-red-400';
+  const flagColor = redFlagCount >= 5 ? 'text-green-400' : 'text-amber-400';
+  const faqColor = faqCount >= 5 ? 'text-green-400' : 'text-amber-400';
+
+  const metrics = [
+    { label: 'Words', value: wordCount, color: wordColor, target: '1800+' },
+    { label: 'Red Flags', value: redFlagCount, color: flagColor, target: '5+' },
+    { label: 'FAQs', value: faqCount, color: faqColor, target: '5+' },
+  ];
 
   return (
-    <div className="card border-gray-700">
-      <h3 className="text-lg font-semibold text-white mb-4">Quality</h3>
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <span className="text-gray-400">Words</span>
-          <span className={`font-semibold ${getWordCountColor()}`}>{wordCount}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-gray-400">Red Flags</span>
-          <span className={`font-semibold ${redFlagCount >= 5 ? 'text-green-400' : 'text-amber-400'}`}>{redFlagCount}</span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-gray-400">FAQs</span>
-          <span className={`font-semibold ${faqCount >= 5 ? 'text-green-400' : 'text-amber-400'}`}>{faqCount}</span>
-        </div>
-        <div className="flex justify-between items-center pt-3 border-t border-gray-700">
-          <span className="text-gray-400">Status</span>
-          <span className={status === 'published' ? 'badge badge-success' : 'badge badge-warning'}>
-            {status}
-          </span>
+    <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+      <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Quality Score</h3>
+      <div className="space-y-2.5">
+        {metrics.map((m) => (
+          <div key={m.label} className="flex items-center justify-between">
+            <span className="text-gray-400 text-sm">{m.label}</span>
+            <div className="flex items-center gap-2">
+              <span className={`font-bold text-sm ${m.color}`}>{m.value}</span>
+              <span className="text-gray-600 text-xs">/ {m.target}</span>
+            </div>
+          </div>
+        ))}
+        <div className="pt-2.5 mt-1 border-t border-gray-800">
+          <div className="flex items-center justify-between">
+            <span className="text-gray-400 text-sm">Status</span>
+            <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              status === 'published' ? 'bg-green-950 text-green-300' : 'bg-amber-950 text-amber-300'
+            }`}>
+              {status}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -55,48 +59,51 @@ function QualityCard({ wordCount, redFlagCount, faqCount, status }) {
 function BrandIntelCard({ brand }) {
   if (!brand) return null;
 
+  const stats = [
+    { label: 'Scam Score', value: brand.scam_score, suffix: '/100', color: 'text-red-400' },
+    { label: 'Creatives', value: brand.total_creatives },
+    { label: 'Countries', value: brand.total_geos },
+    { label: 'Celebrities', value: brand.total_celebrities },
+    { label: 'Velocity', value: brand.velocity_7d, suffix: '/wk' },
+  ];
+
   return (
-    <div className="card border-gray-700">
-      <h3 className="text-lg font-semibold text-white mb-4">Brand Intel</h3>
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between">
-          <span className="text-gray-400">Scam Score</span>
-          <span className="text-red-400 font-bold">{brand.scam_score}/100</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-400">Creatives</span>
-          <span className="text-white">{brand.total_creatives}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-400">Countries</span>
-          <span className="text-white">{brand.total_geos}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-400">Celebrities</span>
-          <span className="text-white">{brand.total_celebrities}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-gray-400">7d Velocity</span>
-          <span className="text-white">{brand.velocity_7d}</span>
-        </div>
-        {brand.celebrity_list?.length > 0 && (
-          <div className="pt-2 border-t border-gray-700">
-            <span className="text-gray-400 text-xs">Celebrities:</span>
-            <p className="text-gray-300 text-xs mt-1">
-              {brand.celebrity_list.join(', ')}
-            </p>
+    <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+      <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">Brand Intel</h3>
+      <div className="space-y-2">
+        {stats.map((s) => (
+          <div key={s.label} className="flex items-center justify-between">
+            <span className="text-gray-400 text-sm">{s.label}</span>
+            <span className={`font-semibold text-sm ${s.color || 'text-white'}`}>
+              {s.value}{s.suffix || ''}
+            </span>
           </div>
-        )}
-        {brand.geo_list?.length > 0 && (
-          <div className="pt-2 border-t border-gray-700">
-            <span className="text-gray-400 text-xs">Countries:</span>
-            <p className="text-gray-300 text-xs mt-1">
-              {brand.geo_list.slice(0, 10).join(', ')}
-              {brand.geo_list.length > 10 ? ` +${brand.geo_list.length - 10} more` : ''}
-            </p>
-          </div>
-        )}
+        ))}
       </div>
+      {brand.celebrity_list?.length > 0 && (
+        <div className="pt-3 mt-3 border-t border-gray-800">
+          <p className="text-xs text-gray-500 mb-1">Celebrities used:</p>
+          <div className="flex flex-wrap gap-1">
+            {brand.celebrity_list.slice(0, 8).map((c, i) => (
+              <span key={i} className="text-xs bg-dark-surface px-2 py-0.5 rounded text-gray-400">
+                {c}
+              </span>
+            ))}
+            {brand.celebrity_list.length > 8 && (
+              <span className="text-xs text-gray-600">+{brand.celebrity_list.length - 8}</span>
+            )}
+          </div>
+        </div>
+      )}
+      {brand.geo_list?.length > 0 && (
+        <div className="pt-3 mt-3 border-t border-gray-800">
+          <p className="text-xs text-gray-500 mb-1">Target countries:</p>
+          <p className="text-xs text-gray-400">
+            {brand.geo_list.slice(0, 10).join(', ')}
+            {brand.geo_list.length > 10 ? ` +${brand.geo_list.length - 10}` : ''}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -106,9 +113,9 @@ function EditableList({ items, onItemChange, onItemRemove, onAddItem, itemType }
   const isFlags = itemType === 'flag';
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {items.map((item, idx) => (
-        <div key={idx} className="card bg-dark-surface border-gray-700 p-3 space-y-2">
+        <div key={idx} className="bg-dark-surface border border-gray-800 rounded-lg p-3 space-y-2">
           <input
             type="text"
             value={isFlags ? (item.flag || item.title || '') : (item.question || '')}
@@ -119,7 +126,7 @@ function EditableList({ items, onItemChange, onItemRemove, onAddItem, itemType }
               })
             }
             placeholder={isFlags ? 'Red flag title' : 'Question'}
-            className="search-input w-full text-sm"
+            className="search-input w-full text-sm py-2"
           />
           <textarea
             value={isFlags ? (item.detail || item.description || '') : (item.answer || '')}
@@ -131,14 +138,17 @@ function EditableList({ items, onItemChange, onItemRemove, onAddItem, itemType }
             }
             placeholder={isFlags ? 'Evidence / detail' : 'Answer'}
             rows="2"
-            className="search-input w-full text-sm"
+            className="search-input w-full text-sm py-2"
           />
-          <button onClick={() => onItemRemove(idx)} className="text-red-400 text-xs hover:text-red-300">
+          <button onClick={() => onItemRemove(idx)} className="text-red-400 text-xs hover:text-red-300 transition">
             Remove
           </button>
         </div>
       ))}
-      <button onClick={onAddItem} className="btn btn-secondary w-full text-sm">
+      <button
+        onClick={onAddItem}
+        className="w-full py-2.5 border border-dashed border-gray-700 rounded-lg text-gray-500 hover:text-gray-300 hover:border-gray-600 transition text-sm"
+      >
         + Add {isFlags ? 'Red Flag' : 'FAQ'}
       </button>
     </div>
@@ -151,7 +161,7 @@ function SourceEditor({ html, onChange }) {
     <textarea
       value={html}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full min-h-[500px] p-4 bg-dark-bg border border-gray-700 rounded-lg font-mono text-sm text-gray-200 focus:outline-none focus:border-brand-green"
+      className="w-full min-h-[500px] p-4 bg-dark-bg border border-gray-700 rounded-lg font-mono text-sm text-gray-200 focus:outline-none focus:border-red-500 transition"
       spellCheck={false}
     />
   );
@@ -169,11 +179,11 @@ export default function ReviewEditor({ params }) {
   const [brand, setBrand] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [publishError, setPublishError] = useState('');
 
-  // Editor state
   const [title, setTitle] = useState('');
   const [headline, setHeadline] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
@@ -182,16 +192,10 @@ export default function ReviewEditor({ params }) {
   const [faqs, setFaqs] = useState([]);
   const [verdict, setVerdict] = useState('');
 
-  // View mode: 'visual' or 'source'
   const [viewMode, setViewMode] = useState('visual');
-
-  // Active tab: 'article', 'redflags', 'faqs', 'meta'
   const [activeTab, setActiveTab] = useState('article');
-
-  // Track external content update for TipTap
   const [editorKey, setEditorKey] = useState(0);
 
-  // Fetch review on mount
   useEffect(() => {
     if (!token) return;
 
@@ -223,7 +227,6 @@ export default function ReviewEditor({ params }) {
     fetchReview();
   }, [token, id]);
 
-  // Word count from HTML (strip tags)
   const wordCount = (fullArticle || '')
     .replace(/<[^>]*>/g, ' ')
     .split(/\s+/)
@@ -231,6 +234,7 @@ export default function ReviewEditor({ params }) {
 
   const handleSave = async () => {
     setSaving(true);
+    setSaved(false);
     try {
       const res = await fetch(`/api/admin/reviews/${id}`, {
         method: 'PATCH',
@@ -250,7 +254,12 @@ export default function ReviewEditor({ params }) {
         }),
       });
 
-      if (!res.ok) alert('Error saving');
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        alert('Error saving');
+      }
     } catch (err) {
       console.error('Save error:', err);
       alert('Error saving');
@@ -266,10 +275,7 @@ export default function ReviewEditor({ params }) {
       await handleSave();
       const res = await fetch(`/api/admin/reviews/${id}/publish`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'publish' }),
       });
 
@@ -289,13 +295,9 @@ export default function ReviewEditor({ params }) {
     try {
       const res = await fetch(`/api/admin/reviews/${id}/publish`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'unpublish' }),
       });
-
       if (res.ok) setReview((r) => ({ ...r, status: 'draft' }));
     } catch (err) {
       alert('Error unpublishing');
@@ -303,21 +305,17 @@ export default function ReviewEditor({ params }) {
   };
 
   const handleAIGenerate = async () => {
-    if (!confirm('Generate AI content? This will replace current content with AI-generated text based on brand intelligence data.')) return;
+    if (!confirm('Generate AI content? This will replace all current content.')) return;
 
     setGenerating(true);
     try {
       const res = await fetch('/api/admin/reviews/generate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ brand_id: review.brand_id }),
       });
 
       if (res.ok) {
-        // Re-fetch the review to get AI-generated content
         const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -331,7 +329,6 @@ export default function ReviewEditor({ params }) {
           setRedFlags(data.red_flags || []);
           setFaqs(data.faq || []);
           setVerdict(data.verdict || '');
-          // Force TipTap to reinitialize with new content
           setEditorKey((k) => k + 1);
         }
       } else {
@@ -347,66 +344,89 @@ export default function ReviewEditor({ params }) {
   };
 
   if (loading) {
-    return <div className="py-8 text-gray-400">Loading...</div>;
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex items-center gap-2 text-gray-500">
+          <span className="animate-spin">⟳</span> Loading review...
+        </div>
+      </div>
+    );
   }
 
   if (!review) {
-    return <div className="py-8 text-gray-400">Review not found</div>;
+    return (
+      <div className="text-center py-20">
+        <p className="text-gray-500 mb-4">Review not found</p>
+        <Link href="/admin/reviews" className="text-red-400 hover:text-red-300 text-sm">
+          ← Back to reviews
+        </Link>
+      </div>
+    );
   }
 
   const tabs = [
     { key: 'article', label: 'Article' },
     { key: 'redflags', label: `Red Flags (${redFlags.length})` },
     { key: 'faqs', label: `FAQs (${faqs.length})` },
-    { key: 'meta', label: 'SEO / Meta' },
+    { key: 'meta', label: 'SEO' },
   ];
 
   return (
     <div className="space-y-4">
-      {/* Header Bar */}
+      {/* Top Bar */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/admin" className="text-gray-400 hover:text-white text-sm">
-            ← Dashboard
+        <div className="flex items-center gap-3 min-w-0">
+          <Link href="/admin/reviews" className="text-gray-500 hover:text-gray-300 transition">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
           </Link>
-          <h1 className="text-xl font-bold text-white truncate max-w-md">
+          <h1 className="text-lg font-bold text-white truncate">
             {brand?.name || 'Review'}
           </h1>
-          <span className={review.status === 'published' ? 'badge badge-success' : 'badge badge-warning'}>
+          <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0 ${
+            review.status === 'published' ? 'bg-green-950 text-green-300' : 'bg-amber-950 text-amber-300'
+          }`}>
             {review.status}
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
+          {/* AI Generate */}
           <button
             onClick={handleAIGenerate}
             disabled={generating}
-            className="btn btn-secondary text-sm flex items-center gap-1"
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-600/20 transition"
           >
             {generating ? (
-              <>
-                <span className="animate-spin inline-block">⟳</span> Generating...
-              </>
+              <><span className="animate-spin">⟳</span> Generating...</>
             ) : (
-              '✦ AI Generate'
+              <><span>✦</span> AI Generate</>
             )}
           </button>
+
+          {/* Save */}
           <button
             onClick={handleSave}
             disabled={saving}
-            className="btn btn-secondary text-sm"
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-dark-card text-gray-300 hover:text-white border border-gray-800 hover:border-gray-700 transition"
           >
-            {saving ? 'Saving...' : 'Save Draft'}
+            {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save'}
           </button>
+
+          {/* Publish / Unpublish */}
           {review.status === 'published' ? (
-            <button onClick={handleUnpublish} className="btn btn-secondary text-sm">
+            <button
+              onClick={handleUnpublish}
+              className="text-sm font-medium px-4 py-2 rounded-lg text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700 transition"
+            >
               Unpublish
             </button>
           ) : (
             <button
               onClick={handlePublish}
               disabled={publishing}
-              className="btn btn-primary text-sm"
+              className="text-sm font-semibold px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition"
             >
               {publishing ? 'Publishing...' : 'Publish'}
             </button>
@@ -415,46 +435,46 @@ export default function ReviewEditor({ params }) {
       </div>
 
       {publishError && (
-        <div className="p-2 bg-red-900/20 border border-red-500 rounded text-red-400 text-sm">
+        <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
           {publishError}
         </div>
       )}
 
       {/* Layout: Editor + Sidebar */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left: Editor */}
-        <div className="col-span-8 space-y-4">
+      <div className="grid grid-cols-12 gap-5">
+        {/* Editor Column */}
+        <div className="col-span-8 space-y-3">
           {/* Tab Bar */}
-          <div className="flex gap-1 border-b border-gray-700 pb-1">
+          <div className="flex items-center gap-1 bg-dark-card border border-gray-800 rounded-xl p-1">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-4 py-2 text-sm rounded-t transition ${
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition ${
                   activeTab === tab.key
-                    ? 'bg-dark-surface text-white border-b-2 border-brand-green'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-white/10 text-white'
+                    : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
                 {tab.label}
               </button>
             ))}
 
-            {/* Visual / HTML toggle for article tab */}
+            {/* Visual / HTML toggle */}
             {activeTab === 'article' && (
               <div className="ml-auto flex gap-1">
                 <button
                   onClick={() => setViewMode('visual')}
-                  className={`px-3 py-1 text-xs rounded ${
-                    viewMode === 'visual' ? 'bg-brand-green text-black' : 'bg-dark-surface text-gray-400'
+                  className={`px-3 py-1.5 text-xs rounded-lg transition ${
+                    viewMode === 'visual' ? 'bg-white/10 text-white' : 'text-gray-600 hover:text-gray-400'
                   }`}
                 >
                   Visual
                 </button>
                 <button
                   onClick={() => setViewMode('source')}
-                  className={`px-3 py-1 text-xs rounded ${
-                    viewMode === 'source' ? 'bg-brand-green text-black' : 'bg-dark-surface text-gray-400'
+                  className={`px-3 py-1.5 text-xs rounded-lg transition ${
+                    viewMode === 'source' ? 'bg-white/10 text-white' : 'text-gray-600 hover:text-gray-400'
                   }`}
                 >
                   HTML
@@ -465,18 +485,16 @@ export default function ReviewEditor({ params }) {
 
           {/* Tab Content */}
           {activeTab === 'article' && (
-            <div>
-              {viewMode === 'visual' ? (
-                <TipTapEditor
-                  key={editorKey}
-                  content={fullArticle}
-                  onChange={setFullArticle}
-                  placeholder="Start writing your review article... Use the toolbar to format text, add headings, lists, links, and images."
-                />
-              ) : (
-                <SourceEditor html={fullArticle} onChange={setFullArticle} />
-              )}
-            </div>
+            viewMode === 'visual' ? (
+              <TipTapEditor
+                key={editorKey}
+                content={fullArticle}
+                onChange={setFullArticle}
+                placeholder="Start writing your review... Use AI Generate to auto-fill from brand intelligence."
+              />
+            ) : (
+              <SourceEditor html={fullArticle} onChange={setFullArticle} />
+            )
           )}
 
           {activeTab === 'redflags' && (
@@ -508,60 +526,56 @@ export default function ReviewEditor({ params }) {
           )}
 
           {activeTab === 'meta' && (
-            <div className="space-y-4">
+            <div className="bg-dark-card border border-gray-800 rounded-xl p-5 space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Title ({title.length}/60)
+                <label className="block text-sm text-gray-400 mb-1.5">
+                  Title <span className="text-gray-600">({title.length}/60)</span>
                 </label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value.substring(0, 60))}
                   placeholder="SEO title"
-                  className="search-input w-full"
+                  className="search-input w-full text-sm py-2"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Headline
-                </label>
+                <label className="block text-sm text-gray-400 mb-1.5">Headline</label>
                 <input
                   type="text"
                   value={headline}
                   onChange={(e) => setHeadline(e.target.value)}
                   placeholder="Main headline"
-                  className="search-input w-full"
+                  className="search-input w-full text-sm py-2"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Meta Description ({metaDescription.length}/155)
+                <label className="block text-sm text-gray-400 mb-1.5">
+                  Meta Description <span className="text-gray-600">({metaDescription.length}/155)</span>
                 </label>
                 <textarea
                   value={metaDescription}
                   onChange={(e) => setMetaDescription(e.target.value.substring(0, 155))}
-                  placeholder="Meta description for SEO"
+                  placeholder="Meta description for search engines"
                   rows="3"
-                  className="search-input w-full"
+                  className="search-input w-full text-sm py-2"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Verdict
-                </label>
+                <label className="block text-sm text-gray-400 mb-1.5">Verdict</label>
                 <textarea
                   value={verdict}
                   onChange={(e) => setVerdict(e.target.value)}
                   placeholder="Final verdict paragraph"
-                  rows="5"
-                  className="search-input w-full"
+                  rows="4"
+                  className="search-input w-full text-sm py-2"
                 />
               </div>
             </div>
           )}
         </div>
 
-        {/* Right: Sidebar */}
+        {/* Sidebar */}
         <div className="col-span-4 space-y-4">
           <QualityCard
             wordCount={wordCount}

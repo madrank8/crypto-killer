@@ -137,6 +137,12 @@ tbody tr {
   background: #505060;
 }
 
+/* ─── Admin Scrollable Areas ─── */
+.admin-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: #404050 transparent;
+}
+
 /* ─── TipTap Editor Styles ─── */
 .tiptap {
   min-height: 500px;
