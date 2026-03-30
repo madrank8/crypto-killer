@@ -153,13 +153,13 @@ OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for 
   "title": "SEO title under 60 chars. Format: Is {Brand} a Scam? {Score}/100 Threat Score [{Year}]",
   "headline": "H1 headline. Format: {Brand} Review: {N} Red Flags Exposed by SpyOwl Intelligence",
   "meta_description": "Under 155 chars. Must include: brand name, scam score, key evidence count, current year.",
-  "summary": "BLUF opening paragraph (150-200 words). RULE: Answer the searcher's question in the FIRST sentence using declaration-first structure. Example: '{Brand} is a confirmed crypto scam with a {score}/100 threat score, based on {N} ad creatives detected across {N} countries.' Follow with 3-4 EAV triplets citing specific data. This paragraph is the primary AI Overview extraction target — every sentence must be standalone and make sense without context.",
+  "summary": "BLUF opening paragraph (80-100 words). RULE: Answer the searcher's question in the FIRST sentence using declaration-first structure. Example: '{Brand} is a confirmed crypto scam with a {score}/100 threat score, based on {N} ad creatives detected across {N} countries.' Follow with 2-3 EAV triplets citing specific data. This paragraph is the primary AI Overview extraction target — every sentence must be standalone and make sense without context.",
   "key_takeaways": ["5-6 bullet points. Each must contain a specific number from the intelligence data. Declaration-first. These appear right after the intro as the BLUF summary."],
-  "how_it_works": "250-350 words explaining the scam mechanics. Structure as a 4-step process: (1) Celebrity bait — fake endorsement ads using {celebrity names}, (2) Geo-targeting — ads served in {N} countries including {examples}, (3) The funnel — fake testimonials, urgency pressure, minimum deposit, (4) The trap — no withdrawals, account lockout, fake support. Each step must cite specific intelligence data. Use domain-specific verbs: 'targets', 'deploys', 'impersonates', 'funnels', 'exploits'. Vary sentence rhythm — mix 8-word declaratives with 20-word compound sentences.",
+  "how_it_works": "250-350 words explaining the scam mechanics. Structure as a 4-step process: (1) Celebrity bait — fake endorsement ads using {celebrity names}, (2) Geo-targeting — ads served in {N} countries including {examples}, (3) The funnel — fake testimonials, urgency pressure, minimum deposit, (4) The trap — no withdrawals, account lockout, fake support. Each step must cite specific intelligence data. Use domain-specific verbs: 'targets', 'deploys', 'impersonates', 'funnels', 'exploits'. Vary sentence rhythm — mix 8-word declaratives with 20-word compound sentences. CRITICAL: Use \\n\\n between each stage to create paragraph breaks. Each stage should be its own paragraph, not one wall of text.",
   "red_flags": [{"flag": "Specific red flag title (under 8 words)", "detail": "70-100 words of evidence. MUST cite at least 2 specific numbers from intelligence data. Declaration-first. Include entity names (celebrities, countries, dates). End with a verdict statement."}],
   "protection_steps": "150-200 words. Actionable steps for readers: (1) Report to IC3.gov and local authorities, (2) Contact your bank for chargeback within 60 days, (3) File FTC complaint at ReportFraud.ftc.gov, (4) Document everything — screenshots of ads, transaction records, communications. Include specific org names and URLs.",
   "not_for_you": "80-120 words. The 'Not For You' block — name specific scenarios where this review may NOT apply. Example: 'This review covers the crypto investment scheme using the name {Brand}. If you encountered a different product with a similar name in a regulated market, or if {Brand} contacted you through a licensed financial advisor with verifiable credentials, that may be a separate entity. Our analysis is based on ad surveillance data from SpyOwl — it covers paid advertising campaigns, not organic search results or direct referrals.' This is a trust signal — the single strongest E-E-A-T differentiator.",
-  "verdict": "100-150 words. Final assessment paragraph. Restate the threat score, total evidence volume, and geographic spread. End with: 'Based on {N} ad creatives detected across {N} countries over {N} days, {Brand} exhibits every hallmark of a crypto investment scam.' No generic advice — be specific.",
+  "verdict": "100-150 words. Final assessment paragraph. Restate the threat score, total evidence volume, and geographic spread. End with: 'Based on {N} ad creatives detected across {N} countries over {N} days, {Brand} exhibits every hallmark of a crypto investment scam.' No generic advice — be specific. Structure as 3 short punchy paragraphs separated by \\n\\n, not one block.",
   "faq": [{"question": "Natural question matching real search queries. Use formats: 'Is {Brand} legit or a scam?', 'Can I get my money back from {Brand}?', 'Is {Brand} regulated?', 'How does the {Brand} scam work?', 'Who is behind {Brand}?', 'What do {Brand} reviews say?', 'Has anyone made money with {Brand}?', 'How to report {Brand} scam?'", "answer": "40-60 words. CRITICAL: Each answer is an extractive AI Overview target. Must be standalone — makes complete sense without the question. Declaration-first. Include one specific data point. End with a concrete action or fact."}],
 
   "methodology": "150-200 words. EXPERIENCE SIGNAL — explain HOW the review was conducted. Structure: (1) Data collection — SpyOwl ad surveillance scanned {N} ad networks between {first_seen} and {last_seen}, capturing {total_creatives} creative assets. (2) Analysis — Each creative was classified by geo-targeting, celebrity impersonation, and offer language. (3) Cross-referencing — Brand claims were checked against regulatory databases (FCA, SEC EDGAR, ASIC, CySEC). (4) Pattern matching — Ad behavior was compared against 500+ known crypto scam campaigns in our database. (5) Scoring — The {score}/100 threat score reflects ad volume, celebrity abuse, geographic spread, and regulatory absence. End with: 'This methodology is applied consistently across all Crypto Killer investigations.' This section is the primary E-E-A-T Experience signal.",
@@ -464,9 +464,24 @@ E-E-A-T CRITICAL REQUIREMENTS:
       .map(t => `<li>${escHtml(t)}</li>`)
       .join('\n')
 
+    // Red flag icon mapping based on keywords
+    const getRedFlagIcon = (flag) => {
+      const f = (flag || '').toLowerCase()
+      if (f.includes('celebrit') || f.includes('deepfake') || f.includes('impersonat')) return '🎭'
+      if (f.includes('countr') || f.includes('geo') || f.includes('global')) return '🌍'
+      if (f.includes('withdraw') || f.includes('deposit') || f.includes('payment') || f.includes('fund')) return '🔒'
+      if (f.includes('regulat') || f.includes('licen') || f.includes('compliance')) return '⚖️'
+      if (f.includes('ad ') || f.includes('creative') || f.includes('campaign') || f.includes('advertis')) return '📢'
+      if (f.includes('testimonial') || f.includes('fake review') || f.includes('social proof')) return '👤'
+      if (f.includes('pressure') || f.includes('urgency') || f.includes('limited')) return '⏰'
+      if (f.includes('company') || f.includes('register') || f.includes('address') || f.includes('contact')) return '🏢'
+      if (f.includes('video') || f.includes('youtube')) return '🎬'
+      return '🚩'
+    }
+
     // Red flags HTML
     const redFlagsHtml = (reviewContent.red_flags || [])
-      .map(rf => `<li><strong>${escHtml(rf.flag)}</strong> — ${escHtml(rf.detail)}</li>`)
+      .map(rf => `<li>${getRedFlagIcon(rf.flag)} <strong>${escHtml(rf.flag)}</strong> — ${escHtml(rf.detail)}</li>`)
       .join('\n')
 
     // FAQ HTML with proper semantic structure (optimized for AI extraction)
@@ -520,7 +535,7 @@ E-E-A-T CRITICAL REQUIREMENTS:
     let fullArticle = `${authorBylineTemplate}
 
 <h2>${escHtml(brandData.name)}: Investigation Summary</h2>
-<p>${escHtml(reviewContent.summary)}</p>
+${(escHtml(reviewContent.summary) || '').split(/\\n\\n/).filter(p => p.trim()).map(p => `<p>${p.trim()}</p>`).join('\n')}
 
 <h3>Key Takeaways</h3>
 <ul>
@@ -547,8 +562,28 @@ ${experienceSignalsHtml}
 </tbody>
 </table>
 
+${(brandData.geo_list || []).length > 0 ? `<h3>Geographic Targeting Breakdown</h3>
+<table>
+<thead><tr><th>Region</th><th>Countries</th></tr></thead>
+<tbody>
+${(() => {
+  const geos = brandData.geo_list || []
+  const regions = { 'Europe': [], 'Asia': [], 'Americas': [], 'Africa': [], 'Oceania': [], 'Other': [] }
+  const regionMap = { 'GB': 'Europe', 'DE': 'Europe', 'FR': 'Europe', 'IT': 'Europe', 'ES': 'Europe', 'NL': 'Europe', 'PL': 'Europe', 'SE': 'Europe', 'AT': 'Europe', 'CH': 'Europe', 'BE': 'Europe', 'CZ': 'Europe', 'DK': 'Europe', 'FI': 'Europe', 'NO': 'Europe', 'IE': 'Europe', 'PT': 'Europe', 'RO': 'Europe', 'HU': 'Europe', 'GR': 'Europe', 'SK': 'Europe', 'BG': 'Europe', 'HR': 'Europe', 'SI': 'Europe', 'LT': 'Europe', 'LV': 'Europe', 'EE': 'Europe', 'US': 'Americas', 'CA': 'Americas', 'BR': 'Americas', 'MX': 'Americas', 'AR': 'Americas', 'CO': 'Americas', 'CL': 'Americas', 'PE': 'Americas', 'IN': 'Asia', 'JP': 'Asia', 'KR': 'Asia', 'SG': 'Asia', 'MY': 'Asia', 'TH': 'Asia', 'PH': 'Asia', 'ID': 'Asia', 'VN': 'Asia', 'TW': 'Asia', 'HK': 'Asia', 'AU': 'Oceania', 'NZ': 'Oceania', 'ZA': 'Africa', 'NG': 'Africa', 'KE': 'Africa', 'EG': 'Africa' }
+  geos.forEach(g => { const r = regionMap[g] || 'Other'; regions[r].push(g) })
+  return Object.entries(regions).filter(([,v]) => v.length > 0).map(([region, countries]) =>
+    `<tr><td><strong>${region}</strong></td><td>${countries.join(', ')} (${countries.length})</td></tr>`
+  ).join('\n')
+})()}
+</tbody>
+</table>` : ''}
+
 <h2>How the ${escHtml(brandData.name)} Scam Works</h2>
-<p>${escHtml(reviewContent.how_it_works)}</p>
+${(escHtml(reviewContent.how_it_works) || '').split(/\\n\\n|Stage \d+:|Step \d+:/).filter(p => p.trim()).map((para, i) => {
+      const stageLabels = ['Stage 1: Celebrity Bait', 'Stage 2: Geo-Targeting & Social Proof', 'Stage 3: The Funnel', 'Stage 4: The Trap']
+      const label = i > 0 && i <= 4 ? `<h3>${stageLabels[i-1] || 'Stage ' + i}</h3>` : ''
+      return `${label}<p>${para.trim()}</p>`
+    }).join('\n')}
 ${howItWorksImagesHtml}
 
 <h2>Red Flags: ${(reviewContent.red_flags || []).length} Warning Signs</h2>
@@ -557,8 +592,12 @@ ${redFlagsHtml}
 </ol>
 ${redFlagImagesHtml}
 
-<h2>What To Do If You've Been Targeted</h2>
-<p>${protectionHtml}</p>
+<h2>🛡️ What To Do If You've Been Targeted</h2>
+<div class="protection-box" style="border:1px solid rgba(34,197,94,0.3);padding:1.5rem;border-radius:8px;margin:1.5rem 0;background:rgba(34,197,94,0.03);">
+${(protectionHtml || '').split(/\(\d+\)|\d+\./).filter(p => p.trim()).map((step, i) =>
+  i === 0 ? `<p>${step.trim()}</p>` : `<p><strong>Step ${i}:</strong> ${step.trim()}</p>`
+).join('\n')}
+</div>
 
 ${notForYouHtml ? `<h2>When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
 
@@ -566,8 +605,11 @@ ${notForYouHtml ? `<h2>When This Review May Not Apply</h2>\n${notForYouHtml}` : 
 ${faqHtml}
 ${extraImagesHtml}
 
-<h2>${escHtml(brandData.name)}: Final Verdict</h2>
-<p>${escHtml(reviewContent.verdict)}</p>
+<h2>⚠️ ${escHtml(brandData.name)}: Final Verdict</h2>
+<div class="verdict-box" style="border-left:4px solid #ef4444;padding:1rem 1.5rem;margin:2rem 0;background:rgba(239,68,68,0.05);border-radius:0 8px 8px 0;">
+${(escHtml(reviewContent.verdict) || '').split(/\\n\\n/).filter(p => p.trim()).map(p => `<p>${p.trim()}</p>`).join('\n')}
+<p style="font-size:1.25rem;font-weight:bold;margin-top:1rem;">Threat Score: ${brandData.scam_score}/100 — ${brandData.scam_score >= 80 ? 'CONFIRMED SCAM' : brandData.scam_score >= 50 ? 'HIGH RISK' : 'SUSPICIOUS'}</p>
+</div>
 
 ${sourcesHtml}
 
