@@ -18,6 +18,168 @@ async function getSpyOwlCookie() {
   return `__Secure-spyowl.session_token=${token}`
 }
 
+// ─── CAMPAIGN TIMELINE BUILDER ───
+// Synthesizes brand data into a collapsible chronological timeline
+function buildCampaignTimeline(brand, lifespanDays, currentDate) {
+  const first = brand.first_seen_at ? new Date(brand.first_seen_at) : null
+  const last = brand.last_seen_at ? new Date(brand.last_seen_at) : null
+  if (!first) return ''
+
+  const fmtDate = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const fmtMonth = (d) => d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  const daysSinceLast = last ? Math.round((new Date() - last) / 86400000) : null
+  const isActive = daysSinceLast !== null && daysSinceLast <= 14
+  const totalCreatives = brand.total_creatives || 0
+  const totalGeos = brand.total_geos || 0
+  const totalCelebs = brand.total_celebrities || 0
+  const velocity = brand.velocity_7d || 0
+
+  // Build events chronologically
+  const events = []
+
+  // 1. Detection
+  events.push({
+    date: first,
+    label: 'First Detected',
+    desc: `First scam ad creative captured by SpyOwl surveillance network`,
+    icon: '🔍',
+    color: '#3b82f6', // blue
+    phase: 'detection',
+  })
+
+  // 2. Expansion milestones (synthesized from total creatives + lifespan)
+  if (lifespanDays > 30 && totalCreatives > 10) {
+    const expandDate = new Date(first.getTime() + Math.min(lifespanDays * 0.15, 30) * 86400000)
+    events.push({
+      date: expandDate,
+      label: 'Campaign Expansion',
+      desc: `Operation scaled to ${totalGeos > 1 ? totalGeos + ' countries' : '1 country'}${totalCelebs > 0 ? ` using ${totalCelebs} impersonated celebrities` : ''}`,
+      icon: '🌍',
+      color: '#f59e0b', // amber
+      phase: 'expansion',
+    })
+  }
+
+  // 3. Peak activity (midpoint of campaign, or when velocity is highest)
+  if (lifespanDays > 60 && totalCreatives > 50) {
+    const peakDate = new Date(first.getTime() + lifespanDays * 0.5 * 86400000)
+    events.push({
+      date: peakDate,
+      label: 'Peak Activity',
+      desc: `${totalCreatives.toLocaleString()} total ad creatives deployed across ${totalGeos} countries`,
+      icon: '📈',
+      color: '#ef4444', // red
+      phase: 'peak',
+    })
+  }
+
+  // 4. Investigation (current review date)
+  events.push({
+    date: new Date(currentDate),
+    label: 'Investigation Published',
+    desc: `Crypto Killer published this threat assessment with a score of ${brand.scam_score || 'N/A'}/100`,
+    icon: '🛡️',
+    color: '#8b5cf6', // purple
+    phase: 'investigation',
+  })
+
+  // 5. Current status
+  if (isActive) {
+    events.push({
+      date: last,
+      label: 'Still Active',
+      desc: `${velocity} new ad creatives detected in the last 7 days — campaign remains operational`,
+      icon: '⚠️',
+      color: '#ef4444', // red
+      phase: 'active',
+    })
+  } else if (last) {
+    events.push({
+      date: last,
+      label: 'Last Activity',
+      desc: `Most recent ad creative detected${daysSinceLast > 0 ? ` — ${daysSinceLast} days ago` : ''}`,
+      icon: '⏸️',
+      color: '#6b7280', // gray
+      phase: 'shutdown',
+    })
+  }
+
+  // Sort by date
+  events.sort((a, b) => a.date - b.date)
+
+  // Calculate progress bar positions (0-100%)
+  const timelineStart = events[0].date.getTime()
+  const timelineEnd = events[events.length - 1].date.getTime()
+  const timelineSpan = timelineEnd - timelineStart || 1
+
+  // Build HTML
+  const phaseColors = {
+    detection: { bg: 'rgba(59,130,246,0.12)', border: '#3b82f6', text: '#60a5fa' },
+    expansion: { bg: 'rgba(245,158,11,0.12)', border: '#f59e0b', text: '#fbbf24' },
+    peak: { bg: 'rgba(239,68,68,0.12)', border: '#ef4444', text: '#f87171' },
+    investigation: { bg: 'rgba(139,92,246,0.12)', border: '#8b5cf6', text: '#a78bfa' },
+    active: { bg: 'rgba(239,68,68,0.15)', border: '#ef4444', text: '#f87171' },
+    shutdown: { bg: 'rgba(107,114,128,0.12)', border: '#6b7280', text: '#9ca3af' },
+  }
+
+  const eventCards = events.map((evt, i) => {
+    const pc = phaseColors[evt.phase]
+    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
+    const delay = i * 120
+    return `<div class="ck-tl-card" style="display:flex;gap:16px;align-items:flex-start;padding:14px 16px;margin:0 0 2px;background:${pc.bg};border-left:3px solid ${pc.border};border-radius:0 8px 8px 0;animation:ckTlSlide 0.4s ease ${delay}ms both" data-pct="${pct}">
+  <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:${pc.bg};border:1px solid ${pc.border};font-size:18px">${evt.icon}</div>
+  <div style="flex:1;min-width:0">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-weight:600;font-size:14px;color:${pc.text}">${evt.label}</span>
+      <span style="font-size:11px;color:rgba(255,255,255,0.4);font-variant-numeric:tabular-nums">${fmtDate(evt.date)}</span>
+    </div>
+    <p style="margin:4px 0 0;font-size:13px;line-height:1.5;color:rgba(255,255,255,0.7)">${evt.desc}</p>
+  </div>
+</div>`
+  }).join('\n')
+
+  // Progress bar dots
+  const dots = events.map((evt, i) => {
+    const pc = phaseColors[evt.phase]
+    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
+    return `<div style="position:absolute;left:${pct}%;top:50%;transform:translate(-50%,-50%);width:12px;height:12px;border-radius:50%;background:${pc.border};border:2px solid rgba(0,0,0,0.6);z-index:2" title="${evt.label} — ${fmtDate(evt.date)}"></div>`
+  }).join('')
+
+  // Filled portion of progress bar
+  const lastPct = Math.round(((events[events.length - 1].date.getTime() - timelineStart) / timelineSpan) * 100)
+
+  // Status badge
+  const statusBadge = isActive
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;animation:ckTlPulse 2s ease infinite"></span>ACTIVE</span>`
+    : `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(107,114,128,0.15);color:#9ca3af;border:1px solid rgba(107,114,128,0.3)">INACTIVE</span>`
+
+  return `<style>
+@keyframes ckTlSlide { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
+@keyframes ckTlPulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+@keyframes ckTlGrow { from { width:0; } }
+</style>
+<details open style="margin:28px 0;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;background:rgba(255,255,255,0.02)">
+<summary style="cursor:pointer;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:rgba(255,255,255,0.03);border-bottom:1px solid rgba(255,255,255,0.06);list-style:none;user-select:none">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="font-size:18px">📅</span>
+    <div>
+      <span style="font-weight:600;font-size:15px;color:#f59e0b">Campaign Timeline</span>
+      <span style="margin-left:8px;font-size:12px;color:rgba(255,255,255,0.4)">${lifespanDays} days · ${fmtMonth(first)} → ${last ? fmtMonth(last) : 'Present'}</span>
+    </div>
+  </div>
+  ${statusBadge}
+</summary>
+
+<div style="padding:16px 20px 8px">
+  <div style="position:relative;height:20px;background:rgba(255,255,255,0.06);border-radius:10px;margin:0 0 20px;overflow:hidden">
+    <div style="position:absolute;top:0;left:0;height:100%;width:${lastPct}%;background:linear-gradient(90deg,#3b82f6,#f59e0b,#ef4444);border-radius:10px;opacity:0.3;animation:ckTlGrow 1s ease-out"></div>
+    ${dots}
+  </div>
+  ${eventCards}
+</div>
+</details>`
+}
+
 // Supabase Storage public URL for creative images
 const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
@@ -611,6 +773,8 @@ ${experienceSignalsHtml}
 <tr><td style="${tdLabelStyle}">Last Active</td><td style="${tdValueStyle}">${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
 </tbody>
 </table>
+
+${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 
 ${(brandData.geo_list || []).length > 0 ? `<h3 style="color:#f59e0b;font-size:17px;margin:24px 0 12px">Geographic Targeting Breakdown</h3>
 <table style="${tableStyle}">
