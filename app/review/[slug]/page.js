@@ -93,9 +93,9 @@ function ScamScoreGauge({ score }) {
 
 export default async function ReviewPage({ params }) {
   try {
-    // Fetch review with brand data
+    // Fetch review with brand data + E-E-A-T fields
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id`
+      `/reviews?slug=eq.${params.slug}&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -132,50 +132,95 @@ export default async function ReviewPage({ params }) {
       }
     }
 
-    const redFlags = review.red_flags || {}
-    const redFlagEntries = Object.entries(redFlags).slice(0, 8)
+    // Parse red_flags — handle both array and object formats
+    const redFlags = Array.isArray(review.red_flags)
+      ? review.red_flags
+      : typeof review.red_flags === 'string'
+        ? (() => { try { const p = JSON.parse(review.red_flags); return Array.isArray(p) ? p : Object.entries(p).map(([k, v]) => ({ flag: k, detail: v })); } catch { return []; } })()
+        : typeof review.red_flags === 'object' && review.red_flags
+          ? Object.entries(review.red_flags).map(([k, v]) => ({ flag: k, detail: typeof v === 'string' ? v : '' }))
+          : []
 
-    // Prepare JSON-LD ClaimReview schema
-    const claimReviewSchema = {
-      '@context': 'https://schema.org',
-      '@type': 'ClaimReview',
-      claimReviewed: `${brand?.name || 'This platform'} is a legitimate trading platform`,
-      author: {
-        '@type': 'Organization',
-        name: 'Crypto Killer',
-        url: 'https://crypto-killer.com',
-      },
-      reviewRating: {
-        '@type': 'Rating',
-        ratingValue: review.scam_score || 50,
-        bestRating: '100',
-        worstRating: '0',
-      },
-      datePublished: new Date().toISOString(),
-      alternativeHeadline: review.headline,
-      text: review.summary,
-      reviewBody: review.verdict,
+    // Parse FAQ — handle array or string
+    const faqItems = Array.isArray(review.faq)
+      ? review.faq
+      : typeof review.faq === 'string'
+        ? (() => { try { const p = JSON.parse(review.faq); return Array.isArray(p) ? p : []; } catch { return []; } })()
+        : []
+
+    // Parse sources, key_takeaways, experience_signals
+    const safeJsonArray = (val) => {
+      if (Array.isArray(val)) return val
+      if (typeof val === 'string') { try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; } }
+      return []
     }
+    const sources = safeJsonArray(review.sources)
+    const keyTakeaways = safeJsonArray(review.key_takeaways)
+    const experienceSignals = safeJsonArray(review.experience_signals)
+    const trustIndicators = typeof review.trust_indicators === 'object' && review.trust_indicators ? review.trust_indicators : {}
+
+    // Use schema_json from database (E-E-A-T enhanced @graph) or fallback
+    const schemaJson = review.schema_json || null
+
+    // Publish date
+    const publishDate = review.published_at || review.created_at || review.review_date
+    const formattedDate = publishDate
+      ? new Date(publishDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : null
 
     return (
       <div className="bg-dark-bg text-gray-100 min-h-screen">
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(claimReviewSchema),
-          }}
-        />
+        {/* JSON-LD Schema — full E-E-A-T @graph from database */}
+        {schemaJson && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(schemaJson),
+            }}
+          />
+        )}
 
         {/* Header */}
         <div className="bg-dark-surface border-b border-gray-800">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <Link href="/scams" className="text-red-500 hover:text-red-400 text-sm font-semibold mb-4 inline-block">
-              ← Back to All Scams
+              &larr; Back to All Scams
             </Link>
             <h1 className="text-4xl font-bold text-white mb-2">{review.title}</h1>
             {review.headline && (
               <p className="text-xl text-gray-300">{review.headline}</p>
             )}
+
+            {/* Author Byline — E-E-A-T Experience + Expertise signal */}
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-gray-400">
+              <span className="text-gray-300 font-medium">
+                {review.author_name || 'Crypto Killer Research Team'}
+              </span>
+              {review.author_credentials && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <span>{review.author_credentials}</span>
+                </>
+              )}
+              {formattedDate && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <time dateTime={publishDate}>{formattedDate}</time>
+                </>
+              )}
+              {review.word_count && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <span>{Math.ceil(review.word_count / 250)} min read</span>
+                </>
+              )}
+              {review.fact_check_status && review.fact_check_status !== 'ai_generated' && (
+                <>
+                  <span className="text-gray-600">·</span>
+                  <span className="text-green-400">Fact-checked</span>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -205,25 +250,65 @@ export default async function ReviewPage({ params }) {
               {/* Summary */}
               {review.summary && (
                 <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Overview</h2>
+                  <h2 className="text-2xl font-bold text-white mb-4">Investigation Summary</h2>
                   <p className="text-gray-300 leading-relaxed">{review.summary}</p>
                 </div>
               )}
 
+              {/* Key Takeaways — BLUF for scanners */}
+              {keyTakeaways.length > 0 && (
+                <div className="card mb-8 border-l-4 border-blue-500">
+                  <h2 className="text-2xl font-bold text-white mb-4">Key Takeaways</h2>
+                  <ul className="space-y-2">
+                    {keyTakeaways.map((t, i) => (
+                      <li key={i} className="flex items-start gap-2 text-gray-300">
+                        <span className="text-blue-400 mt-1 flex-shrink-0">&#x2713;</span>
+                        <span>{typeof t === 'string' ? t : t.text || ''}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Methodology — E-E-A-T Experience signal */}
+              {review.methodology && (
+                <div className="card mb-8 bg-gray-900/50">
+                  <h2 className="text-2xl font-bold text-white mb-4">Our Investigation Methodology</h2>
+                  <div className="text-gray-300 leading-relaxed space-y-4">
+                    {review.methodology.split('\n').filter(Boolean).map((paragraph, idx) => (
+                      <p key={idx}>{paragraph}</p>
+                    ))}
+                  </div>
+                  {experienceSignals.length > 0 && (
+                    <div className="mt-6 pt-4 border-t border-gray-700">
+                      <h3 className="text-lg font-semibold text-white mb-3">Key Investigation Findings</h3>
+                      <ul className="space-y-2">
+                        {experienceSignals.map((signal, i) => (
+                          <li key={i} className="flex items-start gap-2 text-gray-300 text-sm">
+                            <span className="text-amber-400 mt-0.5 flex-shrink-0">&#x1F50D;</span>
+                            <span>{typeof signal === 'string' ? signal : signal.text || ''}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Red Flags */}
-              {redFlagEntries.length > 0 && (
+              {redFlags.length > 0 && (
                 <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-6">Red Flags</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {redFlagEntries.map(([key, value]) => (
-                      <div key={key} className="flex items-start space-x-3 p-3 bg-dark-surface rounded border border-gray-800">
-                        <span className="text-red-500 text-xl flex-shrink-0">⚠️</span>
+                  <h2 className="text-2xl font-bold text-white mb-6">Red Flags: {redFlags.length} Warning Signs</h2>
+                  <div className="space-y-4">
+                    {redFlags.map((rf, i) => (
+                      <div key={i} className="flex items-start space-x-3 p-4 bg-dark-surface rounded border border-gray-800">
+                        <span className="text-red-500 text-xl flex-shrink-0 mt-0.5">&#x26A0;&#xFE0F;</span>
                         <div>
-                          <h3 className="font-semibold text-white text-sm capitalize">
-                            {key.replace(/_/g, ' ')}
+                          <h3 className="font-semibold text-white">
+                            {rf.flag || (typeof rf === 'string' ? rf : `Red Flag ${i + 1}`)}
                           </h3>
-                          {typeof value === 'string' && (
-                            <p className="text-gray-400 text-xs mt-1">{value}</p>
+                          {rf.detail && (
+                            <p className="text-gray-400 text-sm mt-1 leading-relaxed">{rf.detail}</p>
                           )}
                         </div>
                       </div>
@@ -237,8 +322,45 @@ export default async function ReviewPage({ params }) {
                 <div className="card mb-8">
                   <h2 className="text-2xl font-bold text-white mb-4">How This Scam Works</h2>
                   <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.how_it_works.split('\n\n').map((paragraph, idx) => (
+                    {review.how_it_works.split('\n').filter(Boolean).map((paragraph, idx) => (
                       <p key={idx}>{paragraph}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Protection Steps */}
+              {review.protection_steps && (
+                <div className="card mb-8 border-l-4 border-green-600">
+                  <h2 className="text-2xl font-bold text-white mb-4">What To Do If You&apos;ve Been Targeted</h2>
+                  <div className="text-gray-300 leading-relaxed space-y-4">
+                    {review.protection_steps.split('\n').filter(Boolean).map((paragraph, idx) => (
+                      <p key={idx}>{paragraph}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Not For You — Trust signal */}
+              {review.not_for_you && (
+                <div className="card mb-8 bg-gray-900/50 border border-gray-700">
+                  <h2 className="text-2xl font-bold text-white mb-4">When This Review May Not Apply</h2>
+                  <blockquote className="text-gray-300 leading-relaxed border-l-4 border-gray-600 pl-4">
+                    {review.not_for_you}
+                  </blockquote>
+                </div>
+              )}
+
+              {/* FAQ — AI Overview extraction target */}
+              {faqItems.length > 0 && (
+                <div className="card mb-8">
+                  <h2 className="text-2xl font-bold text-white mb-6">Frequently Asked Questions</h2>
+                  <div className="space-y-6">
+                    {faqItems.map((faq, i) => (
+                      <div key={i}>
+                        <h3 className="text-lg font-semibold text-white mb-2">{faq.question}</h3>
+                        <p className="text-gray-300 leading-relaxed">{faq.answer}</p>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -247,15 +369,45 @@ export default async function ReviewPage({ params }) {
               {/* Verdict */}
               {review.verdict && (
                 <div className="card border-l-4 border-red-600 mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Verdict</h2>
+                  <h2 className="text-2xl font-bold text-white mb-4">Final Verdict</h2>
                   <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.verdict.split('\n\n').map((paragraph, idx) => (
+                    {review.verdict.split('\n').filter(Boolean).map((paragraph, idx) => (
                       <p key={idx}>{paragraph}</p>
                     ))}
                   </div>
                   <div className="mt-6 pt-6 border-t border-gray-700">
-                    <button className="btn-primary w-full">Report This Scam</button>
+                    <a href="https://www.ic3.gov/" target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-center block">
+                      Report This Scam (IC3.gov)
+                    </a>
                   </div>
+                </div>
+              )}
+
+              {/* Sources — Authoritativeness signal */}
+              {sources.length > 0 && (
+                <div className="card mb-8">
+                  <h2 className="text-2xl font-bold text-white mb-4">Sources &amp; References</h2>
+                  <ol className="space-y-2 list-decimal list-inside">
+                    {sources.map((s, i) => (
+                      <li key={i} className="text-gray-300 text-sm">
+                        <a href={s.url} target="_blank" rel="nofollow noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                          {s.title}
+                        </a>
+                        <span className="text-gray-500 ml-1">
+                          ({s.type}{s.accessed_date ? `, accessed ${s.accessed_date}` : ''})
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Disclaimer — YMYL Trust signal */}
+              {review.disclaimer && (
+                <div className="card mb-8 bg-gray-900/30 text-sm">
+                  <p className="text-gray-400 leading-relaxed">
+                    <strong className="text-gray-300">Disclaimer:</strong> {review.disclaimer}
+                  </p>
                 </div>
               )}
             </div>
@@ -265,7 +417,7 @@ export default async function ReviewPage({ params }) {
               {/* Brand Info */}
               {brand && (
                 <div className="card mb-6 sticky top-20">
-                  <h3 className="text-lg font-bold text-white mb-4">Brand Information</h3>
+                  <h3 className="text-lg font-bold text-white mb-4">Threat Intelligence</h3>
 
                   <div className="space-y-4">
                     <div className="bg-dark-surface p-3 rounded">
@@ -287,11 +439,11 @@ export default async function ReviewPage({ params }) {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Locations</p>
+                        <p className="text-gray-400 text-xs">Countries</p>
                         <p className="text-white font-bold text-lg">{brand.total_geos || 0}</p>
                       </div>
                       <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Creatives</p>
+                        <p className="text-gray-400 text-xs">Ad Creatives</p>
                         <p className="text-white font-bold text-lg">{brand.total_creatives || 0}</p>
                       </div>
                     </div>
@@ -304,29 +456,70 @@ export default async function ReviewPage({ params }) {
                       <div className="bg-dark-surface p-3 rounded">
                         <p className="text-gray-400 text-xs">Trend</p>
                         <p className="text-white font-bold text-lg">
-                          {brand.velocity_trend === 'up' ? '↑' : brand.velocity_trend === 'down' ? '↓' : '→'}
+                          {brand.velocity_trend === 'up' ? '&#x2191;' : brand.velocity_trend === 'down' ? '&#x2193;' : '&#x2192;'}
                         </p>
                       </div>
                     </div>
 
                     {brand.first_seen_at && (
                       <div className="bg-dark-surface p-3 rounded text-sm">
-                        <p className="text-gray-400">First Seen</p>
+                        <p className="text-gray-400">First Detected</p>
                         <p className="text-white mt-1">
-                          {new Date(brand.first_seen_at).toLocaleDateString()}
+                          {new Date(brand.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </p>
                       </div>
                     )}
 
                     {brand.last_seen_at && (
                       <div className="bg-dark-surface p-3 rounded text-sm">
-                        <p className="text-gray-400">Last Seen</p>
+                        <p className="text-gray-400">Last Active</p>
                         <p className="text-white mt-1">
-                          {new Date(brand.last_seen_at).toLocaleDateString()}
+                          {new Date(brand.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                         </p>
                       </div>
                     )}
                   </div>
+
+                  {/* Trust Indicators */}
+                  {Object.keys(trustIndicators).length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-700">
+                      <h4 className="text-sm font-semibold text-gray-400 mb-3">Investigation Scope</h4>
+                      <div className="space-y-2 text-sm">
+                        {trustIndicators.creatives_analyzed && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Creatives Analyzed</span>
+                            <span className="text-white font-medium">{trustIndicators.creatives_analyzed}</span>
+                          </div>
+                        )}
+                        {trustIndicators.countries_scanned && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Countries Scanned</span>
+                            <span className="text-white font-medium">{trustIndicators.countries_scanned}</span>
+                          </div>
+                        )}
+                        {trustIndicators.investigation_period_days && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Investigation Period</span>
+                            <span className="text-white font-medium">{trustIndicators.investigation_period_days} days</span>
+                          </div>
+                        )}
+                        {trustIndicators.data_source && (
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Data Source</span>
+                            <span className="text-white font-medium">{trustIndicators.data_source}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Expertise Sidebar — E-E-A-T Expertise signal */}
+              {review.expertise_depth && (
+                <div className="card mb-6 bg-gray-900/50">
+                  <h3 className="text-lg font-bold text-white mb-3">About This Analysis</h3>
+                  <p className="text-gray-300 text-sm leading-relaxed">{review.expertise_depth}</p>
                 </div>
               )}
 

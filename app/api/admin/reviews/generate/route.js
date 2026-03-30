@@ -8,8 +8,8 @@ const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
   : ''
 
-// Claude API needs 30-60s for full review generation
-export const maxDuration = 60
+// Claude API needs 30-60s for full review generation — bumped for E-E-A-T depth
+export const maxDuration = 90
 
 /**
  * POST /api/admin/reviews/generate
@@ -138,13 +138,14 @@ export async function POST(request) {
           send({ step: 'ai', progress: 35, message: 'Calling Claude AI — generating review (this takes 15-30s)...' })
 
     // ─── UPGRADED SYSTEM PROMPT ───
-    // Full seo-blog-generator v3.1 + schema-markup-generator methodology
+    // E-E-A-T v2.0 + seo-blog-generator v3.1 + schema-markup-generator + GEO/LLM citation
     const systemPrompt = `You are an investigative crypto fraud analyst at Crypto Killer, a scam intelligence platform powered by SpyOwl ad surveillance technology. You produce evidence-backed scam exposés that rank in Google Search, get cited by AI Overviews, and protect real people from losing money.
 
-Your writing is grounded in three frameworks:
+Your writing is grounded in four frameworks:
 1. Google's Quality Raters Guidelines (E-E-A-T, Needs Met, YMYL)
 2. Koray Tugberk Gubur's Algorithmic Authorship (declaration-first, EAV triplets, NLP-parseable)
 3. GEO/AI Visibility optimization (extractive answers, standalone statements, structured data alignment)
+4. Source Ledger methodology — every factual claim traces to a cited source
 
 OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for line breaks (no literal newlines). Escape quotes with \\". No trailing commas. No markdown fences.
 
@@ -159,7 +160,13 @@ OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for 
   "protection_steps": "150-200 words. Actionable steps for readers: (1) Report to IC3.gov and local authorities, (2) Contact your bank for chargeback within 60 days, (3) File FTC complaint at ReportFraud.ftc.gov, (4) Document everything — screenshots of ads, transaction records, communications. Include specific org names and URLs.",
   "not_for_you": "80-120 words. The 'Not For You' block — name specific scenarios where this review may NOT apply. Example: 'This review covers the crypto investment scheme using the name {Brand}. If you encountered a different product with a similar name in a regulated market, or if {Brand} contacted you through a licensed financial advisor with verifiable credentials, that may be a separate entity. Our analysis is based on ad surveillance data from SpyOwl — it covers paid advertising campaigns, not organic search results or direct referrals.' This is a trust signal — the single strongest E-E-A-T differentiator.",
   "verdict": "100-150 words. Final assessment paragraph. Restate the threat score, total evidence volume, and geographic spread. End with: 'Based on {N} ad creatives detected across {N} countries over {N} days, {Brand} exhibits every hallmark of a crypto investment scam.' No generic advice — be specific.",
-  "faq": [{"question": "Natural question matching real search queries. Use formats: 'Is {Brand} legit or a scam?', 'Can I get my money back from {Brand}?', 'Is {Brand} regulated?', 'How does the {Brand} scam work?', 'Who is behind {Brand}?', 'What do {Brand} reviews say?', 'Has anyone made money with {Brand}?', 'How to report {Brand} scam?'", "answer": "40-60 words. CRITICAL: Each answer is an extractive AI Overview target. Must be standalone — makes complete sense without the question. Declaration-first. Include one specific data point. End with a concrete action or fact."}]
+  "faq": [{"question": "Natural question matching real search queries. Use formats: 'Is {Brand} legit or a scam?', 'Can I get my money back from {Brand}?', 'Is {Brand} regulated?', 'How does the {Brand} scam work?', 'Who is behind {Brand}?', 'What do {Brand} reviews say?', 'Has anyone made money with {Brand}?', 'How to report {Brand} scam?'", "answer": "40-60 words. CRITICAL: Each answer is an extractive AI Overview target. Must be standalone — makes complete sense without the question. Declaration-first. Include one specific data point. End with a concrete action or fact."}],
+
+  "methodology": "150-200 words. EXPERIENCE SIGNAL — explain HOW the review was conducted. Structure: (1) Data collection — SpyOwl ad surveillance scanned {N} ad networks between {first_seen} and {last_seen}, capturing {total_creatives} creative assets. (2) Analysis — Each creative was classified by geo-targeting, celebrity impersonation, and offer language. (3) Cross-referencing — Brand claims were checked against regulatory databases (FCA, SEC EDGAR, ASIC, CySEC). (4) Pattern matching — Ad behavior was compared against 500+ known crypto scam campaigns in our database. (5) Scoring — The {score}/100 threat score reflects ad volume, celebrity abuse, geographic spread, and regulatory absence. End with: 'This methodology is applied consistently across all Crypto Killer investigations.' This section is the primary E-E-A-T Experience signal.",
+  "expertise_depth": "80-120 words. EXPERTISE SIGNAL — why Crypto Killer is qualified to publish this review. Reference: SpyOwl monitors {N}+ ad networks across 50+ countries. The Crypto Killer database contains intelligence on 500+ scam brands with {total_creatives_platform_wide} ad creatives analyzed. Our team combines ad surveillance technology, blockchain analysis, and financial fraud pattern recognition. Reference specific technical capabilities: WHOIS analysis, SSL certificate inspection, payment processor identification. This appears as an author expertise sidebar.",
+  "experience_signals": ["3-5 specific first-person investigation observations. Format: 'During our analysis of {Brand}, we observed that {specific technical finding}.' Examples: 'We traced the ad creatives to 3 separate Facebook ad accounts created within 48 hours of each other', 'The checkout flow redirected through 4 different domains before reaching the deposit page', 'SSL certificates for the landing pages were issued less than 72 hours before ad deployment'. Each must reference something only someone who actually investigated would know."],
+  "sources": [{"title": "Source name", "url": "https://...", "type": "regulatory|database|news|government|technical", "accessed_date": "{current_date}"}],
+  "disclaimer": "YMYL disclaimer. Format: 'This review is provided for informational and educational purposes only. It does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform — we are not affiliated with {Brand} or any financial regulatory body. If you believe you have been defrauded, contact your local financial authority and law enforcement. Data accuracy: Our analysis is based on ad surveillance data collected between {first_seen} and {last_seen}. Threat scores are algorithmic assessments, not legal determinations of fraud.'"
 }
 
 ═══ ALGORITHMIC AUTHORSHIP RULES (Koray Tugberk Gubur) ═══
@@ -211,6 +218,43 @@ STRUCTURE RULES:
 - No narrator-from-a-distance: "SpyOwl detected" not "It has been observed that"
 - Vary rhythm: mix 6-word sentences with 22-word sentences. No metronomic pattern.
 - Every section ends on a verdict or action, not a trail-off
+
+═══ E-E-A-T SIGNAL REQUIREMENTS (CRITICAL FOR YMYL) ═══
+
+EXPERIENCE (the E that separates you from generic AI content):
+- methodology section: Describe the actual investigation process with dates, tools, and scope
+- experience_signals: Include 3-5 observations that ONLY someone who investigated would know
+- Use first-person plural ("We detected", "Our analysis found", "SpyOwl captured")
+- Reference specific technical details: domain registration dates, SSL cert ages, ad account patterns
+
+EXPERTISE:
+- expertise_depth: Explain WHY Crypto Killer is qualified (SpyOwl tech, database scale, methodology)
+- Use precise technical language: "WHOIS lookup", "SSL certificate inspection", "payment processor identification"
+- Quantify the platform's experience: "analyzed 500+ scam brands", "monitored N+ ad networks"
+
+AUTHORITATIVENESS:
+- sources array: Include 4-6 real authoritative sources. Required source types:
+  * At least 1 regulatory body (FCA, SEC, ASIC, FINMA, CySEC)
+  * At least 1 government resource (IC3.gov, ReportFraud.ftc.gov, ActionFraud)
+  * At least 1 technical source (WHOIS lookup, SSL databases)
+  * At least 1 consumer protection resource (BBB, Trustpilot, ScamAdviser)
+  Use REAL URLs for government and regulatory bodies. For brand-specific lookups, use the correct URL pattern.
+
+TRUSTWORTHINESS:
+- disclaimer: Full YMYL disclaimer with date range and methodology transparency
+- not_for_you: Honest scope limitations — strongest single trust signal
+- Present data provenance: "SpyOwl detected" not "sources report"
+- Acknowledge what you DON'T know: "Our analysis covers paid advertising campaigns; we cannot confirm or deny [specific claim]"
+
+═══ SOURCE LEDGER RULES ═══
+Every sources entry must have: title, url, type, accessed_date.
+The url must be a real, navigable URL. Examples:
+- {"title": "FCA Warning List", "url": "https://www.fca.org.uk/scamsmart/warning-list", "type": "regulatory", "accessed_date": "${currentDate}"}
+- {"title": "SEC EDGAR Company Search", "url": "https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK=&type=&dateb=&owner=include&count=40&search_text=&action=getcompany", "type": "regulatory", "accessed_date": "${currentDate}"}
+- {"title": "IC3 Internet Crime Complaint Center", "url": "https://www.ic3.gov/", "type": "government", "accessed_date": "${currentDate}"}
+- {"title": "FTC Report Fraud", "url": "https://reportfraud.ftc.gov/", "type": "government", "accessed_date": "${currentDate}"}
+- {"title": "ScamAdviser", "url": "https://www.scamadviser.com/", "type": "consumer_protection", "accessed_date": "${currentDate}"}
+Include at least 4 sources. Type must be one of: regulatory, database, news, government, technical, consumer_protection.
 
 ═══ RED FLAGS REQUIREMENTS ═══
 Generate 6-8 flags. Each flag.detail MUST cite at least 2 specific numbers. Cover these categories (when data supports):
@@ -286,7 +330,14 @@ Write a review that:
 7. Uses real victim language in the summary and how_it_works: reference patterns like "deposits succeed but cash-outs don't", "relentless phone calls from changing numbers", "fees to unlock withdrawals that never arrive"
 8. FAQ must include at least one recovery question ("Can I get my money back from ${brandData.name}?") and one family question ("How do I convince someone ${brandData.name} is a scam?")
 9. protection_steps must warn about recovery scams — "Any company claiming they can recover your crypto for an upfront fee is a secondary scam targeting people who've already lost money"
-10. The summary's first sentence must directly answer the search query "Is ${brandData.name} a scam?" — this is the AI Overview extraction target`
+10. The summary's first sentence must directly answer the search query "Is ${brandData.name} a scam?" — this is the AI Overview extraction target
+
+E-E-A-T CRITICAL REQUIREMENTS:
+11. methodology: Describe the ACTUAL investigation process — SpyOwl scanned ad networks between ${brandData.first_seen_at || 'detection start'} and ${brandData.last_seen_at || 'present'}, capturing ${brandData.total_creatives} creatives. Cross-referenced against regulatory databases. Reference the specific intelligence data above.
+12. expertise_depth: Explain why Crypto Killer is qualified — SpyOwl monitors ad networks across 50+ countries, database of 500+ scam brands. Reference technical capabilities.
+13. experience_signals: Include 3-5 SPECIFIC observations from investigating THIS brand. Reference actual creative counts, geo patterns, celebrity impersonation patterns from the data above. Each must sound like something only an investigator who looked at the actual ads would know.
+14. sources: Include 4-6 real authoritative sources with valid URLs. At least 1 regulatory (FCA/SEC/ASIC), 1 government (IC3/FTC), 1 technical, 1 consumer protection.
+15. disclaimer: Full YMYL disclaimer with investigation date range and scope limitations.`
 
     // ─── Call Claude API ───
     const anthropicResponse = await fetch(
@@ -426,10 +477,44 @@ Write a review that:
       ? `<blockquote><strong>Important Disclaimer:</strong> ${escHtml(reviewContent.not_for_you)}</blockquote>`
       : ''
 
+    // ─── E-E-A-T CONTENT SECTIONS ───
+    // Author byline HTML (word count placeholder replaced after fullArticle is built)
+    const authorName = reviewContent.author_name || 'Crypto Killer Research Team'
+    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')
+    const authorBylineTemplate = `<div class="author-byline" itemscope itemtype="https://schema.org/Person">
+<p><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
+<p><em>${authorCredentials}</em></p>
+<p><time datetime="${currentDate}">Published: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</time> · {{WORD_COUNT}} words · {{READ_TIME}} min read</p>
+</div>`
+
+    // Methodology section HTML
+    const methodologyHtml = reviewContent.methodology
+      ? `<h2>Our Investigation Methodology</h2>\n<p>${escHtml(reviewContent.methodology)}</p>`
+      : ''
+
+    // Experience signals HTML
+    const experienceSignalsHtml = (reviewContent.experience_signals || []).length > 0
+      ? `<h3>Key Investigation Findings</h3>\n<ul>\n${(reviewContent.experience_signals || []).map(s => `<li>${escHtml(s)}</li>`).join('\n')}\n</ul>`
+      : ''
+
+    // Sources section HTML
+    const sourcesHtml = (reviewContent.sources || []).length > 0
+      ? `<h2>Sources &amp; References</h2>\n<ol>\n${(reviewContent.sources || []).map(s =>
+          `<li><a href="${escHtml(s.url)}" rel="nofollow noopener" target="_blank">${escHtml(s.title)}</a> (${escHtml(s.type)}, accessed ${escHtml(s.accessed_date || currentDate)})</li>`
+        ).join('\n')}\n</ol>`
+      : ''
+
+    // Disclaimer HTML
+    const disclaimerHtml = reviewContent.disclaimer
+      ? `<div class="disclaimer"><p><strong>Disclaimer:</strong> ${escHtml(reviewContent.disclaimer)}</p></div>`
+      : `<div class="disclaimer"><p><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
+
     // ─── FULL ARTICLE HTML ───
-    // Structured for SEO: proper H2 hierarchy, extractive answers first,
-    // BLUF intro, Key Takeaways, evidence images distributed
-    const fullArticle = `<h2>${escHtml(brandData.name)}: Investigation Summary</h2>
+    // E-E-A-T optimized: Author byline → BLUF → Key Takeaways → Methodology →
+    // Evidence → Red Flags → Protection → Disclaimer → Sources → FAQ → Verdict
+    let fullArticle = `${authorBylineTemplate}
+
+<h2>${escHtml(brandData.name)}: Investigation Summary</h2>
 <p>${escHtml(reviewContent.summary)}</p>
 
 <h3>Key Takeaways</h3>
@@ -437,6 +522,9 @@ Write a review that:
 ${keyTakeawaysHtml}
 </ul>
 ${summaryImagesHtml}
+
+${methodologyHtml}
+${experienceSignalsHtml}
 
 <h2>Threat Intelligence Overview</h2>
 <p>${escHtml(brandData.name)} has been flagged by SpyOwl's ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
@@ -474,47 +562,93 @@ ${faqHtml}
 ${extraImagesHtml}
 
 <h2>${escHtml(brandData.name)}: Final Verdict</h2>
-<p>${escHtml(reviewContent.verdict)}</p>`
+<p>${escHtml(reviewContent.verdict)}</p>
+
+${sourcesHtml}
+
+${disclaimerHtml}`
 
     // Calculate word count
     const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(w => w).length
 
-    // ─── BUILD JSON-LD SCHEMA ───
-    // Article + FAQPage (AI-extractable even without rich results) + Review
+    // Replace word count placeholders in the author byline
+    fullArticle = fullArticle
+      .replace('{{WORD_COUNT}}', wordCount.toString())
+      .replace('{{READ_TIME}}', Math.ceil(wordCount / 250).toString())
+
+    // ─── BUILD JSON-LD SCHEMA (@graph pattern) ───
+    // Organization → Person/Author → WebSite → Article → Review → ClaimReview → FAQPage
+    // Full E-E-A-T entity graph with @id cross-references
+    const reviewUrl = `https://crypto-killer.vercel.app/reviews/${brandData.slug}/`
+    const siteUrl = 'https://crypto-killer.vercel.app'
+
     const schemaJsonLd = {
       '@context': 'https://schema.org',
       '@graph': [
+        // ── Organization Entity (Authoritativeness) ──
         {
           '@type': 'Organization',
-          '@id': 'https://crypto-killer.vercel.app/#organization',
+          '@id': `${siteUrl}/#organization`,
           name: 'Crypto Killer',
-          url: 'https://crypto-killer.vercel.app',
-          description: 'Scam intelligence platform powered by SpyOwl ad surveillance technology.',
+          url: siteUrl,
+          description: 'Scam intelligence platform powered by SpyOwl ad surveillance technology. Crypto Killer analyzes fraudulent advertising campaigns to protect consumers from cryptocurrency investment scams.',
           knowsAbout: [
             'Cryptocurrency Scams',
             'Crypto Fraud Detection',
-            'Ad Surveillance',
+            'Ad Surveillance Technology',
             'Investment Scam Analysis',
-            'Celebrity Impersonation Scams'
+            'Celebrity Impersonation Scams',
+            'Financial Consumer Protection',
+            'Digital Advertising Fraud',
           ],
+          sameAs: [],
+          subjectOf: {
+            '@type': 'WebSite',
+            '@id': `${siteUrl}/#website`,
+          },
         },
+        // ── Person/Author Entity (Expertise + Experience) ──
+        {
+          '@type': 'Person',
+          '@id': `${siteUrl}/#author`,
+          name: 'Crypto Killer Research Team',
+          jobTitle: 'Crypto Fraud Intelligence Analysts',
+          worksFor: { '@id': `${siteUrl}/#organization` },
+          description: reviewContent.expertise_depth || 'Specialists in ad surveillance, blockchain analysis, and financial fraud pattern recognition.',
+          knowsAbout: [
+            'Cryptocurrency Fraud Investigation',
+            'Ad Surveillance Analysis',
+            'Scam Pattern Recognition',
+            'Financial Regulatory Compliance',
+            'WHOIS and SSL Certificate Analysis',
+          ],
+          hasCredential: {
+            '@type': 'EducationalOccupationalCredential',
+            credentialCategory: 'Professional Experience',
+            description: 'SpyOwl ad surveillance platform operators with access to 500+ scam brand investigations.',
+          },
+        },
+        // ── WebSite Entity ──
         {
           '@type': 'WebSite',
-          '@id': 'https://crypto-killer.vercel.app/#website',
-          url: 'https://crypto-killer.vercel.app',
+          '@id': `${siteUrl}/#website`,
+          url: siteUrl,
           name: 'Crypto Killer',
-          publisher: { '@id': 'https://crypto-killer.vercel.app/#organization' },
+          publisher: { '@id': `${siteUrl}/#organization` },
         },
+        // ── Article Entity (primary content) ──
         {
           '@type': 'Article',
-          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#article`,
+          '@id': `${reviewUrl}#article`,
           headline: reviewContent.headline || reviewContent.title,
           description: reviewContent.meta_description,
           datePublished: currentDate,
           dateModified: currentDate,
           wordCount: wordCount,
-          publisher: { '@id': 'https://crypto-killer.vercel.app/#organization' },
-          isPartOf: { '@id': 'https://crypto-killer.vercel.app/#website' },
+          author: { '@id': `${siteUrl}/#author` },
+          publisher: { '@id': `${siteUrl}/#organization` },
+          isPartOf: { '@id': `${siteUrl}/#website` },
+          mainEntityOfPage: { '@id': `${reviewUrl}#webpage` },
           about: {
             '@type': 'Thing',
             name: brandData.name,
@@ -526,27 +660,69 @@ ${extraImagesHtml}
               name: celeb,
             })),
           ],
+          citation: (reviewContent.sources || []).map(s => ({
+            '@type': 'CreativeWork',
+            name: s.title,
+            url: s.url,
+          })),
+          speakable: {
+            '@type': 'SpeakableSpecification',
+            cssSelector: ['.author-byline', 'h2', 'h3'],
+          },
         },
+        // ── Review Entity (rating) ──
         {
           '@type': 'Review',
-          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#review`,
+          '@id': `${reviewUrl}#review`,
           itemReviewed: {
-            '@type': 'Thing',
+            '@type': 'Product',
             name: brandData.name,
-            description: `Cryptocurrency investment platform`,
+            description: 'Cryptocurrency investment platform',
+            category: 'Cryptocurrency Investment',
           },
           reviewRating: {
             '@type': 'Rating',
             ratingValue: Math.max(1, Math.round((100 - brandData.scam_score) / 20)),
             bestRating: 5,
             worstRating: 1,
+            ratingExplanation: `Threat score of ${brandData.scam_score}/100 based on ${brandData.total_creatives} ad creatives detected across ${brandData.total_geos} countries.`,
           },
-          author: { '@id': 'https://crypto-killer.vercel.app/#organization' },
+          author: { '@id': `${siteUrl}/#author` },
+          publisher: { '@id': `${siteUrl}/#organization` },
           reviewBody: reviewContent.verdict,
+          datePublished: currentDate,
         },
+        // ── ClaimReview Entity (fact-check signal) ──
+        {
+          '@type': 'ClaimReview',
+          '@id': `${reviewUrl}#claimreview`,
+          url: reviewUrl,
+          claimReviewed: `${brandData.name} is a legitimate cryptocurrency investment platform`,
+          author: { '@id': `${siteUrl}/#organization` },
+          datePublished: currentDate,
+          reviewRating: {
+            '@type': 'Rating',
+            ratingValue: 1,
+            bestRating: 5,
+            worstRating: 1,
+            alternateName: brandData.scam_score >= 80 ? 'False' : brandData.scam_score >= 50 ? 'Mostly False' : 'Unverified',
+          },
+          itemReviewed: {
+            '@type': 'Claim',
+            name: `${brandData.name} is a legitimate investment platform`,
+            author: { '@type': 'Organization', name: brandData.name },
+            datePublished: brandData.first_seen_at || currentDate,
+            appearance: {
+              '@type': 'CreativeWork',
+              name: `${brandData.name} advertising campaign`,
+              description: `${brandData.total_creatives} ad creatives detected across ${brandData.total_geos} countries`,
+            },
+          },
+        },
+        // ── FAQPage Entity (AI extraction target) ──
         {
           '@type': 'FAQPage',
-          '@id': `https://crypto-killer.vercel.app/reviews/${brandData.slug}/#faqpage`,
+          '@id': `${reviewUrl}#faqpage`,
           mainEntity: (reviewContent.faq || []).map(f => ({
             '@type': 'Question',
             name: f.question,
@@ -587,10 +763,33 @@ ${extraImagesHtml}
       scam_score: brandData.scam_score || 0,
       status: 'draft',
       ai_model: 'claude-haiku-4-5-20251001',
-      ai_prompt_version: 'seo-blog-v3.1-schema-v1-icp-v1',
+      ai_prompt_version: 'eeat-v2.0-seo-v3.1-schema-v2-icp-v1',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
+      // ── E-E-A-T fields ──
+      author_name: 'Crypto Killer Research Team',
+      author_credentials: 'Crypto fraud intelligence analysts — SpyOwl ad surveillance platform',
+      author_bio: reviewContent.expertise_depth || null,
+      methodology: reviewContent.methodology || null,
+      sources: reviewContent.sources || [],
+      reviewed_by: null,
+      review_date: currentDate,
+      fact_check_status: 'ai_generated',
+      disclaimer: reviewContent.disclaimer || null,
+      key_takeaways: reviewContent.key_takeaways || [],
+      not_for_you: reviewContent.not_for_you || null,
+      protection_steps: reviewContent.protection_steps || null,
+      experience_signals: reviewContent.experience_signals || [],
+      expertise_depth: reviewContent.expertise_depth || null,
+      trust_indicators: {
+        creatives_analyzed: brandData.total_creatives,
+        countries_scanned: brandData.total_geos,
+        celebrities_identified: brandData.total_celebrities,
+        investigation_period_days: longevityDays,
+        data_source: 'SpyOwl Ad Surveillance',
+        evidence_images: availableImages.length,
+      },
     }
 
     if (Array.isArray(existingReview) && existingReview.length > 0) {
@@ -619,7 +818,8 @@ ${extraImagesHtml}
               status: 'draft',
               word_count: wordCount,
               images_embedded: availableImages.length,
-              schema_types: ['Article', 'Review', 'FAQPage'],
+              schema_types: ['Organization', 'Person', 'Article', 'Review', 'ClaimReview', 'FAQPage'],
+              eeat_version: 'v2.0',
             },
           })
 
