@@ -749,6 +749,8 @@ ${geoSections}`
 
     let fullArticle = `${authorBylineTemplate}
 
+${buildCampaignTimeline(brandData, longevityDays, currentDate)}
+
 <h3 style="color:#f59e0b;font-size:17px;margin:28px 0 12px">Key Takeaways</h3>
 <ul style="list-style:none;padding:0;margin:0 0 20px">
 ${(reviewContent.key_takeaways || []).map(t => `<li style="padding:8px 12px;margin:6px 0;background:rgba(245,158,11,0.06);border-radius:6px;border-left:2px solid rgba(245,158,11,0.4);line-height:1.6;color:rgba(255,255,255,0.85)">✅ ${escHtml(t)}</li>`).join('\n')}
@@ -773,8 +775,6 @@ ${experienceSignalsHtml}
 <tr><td style="${tdLabelStyle}">Last Active</td><td style="${tdValueStyle}">${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
 </tbody>
 </table>
-
-${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 
 ${(brandData.geo_list || []).length > 0 ? `<h3 style="color:#f59e0b;font-size:17px;margin:24px 0 12px">Geographic Targeting Breakdown</h3>
 <table style="${tableStyle}">
