@@ -25,6 +25,19 @@ function StatusTab({ label, count, active, onClick }) {
   );
 }
 
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export default function ReviewsPage() {
   const { token } = useAdmin();
   const searchParams = useSearchParams();
@@ -40,27 +53,15 @@ export default function ReviewsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        // Fetch all brands that have reviews
-        const [draftRes, pubRes] = await Promise.all([
-          fetch('/api/admin/brands?sort=creative_volume&limit=200&review_status=draft', {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch('/api/admin/brands?sort=creative_volume&limit=200&review_status=published', {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
+        const res = await fetch('/api/admin/reviews/list', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-        const drafts = draftRes.ok ? (await draftRes.json()).brands || [] : [];
-        const published = pubRes.ok ? (await pubRes.json()).brands || [] : [];
+        if (!res.ok) throw new Error('Failed to fetch reviews');
 
-        // Tag them
-        const allReviews = [
-          ...drafts.map((b) => ({ ...b, _status: 'draft' })),
-          ...published.map((b) => ({ ...b, _status: 'published' })),
-        ];
-
-        setReviews(allReviews);
-        setStats({ drafts: drafts.length, published: published.length, total: allReviews.length });
+        const data = await res.json();
+        setReviews(data.reviews || []);
+        setStats(data.stats || { total: 0, drafts: 0, published: 0 });
       } catch (err) {
         console.error('Error loading reviews:', err);
       } finally {
@@ -74,16 +75,23 @@ export default function ReviewsPage() {
   const filtered =
     statusFilter === 'all'
       ? reviews
-      : reviews.filter((r) => r._status === statusFilter);
+      : reviews.filter((r) => r.status === statusFilter);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white">Reviews</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Manage your scam brand reviews
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Reviews</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Manage your scam brand reviews
+          </p>
+        </div>
+        <Link href="/admin/brands?filter=no-review">
+          <button className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition flex items-center gap-1.5">
+            <span>+</span> New Review
+          </button>
+        </Link>
       </div>
 
       {/* Status Tabs */}
@@ -111,31 +119,33 @@ export default function ReviewsPage() {
       {/* Reviews List */}
       <div className="space-y-2">
         {filtered.map((review) => (
-          <Link key={review.id} href={`/admin/review/${review.review_id}`}>
+          <Link key={review.id} href={`/admin/review/${review.id}`}>
             <div className="bg-dark-card border border-gray-800 rounded-xl px-5 py-4 flex items-center gap-4 transition hover:border-gray-700 cursor-pointer group">
               {/* Status Dot */}
               <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                review._status === 'published' ? 'bg-green-500' : 'bg-amber-500'
+                review.status === 'published' ? 'bg-green-500' : 'bg-amber-500'
               }`} />
 
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-white font-semibold text-sm group-hover:text-red-400 transition truncate">
-                    {review.name}
+                    {review.brand_name}
                   </span>
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                    review._status === 'published'
+                    review.status === 'published'
                       ? 'bg-green-950 text-green-300'
                       : 'bg-amber-950 text-amber-300'
                   }`}>
-                    {review._status}
+                    {review.status}
                   </span>
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
                   <span>Score: {review.scam_score}</span>
-                  <span>{review.total_creatives} ads tracked</span>
-                  {review.geo_count > 0 && <span>{review.geo_count} countries</span>}
+                  <span>{review.total_creatives} ads</span>
+                  {review.total_geos > 0 && <span>{review.total_geos} countries</span>}
+                  <span>{review.word_count.toLocaleString()} words</span>
+                  <span className="text-gray-600">Updated {timeAgo(review.updated_at)}</span>
                 </div>
               </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -109,6 +109,73 @@ function BrandIntelCard({ brand }) {
   );
 }
 
+/* ─── Evidence Images Card ─── */
+function EvidenceImagesCard({ images, onRemoveImage, onRegenerate, regenerating }) {
+  if (images.length === 0 && !regenerating) {
+    return (
+      <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide">Evidence Images</h3>
+        </div>
+        <p className="text-gray-600 text-xs mb-3">No evidence images in article</p>
+        <button
+          onClick={onRegenerate}
+          disabled={regenerating}
+          className="w-full py-2 text-xs font-medium rounded-lg bg-amber-600/10 text-amber-400 hover:bg-amber-600/20 border border-amber-600/20 transition flex items-center justify-center gap-1.5"
+        >
+          <span>🖼️</span> Fetch Evidence Images
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+          Evidence Images <span className="text-gray-600">({images.length})</span>
+        </h3>
+        <button
+          onClick={onRegenerate}
+          disabled={regenerating}
+          className="text-xs font-medium px-2 py-1 rounded-md bg-amber-600/10 text-amber-400 hover:bg-amber-600/20 border border-amber-600/20 transition"
+          title="Re-fetch all evidence images from SpyOwl"
+        >
+          {regenerating ? (
+            <span className="flex items-center gap-1"><span className="animate-spin">⟳</span> Fetching...</span>
+          ) : (
+            <span className="flex items-center gap-1">🔄 Regenerate</span>
+          )}
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {images.map((img, idx) => (
+          <div key={idx} className="relative group rounded-lg overflow-hidden border border-gray-800 bg-dark-surface">
+            {/* Remove button */}
+            <button
+              onClick={() => onRemoveImage(img.url)}
+              className="absolute top-1.5 right-1.5 z-10 w-6 h-6 rounded-full bg-black/70 hover:bg-red-600 text-gray-400 hover:text-white flex items-center justify-center text-xs transition opacity-0 group-hover:opacity-100"
+              title="Remove this image from article"
+            >
+              ✕
+            </button>
+            <img
+              src={img.url}
+              alt={img.alt || 'Evidence'}
+              className="w-full h-20 object-cover"
+              loading="lazy"
+            />
+            {img.caption && (
+              <p className="text-[10px] text-gray-500 px-2 py-1 truncate">{img.caption}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ─── Editable Red Flags / FAQs ─── */
 function EditableList({ items, onItemChange, onItemRemove, onAddItem, itemType }) {
   const isFlags = itemType === 'flag';
@@ -168,6 +235,26 @@ function SourceEditor({ html, onChange }) {
   );
 }
 
+/* ─── Parse evidence images from full_article HTML ─── */
+function parseEvidenceImages(html) {
+  if (!html) return [];
+  const images = [];
+  // Match img tags within the evidence grid (creative-images bucket URLs)
+  const imgRegex = /<img\s+src="([^"]*\/creative-images\/[^"]+)"[^>]*alt="([^"]*)"[^>]*\/?>/g;
+  let match;
+  while ((match = imgRegex.exec(html)) !== null) {
+    // Try to extract caption from nearby <p> tag
+    const afterImg = html.substring(match.index, match.index + 500);
+    const captionMatch = afterImg.match(/<p[^>]*>([^<]*)<\/p>/);
+    images.push({
+      url: match[1],
+      alt: match[2],
+      caption: captionMatch ? captionMatch[1] : '',
+    });
+  }
+  return images;
+}
+
 /* ═══════════════════════════════════════════
    MAIN EDITOR PAGE
    ═══════════════════════════════════════════ */
@@ -183,6 +270,8 @@ export default function ReviewEditor({ params }) {
   const [saved, setSaved] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
+  const [regeneratingImages, setRegeneratingImages] = useState(false);
+  const [imageMsg, setImageMsg] = useState('');
 
   // AI Generate with progress tracking
   const gen = useGenerateWithProgress(token);
@@ -229,6 +318,9 @@ export default function ReviewEditor({ params }) {
 
     fetchReview();
   }, [token, id]);
+
+  // Parse evidence images from current article
+  const evidenceImages = useMemo(() => parseEvidenceImages(fullArticle), [fullArticle]);
 
   const wordCount = (fullArticle || '')
     .replace(/<[^>]*>/g, ' ')
@@ -338,6 +430,77 @@ export default function ReviewEditor({ params }) {
     gen.reset();
   };
 
+  // ─── Image Management ───
+  const handleRegenerateImages = async () => {
+    setRegeneratingImages(true);
+    setImageMsg('');
+    try {
+      // Save current article first so the API has the latest version
+      await handleSave();
+
+      const res = await fetch(`/api/admin/reviews/${id}/images`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        setImageMsg(`${data.images_found} images fetched`);
+        // Refresh article from DB
+        const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setFullArticle(refreshData.full_article || '');
+          setEditorKey((k) => k + 1);
+        }
+      } else {
+        setImageMsg(data.error || 'Failed to fetch images');
+      }
+    } catch (err) {
+      console.error('Image regeneration error:', err);
+      setImageMsg('Error regenerating images');
+    } finally {
+      setRegeneratingImages(false);
+      setTimeout(() => setImageMsg(''), 4000);
+    }
+  };
+
+  const handleRemoveImage = async (imageUrl) => {
+    try {
+      const res = await fetch(`/api/admin/reviews/${id}/images`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ image_url: imageUrl }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        // Refresh article from DB
+        const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setFullArticle(refreshData.full_article || '');
+          setEditorKey((k) => k + 1);
+        }
+      }
+    } catch (err) {
+      console.error('Image removal error:', err);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -443,6 +606,16 @@ export default function ReviewEditor({ params }) {
       {publishError && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
           {publishError}
+        </div>
+      )}
+
+      {imageMsg && (
+        <div className={`py-2 px-3 rounded-lg text-sm ${
+          imageMsg.includes('Error') || imageMsg.includes('Failed') || imageMsg.includes('No ')
+            ? 'bg-red-900/20 border border-red-600/30 text-red-400'
+            : 'bg-green-900/20 border border-green-600/30 text-green-400'
+        }`}>
+          {imageMsg}
         </div>
       )}
 
@@ -588,6 +761,12 @@ export default function ReviewEditor({ params }) {
             redFlagCount={redFlags.length}
             faqCount={faqs.length}
             status={review.status}
+          />
+          <EvidenceImagesCard
+            images={evidenceImages}
+            onRemoveImage={handleRemoveImage}
+            onRegenerate={handleRegenerateImages}
+            regenerating={regeneratingImages}
           />
           <BrandIntelCard brand={brand} />
         </div>
