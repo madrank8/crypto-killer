@@ -1,6 +1,9 @@
 import { revalidatePath } from 'next/cache'
 import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
+import { buildReviewSchema } from '@/lib/review-schema'
+import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -18,7 +21,6 @@ async function getSpyOwlCookie() {
   if (token.includes('=')) return token
   return `__Secure-spyowl.session_token=${token}`
 }
-
 // ─── CAMPAIGN TIMELINE BUILDER ───
 // Synthesizes brand data into a collapsible chronological timeline
 function buildCampaignTimeline(brand, lifespanDays, currentDate) {
@@ -47,7 +49,6 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
     color: '#3b82f6', // blue
     phase: 'detection',
   })
-
   // 2. Expansion milestones (synthesized from total creatives + lifespan)
   if (lifespanDays > 30 && totalCreatives > 10) {
     const expandDate = new Date(first.getTime() + Math.min(lifespanDays * 0.15, 30) * 86400000)
@@ -73,7 +74,6 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
       phase: 'peak',
     })
   }
-
   // 4. Investigation (current review date)
   events.push({
     date: new Date(currentDate),
@@ -94,8 +94,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
       color: '#ef4444', // red
       phase: 'active',
     })
-  } else if (last) {
-    events.push({
+  } else if (last) {    events.push({
       date: last,
       label: 'Last Activity',
       desc: `Most recent ad creative detected${daysSinceLast > 0 ? ` — ${daysSinceLast} days ago` : ''}`,
@@ -124,8 +123,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
   }
 
   const eventCards = events.map((evt, i) => {
-    const pc = phaseColors[evt.phase]
-    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
+    const pc = phaseColors[evt.phase]    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
     const delay = i * 120
     return `<div class="ck-tl-card" style="display:flex;gap:16px;align-items:flex-start;padding:14px 16px;margin:0 0 2px;background:${pc.bg};border-left:3px solid ${pc.border};border-radius:0 8px 8px 0;animation:ckTlSlide 0.4s ease ${delay}ms both" data-pct="${pct}">
   <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:${pc.bg};border:1px solid ${pc.border};font-size:18px">${evt.icon}</div>
@@ -154,8 +152,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
     ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)"><span style="width:6px;height:6px;border-radius:50%;background:#ef4444;animation:ckTlPulse 2s ease infinite"></span>ACTIVE</span>`
     : `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;background:rgba(107,114,128,0.15);color:#9ca3af;border:1px solid rgba(107,114,128,0.3)">INACTIVE</span>`
 
-  return `<style>
-@keyframes ckTlSlide { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
+  return `<style>@keyframes ckTlSlide { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
 @keyframes ckTlPulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 @keyframes ckTlGrow { from { width:0; } }
 </style>
@@ -186,15 +183,14 @@ const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
   : ''
 const STORAGE_UPLOAD_BASE = SUPABASE_URL
-  ? `${SUPABASE_URL}/storage/v1/object/creative-images`
-  : ''
+  ? `${SUPABASE_URL}/storage/v1/object/creative-images`  : ''
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// Claude API needs 30-60s for full review generation — bumped for E-E-A-T depth
-export const maxDuration = 90
+// Multi-agent pipeline: source research + content generation + quality audit = 3 model calls
+// Each can take 30-60s, so we need 180s minimum. Vercel Pro supports up to 300s.
+export const maxDuration = 300
 
-/**
- * POST /api/admin/reviews/generate
+/** * POST /api/admin/reviews/generate
  * Generate a scam review article using Claude API — now with SSE progress streaming.
  * Full seo-blog-generator v3.1 + schema-markup-generator + ICP methodology.
  * Body: { brand_id }
@@ -223,8 +219,7 @@ export async function POST(request) {
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
-        const send = (data) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        const send = (data) => {controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
         }
 
         try {
@@ -252,9 +247,7 @@ export async function POST(request) {
       )}&select=*&limit=20`
     )
 
-    const creativeSample = Array.isArray(creatives) ? creatives : []
-
-    // ─── EVIDENCE GRID: Top 3 countries × Top 3 celebs per country ───
+    const creativeSample = Array.isArray(creatives) ? creatives : []    // ─── EVIDENCE GRID: Top 3 countries × Top 3 celebs per country ───
     // Query ALL creatives for this brand to find the best evidence
     const allCreatives = await supabaseRequest(
       `/creatives?normalized_offer=eq.${encodeURIComponent(
@@ -283,8 +276,7 @@ export async function POST(request) {
         celebCounts[c.celebrity_name] = (celebCounts[c.celebrity_name] || 0) + 1
       }
       const topCelebs = Object.entries(celebCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
+        .sort((a, b) => b[1] - a[1])        .slice(0, 3)
       for (const [celeb] of topCelebs) {
         const creative = geoCreatives.find(c => c.celebrity_name === celeb)
         if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
@@ -313,8 +305,7 @@ export async function POST(request) {
           const imgBuffer = await spyRes.arrayBuffer()
           if (imgBuffer.byteLength < 1000) return null
           // Upload to Supabase Storage
-          const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`
-          const uploadRes = await fetch(uploadUrl, {
+          const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`          const uploadRes = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
               'apikey': SUPABASE_KEY,
@@ -342,254 +333,63 @@ export async function POST(request) {
     const currentYear = new Date().getFullYear()
     const currentDate = new Date().toISOString().split('T')[0]
 
-          send({ step: 'ai', progress: 35, message: 'Calling Claude AI — generating review (this takes 15-30s)...' })
+          // ═══════════════════════════════════════════════════════════════
+          // PHASE 2: SOURCE RESEARCH (Gemini Flash with search grounding, or Claude fallback)          // ═══════════════════════════════════════════════════════════════
+          send({ step: 'sources', progress: 30, message: 'Phase 2/5: Researching authoritative sources...' })
 
-    // ─── UPGRADED SYSTEM PROMPT ───
-    // E-E-A-T v2.0 + seo-blog-generator v3.1 + schema-markup-generator + GEO/LLM citation
-    const systemPrompt = `You are an investigative crypto fraud analyst at Crypto Killer, a scam intelligence platform powered by SpyOwl ad surveillance technology. You produce evidence-backed scam exposés that rank in Google Search, get cited by AI Overviews, and protect real people from losing money.
+          const availableModelsInfo = getAvailableModels()
+          const sourceModel = availableModelsInfo.google ? 'gemini-flash' : 'claude-haiku'
 
-Your writing is grounded in four frameworks:
-1. Google's Quality Raters Guidelines (E-E-A-T, Needs Met, YMYL)
-2. Koray Tugberk Gubur's Algorithmic Authorship (declaration-first, EAV triplets, NLP-parseable)
-3. GEO/AI Visibility optimization (extractive answers, standalone statements, structured data alignment)
-4. Source Ledger methodology — every factual claim traces to a cited source
+          let sourceLedger = []
+          try {
+            const srcPrompt = sourceResearcherPrompt(brandData.name, currentDate)
+            const srcResult = await callModel(sourceModel, srcPrompt.system, srcPrompt.user, {
+              searchGrounding: true,
+              jsonMode: sourceModel.startsWith('gemini'),
+            })
 
-OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for line breaks (no literal newlines). Escape quotes with \\". No trailing commas. No markdown fences. CRITICAL: Do NOT use markdown formatting (**bold**, *italic*, etc.) in any field. Use plain text only — HTML formatting is added by the rendering engine.
+            const srcData = extractJSON(srcResult.text)
+            sourceLedger = (srcData.sources || []).filter(s => s.url && s.title)
 
-{
-  "title": "SEO title under 60 chars. Format: Is {Brand} a Scam? {Score}/100 Threat Score [{Year}]",
-  "headline": "H1 headline. Format: {Brand} Review: {N} Red Flags Exposed by SpyOwl Intelligence",
-  "meta_description": "Under 155 chars. Must include: brand name, scam score, key evidence count, current year.",
-  "summary": "2-3 sentences MAXIMUM, under 250 characters total. This is a card preview — NOT a full paragraph. First sentence answers the query: '{Brand} is a confirmed crypto scam with a {score}/100 threat score.' Second sentence: one key stat (ad count or country count). Third sentence (optional): one action. STRICT LIMIT: 250 characters. Anything longer breaks the homepage layout.",
-  "key_takeaways": ["5-6 bullet points. Each must contain a specific number from the intelligence data. Declaration-first. These appear right after the intro as the BLUF summary."],
-  "how_it_works": "EXACTLY 4 paragraphs separated by \\n\\n — one per stage. Each paragraph is 50-80 words (3-5 sentences). The content renders inside stage cards, so brevity is critical. STAGE 1 (Celebrity Impersonation & Geo-Targeted Advertising): fake celebrity endorsement ads, geo-targeting, ad volume and celebrity count. STAGE 2 (The Funnel & Deposit Success): fake trading dashboard, urgency tactics, testimonials, minimum deposit, instant deposit confirmation. STAGE 3 (Fake Profits & Psychological Manipulation): fake dashboard profits, rising balances, pressure to deposit more, emotional manipulation, calls from 'account managers'. STAGE 4 (The Withdrawal Trap & Fee Extraction): withdrawal blocked, unlock fees demanded, compliance fees, account frozen, support vanishes. Each paragraph MUST cite specific numbers from the intelligence data. Declaration-first sentences. Domain verbs: targets, deploys, impersonates, funnels, exploits. STRICT: do NOT exceed 80 words per paragraph — the cards break visually if text is too long.",
-  "red_flags": [{"flag": "Specific red flag title (under 8 words)", "detail": "70-100 words of evidence. MUST cite at least 2 specific numbers from intelligence data. Declaration-first. Include entity names (celebrities, countries, dates). End with a verdict statement."}],
-  "protection_steps": "150-200 words. Actionable steps for readers: (1) Report to IC3.gov and local authorities, (2) Contact your bank for chargeback within 60 days, (3) File FTC complaint at ReportFraud.ftc.gov, (4) Document everything — screenshots of ads, transaction records, communications. Include specific org names and URLs.",
-  "not_for_you": "80-120 words. The 'Not For You' block — name specific scenarios where this review may NOT apply. Example: 'This review covers the crypto investment scheme using the name {Brand}. If you encountered a different product with a similar name in a regulated market, or if {Brand} contacted you through a licensed financial advisor with verifiable credentials, that may be a separate entity. Our analysis is based on ad surveillance data from SpyOwl — it covers paid advertising campaigns, not organic search results or direct referrals.' This is a trust signal — the single strongest E-E-A-T differentiator.",
-  "verdict": "ONE sentence, under 80 characters. This is displayed as a badge/label on homepage cards — NOT a paragraph. Format: '{Brand} is a confirmed crypto scam. Do not deposit any money.' STRICT LIMIT: 80 characters maximum. No paragraphs, no stats, no line breaks.",
-  "faq": [{"question": "Natural question matching real search queries. Use formats: 'Is {Brand} legit or a scam?', 'Can I get my money back from {Brand}?', 'Is {Brand} regulated?', 'How does the {Brand} scam work?', 'Who is behind {Brand}?', 'What do {Brand} reviews say?', 'Has anyone made money with {Brand}?', 'How to report {Brand} scam?'", "answer": "40-60 words. CRITICAL: Each answer is an extractive AI Overview target. Must be standalone — makes complete sense without the question. Declaration-first. Include one specific data point. End with a concrete action or fact."}],
+            send({
+              step: 'sources_done',
+              progress: 40,
+              message: `Found ${sourceLedger.length} verified sources via ${srcResult.label}${srcResult.usedFallback ? ` (fallback from ${srcResult.fallbackFrom})` : ''}`,
+            })
+          } catch (srcError) {
+            // Source research failure is non-fatal — use default source templates
+            console.error('Source research failed:', srcError.message)
+            sourceLedger = [
+              { title: 'FCA ScamSmart Warning List', url: 'https://www.fca.org.uk/scamsmart/warning-list', type: 'regulatory', verified: false, extract: 'FCA register of unauthorized firms and individuals.' },
+              { title: 'SEC EDGAR Company Search', url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany', type: 'regulatory', verified: false, extract: 'SEC database for registered investment entities.' },              { title: 'IC3 Internet Crime Complaint Center', url: 'https://www.ic3.gov/', type: 'government', verified: false, extract: 'FBI portal for reporting internet-enabled crime.' },
+              { title: 'FTC Report Fraud', url: 'https://reportfraud.ftc.gov/', type: 'government', verified: false, extract: 'Federal Trade Commission fraud reporting portal.' },
+              { title: 'ScamAdviser', url: 'https://www.scamadviser.com/', type: 'consumer_protection', verified: false, extract: 'Consumer trust score analysis for websites.' },
+            ]
+            send({ step: 'sources_fallback', progress: 40, message: `Source research failed — using ${sourceLedger.length} default regulatory sources` })
+          }
 
-  "methodology": "150-200 words. EXPERIENCE SIGNAL — explain HOW the review was conducted. Structure: (1) Data collection — SpyOwl ad surveillance scanned {N} ad networks between {first_seen} and {last_seen}, capturing {total_creatives} creative assets. (2) Analysis — Each creative was classified by geo-targeting, celebrity impersonation, and offer language. (3) Cross-referencing — Brand claims were checked against regulatory databases (FCA, SEC EDGAR, ASIC, CySEC). (4) Pattern matching — Ad behavior was compared against 500+ known crypto scam campaigns in our database. (5) Scoring — The {score}/100 threat score reflects ad volume, celebrity abuse, geographic spread, and regulatory absence. End with: 'This methodology is applied consistently across all Crypto Killer investigations.' This section is the primary E-E-A-T Experience signal.",
-  "expertise_depth": "80-120 words. EXPERTISE SIGNAL — why Crypto Killer is qualified to publish this review. Reference: SpyOwl monitors {N}+ ad networks across 50+ countries. The Crypto Killer database contains intelligence on 500+ scam brands with {total_creatives_platform_wide} ad creatives analyzed. Our team combines ad surveillance technology, blockchain analysis, and financial fraud pattern recognition. Reference specific technical capabilities: WHOIS analysis, SSL certificate inspection, payment processor identification. This appears as an author expertise sidebar.",
-  "experience_signals": ["3-5 specific first-person investigation observations. Format: 'During our analysis of {Brand}, we observed that {specific technical finding}.' Examples: 'We traced the ad creatives to 3 separate Facebook ad accounts created within 48 hours of each other', 'The checkout flow redirected through 4 different domains before reaching the deposit page', 'SSL certificates for the landing pages were issued less than 72 hours before ad deployment'. Each must reference something only someone who actually investigated would know."],
-  "sources": [{"title": "Source name", "url": "https://...", "type": "regulatory|database|news|government|technical", "accessed_date": "{current_date}"}],
-  "disclaimer": "YMYL disclaimer. Format: 'This review is provided for informational and educational purposes only. It does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform — we are not affiliated with {Brand} or any financial regulatory body. If you believe you have been defrauded, contact your local financial authority and law enforcement. Data accuracy: Our analysis is based on ad surveillance data collected between {first_seen} and {last_seen}. Threat scores are algorithmic assessments, not legal determinations of fraud.'"
-}
+          // ═══════════════════════════════════════════════════════════════
+          // PHASE 3: CONTENT GENERATION (Claude Opus — best writing quality)
+          // Full seo-blog-generator v3.1 + ICP methodology
+          // ═══════════════════════════════════════════════════════════════
+          send({ step: 'ai', progress: 45, message: 'Phase 3/5: Generating review with Claude Opus (30-60s)...' })
 
-═══ ALGORITHMIC AUTHORSHIP RULES (Koray Tugberk Gubur) ═══
+          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages)
 
-1. DECLARATION-FIRST: Open every sentence with the fact, not a subordinate clause.
-   YES: "${brandData.name} targets victims through ${brandData.total_creatives} fraudulent advertisements."
-   NO: "When examining the evidence, it becomes apparent that this platform may be targeting..."
+          // Use Claude Opus for content (best writing quality), fall back to Sonnet/Haiku
+          const contentResult = await callModel('claude-opus', contentPrompt.system, contentPrompt.user, {
+            maxTokens: 8192,
+          })
+          send({
+            step: 'ai_done',
+            progress: 70,
+            message: `Content generated by ${contentResult.label}${contentResult.usedFallback ? ` (fallback from claude-opus)` : ''} — ${contentResult.outputTokens || '?'} tokens`,
+          })
 
-2. ONE IDEA PER SENTENCE: Clean dependency trees for NLP extraction. Break compound thoughts.
-
-3. ENTITY-ATTRIBUTE-VALUE TRIPLETS: Every section must contain complete EAV triplets.
-   "{Entity} {has/uses/targets} {specific value}."
-   "${brandData.name} (entity) impersonates (attribute) ${brandData.total_celebrities} celebrities (value)."
-
-4. NUMERIC SPECIFICITY: "${brandData.total_creatives} ad creatives" not "numerous ads".
-   "${brandData.total_geos} countries" not "multiple regions". Always cite the exact number.
-
-5. 3-EXAMPLE RULE: For every plural noun, provide 3 concrete examples from the data.
-   "Countries targeted include {X}, {Y}, and {Z}."
-   "Celebrities impersonated include {A}, {B}, and {C}."
-
-6. DOMAIN-SPECIFIC VERBS: "targets", "exploits", "impersonates", "deploys", "funnels", "deceives", "fabricates"
-   NEVER: "utilizes", "leverages", "navigates", "harnesses", "delves", "unlocks"
-
-7. SALIENCE PRINCIPLE: Primary entity in subject position of every opening sentence.
-
-8. SEMANTIC FRESHNESS: Reference ${currentYear} and current data. Use present tense for active scams.
-
-═══ AI OVERVIEW & LLM EXTRACTABILITY ═══
-
-- Every FAQ answer must work as a standalone citation (40-60 words)
-- H2-level content opens with a 40-60 word extractive answer before expanding
-- Lists and tables for factual data (AI systems parse these directly)
-- Front-load the best information — AI Overviews extract from early content
-- Question-format thinking: write as if answering "Is {Brand} a scam?"
-
-═══ ANTI-SLOP RULES (STRICT) ═══
-
-BANNED PHRASES — instant quality failure:
-"In today's rapidly evolving", "It's important to note", "It's worth mentioning", "At the end of the day", "In the world of", "When it comes to", "Let's dive in", "Without further ado", "In this comprehensive", "Whether you're a beginner or", "One thing is clear", "The question remains", "Only time will tell", "As we navigate", "Stay tuned"
-
-BANNED VOCABULARY:
-"landscape", "crucial", "comprehensive", "robust", "cutting-edge", "game-changer", "deep dive", "paradigm", "synergy", "empower", "transform", "unlock", "harness", "delve", "explore" (as verb for reading), "journey", "realm", "Moreover", "Furthermore", "Notably"
-
-STRUCTURE RULES:
-- No copula avoidance: "is a scam" not "serves as a scam" or "functions as a scam"
-- No synonym cycling: don't swap "scam/fraud/scheme/deception" every sentence
-- No significance inflation: "detected" not "staggering number detected"
-- No narrator-from-a-distance: "SpyOwl detected" not "It has been observed that"
-- Vary rhythm: mix 6-word sentences with 22-word sentences. No metronomic pattern.
-- Every section ends on a verdict or action, not a trail-off
-
-═══ E-E-A-T SIGNAL REQUIREMENTS (CRITICAL FOR YMYL) ═══
-
-EXPERIENCE (the E that separates you from generic AI content):
-- methodology section: Describe the actual investigation process with dates, tools, and scope
-- experience_signals: Include 3-5 observations that ONLY someone who investigated would know
-- Use first-person plural ("We detected", "Our analysis found", "SpyOwl captured")
-- Reference specific technical details: domain registration dates, SSL cert ages, ad account patterns
-
-EXPERTISE:
-- expertise_depth: Explain WHY Crypto Killer is qualified (SpyOwl tech, database scale, methodology)
-- Use precise technical language: "WHOIS lookup", "SSL certificate inspection", "payment processor identification"
-- Quantify the platform's experience: "analyzed 500+ scam brands", "monitored N+ ad networks"
-
-AUTHORITATIVENESS:
-- sources array: Include 4-6 real authoritative sources. Required source types:
-  * At least 1 regulatory body (FCA, SEC, ASIC, FINMA, CySEC)
-  * At least 1 government resource (IC3.gov, ReportFraud.ftc.gov, ActionFraud)
-  * At least 1 technical source (WHOIS lookup, SSL databases)
-  * At least 1 consumer protection resource (BBB, Trustpilot, ScamAdviser)
-  Use REAL URLs for government and regulatory bodies. For brand-specific lookups, use the correct URL pattern.
-
-TRUSTWORTHINESS:
-- disclaimer: Full YMYL disclaimer with date range and methodology transparency
-- not_for_you: Honest scope limitations — strongest single trust signal
-- Present data provenance: "SpyOwl detected" not "sources report"
-- Acknowledge what you DON'T know: "Our analysis covers paid advertising campaigns; we cannot confirm or deny [specific claim]"
-
-═══ SOURCE LEDGER RULES ═══
-Every sources entry must have: title, url, type, accessed_date.
-The url must be a real, navigable URL. Examples:
-- {"title": "FCA Warning List", "url": "https://www.fca.org.uk/scamsmart/warning-list", "type": "regulatory", "accessed_date": "${currentDate}"}
-- {"title": "SEC EDGAR Company Search", "url": "https://www.sec.gov/cgi-bin/browse-edgar?company=&CIK=&type=&dateb=&owner=include&count=40&search_text=&action=getcompany", "type": "regulatory", "accessed_date": "${currentDate}"}
-- {"title": "IC3 Internet Crime Complaint Center", "url": "https://www.ic3.gov/", "type": "government", "accessed_date": "${currentDate}"}
-- {"title": "FTC Report Fraud", "url": "https://reportfraud.ftc.gov/", "type": "government", "accessed_date": "${currentDate}"}
-- {"title": "ScamAdviser", "url": "https://www.scamadviser.com/", "type": "consumer_protection", "accessed_date": "${currentDate}"}
-Include at least 4 sources. Type must be one of: regulatory, database, news, government, technical, consumer_protection.
-
-═══ RED FLAGS REQUIREMENTS ═══
-Generate 6-8 flags. Each flag.detail MUST cite at least 2 specific numbers. Cover these categories (when data supports):
-1. Celebrity impersonation (names + count)
-2. Geographic spread (countries + count)
-3. Ad volume and velocity (creative count + 7d rate)
-4. Campaign longevity (days active + date range)
-5. No regulatory compliance (absence of license)
-6. Fake testimonials and social proof
-7. High-pressure tactics and urgency
-8. No verifiable company information
-
-═══ FAQ REQUIREMENTS ═══
-Generate 6-8 Q&As. Each answer is an AI Overview extraction target.
-
-═══ ICP AUDIENCE LANGUAGE (mined from 55+ real victim conversations) ═══
-
-Your reader is one of these people:
-A) PRE-SCAM SEARCHER: Saw an ad, Googled "[brand] scam" before depositing. Needs instant confirmation.
-B) MID-SCAM DOUBTER: Already deposited, withdrawal failed, now searching. Needs validation + action steps.
-C) POST-SCAM VICTIM: Lost money, feeling shame. Needs to know they're not stupid, recovery scams are real, and what to report.
-D) CONCERNED FAMILY: Searching on behalf of elderly parent, romantic partner, or child. Needs evidence to show their loved one.
-
-WRITE IN THEIR LANGUAGE — these are real phrases from victim conversations:
-- Pain: "lost my life savings", "couldn't withdraw a cent", "deposits succeeded, cash-outs didn't", "they keep harassing me with 20 calls a day", "felt completely helpless"
-- Emotion: "felt so dumb", "ashamed and embarrassed", "drain you mentally and emotionally", "it's a nightmare", "it hit me — I had been scammed"
-- Search intent: "is [brand] legit", "[brand] scam", "can I get my money back", "how to report crypto scam"
-- Decision moments: "after months I decided to ask for a payout", "the interest rates turned my brain off", "all the research I did after depositing should have been done beforehand"
-- Warning phrases: "anyone who tells you to pay by cryptocurrency is a scammer", "no trading bot can guarantee profits", "recovery services are just another scam"
-
-TONE CALIBRATION:
-- Never mock or condescend. Victims include retirees, professionals, and educated people — scams exploit emotions, not intelligence.
-- Validate the reader's suspicion ("You're right to be suspicious" / "The fact that you're researching this is the smartest move you can make")
-- Address shame directly — "Being targeted by a sophisticated scam does not reflect on your intelligence"
-- When discussing recovery scams, be firm but compassionate — victims are desperate and vulnerable to secondary exploitation
-- Use "targeted" not "fell for" — the scam targeted them, they didn't fail
-
-CRITICAL: Output ONLY the JSON object. No explanation before or after.`
-
-    const userPrompt = `Generate a ${currentYear} scam review for: ${brandData.name}
-
-INTELLIGENCE DATA (cite these numbers directly — every claim must trace to this data):
-- Threat Score: ${brandData.scam_score}/100
-- Total Ad Creatives Detected: ${brandData.total_creatives}
-- Geographic Spread: ${brandData.total_geos} countries
-- Celebrities Impersonated: ${brandData.total_celebrities}
-- 7-Day Ad Velocity: ${brandData.velocity_7d} new creatives
-- Velocity Trend: ${brandData.velocity_trend}
-- Campaign Duration: ${longevityDays} days (first seen: ${brandData.first_seen_at}, last seen: ${brandData.last_seen_at})
-- Brand Status: ${brandData.status}
-
-CELEBRITY NAMES (use in 3-example rule): ${(brandData.celebrity_list || []).join(', ') || 'None detected'}
-COUNTRIES TARGETED (use in 3-example rule): ${(brandData.geo_list || []).join(', ') || 'Unknown'}
-
-AD CREATIVE SAMPLES (${creativeSample.length} of ${brandData.total_creatives} total):
-${creativeSample
-  .slice(0, 8)
-  .map(
-    (c, i) =>
-      `${i + 1}. "${c.offer_name || c.normalized_offer}" | Geo: ${c.geo || 'N/A'} | Celebrity: ${c.celebrity_name || 'None'} | Video: ${c.is_video ? 'Yes' : 'No'}`
-  )
-  .join('\n')}
-
-EVIDENCE IMAGES AVAILABLE: ${availableImages.length} verified screenshots in database
-
-Write a review that:
-1. Passes Google's E-E-A-T quality rater assessment for YMYL content
-2. Gets extracted by AI Overviews for "Is ${brandData.name} a scam?" queries
-3. Every single claim traces to the intelligence data above — zero fabrication
-4. Includes the "Not For You" trust block (strongest E-E-A-T differentiator)
-5. Uses ${currentYear} temporal markers for semantic freshness
-6. Speaks to ALL FOUR ICP segments — the pre-scam searcher (open with instant answer), mid-scam doubter (validate withdrawal failure pattern), post-scam victim (no shame + concrete reporting steps), and concerned family member (shareable evidence)
-7. Uses real victim language in the summary and how_it_works: reference patterns like "deposits succeed but cash-outs don't", "relentless phone calls from changing numbers", "fees to unlock withdrawals that never arrive"
-8. FAQ must include at least one recovery question ("Can I get my money back from ${brandData.name}?") and one family question ("How do I convince someone ${brandData.name} is a scam?")
-9. protection_steps must warn about recovery scams — "Any company claiming they can recover your crypto for an upfront fee is a secondary scam targeting people who've already lost money"
-10. The summary's first sentence must directly answer the search query "Is ${brandData.name} a scam?" — this is the AI Overview extraction target
-
-E-E-A-T CRITICAL REQUIREMENTS:
-11. methodology: Describe the ACTUAL investigation process — SpyOwl scanned ad networks between ${brandData.first_seen_at || 'detection start'} and ${brandData.last_seen_at || 'present'}, capturing ${brandData.total_creatives} creatives. Cross-referenced against regulatory databases. Reference the specific intelligence data above.
-12. expertise_depth: Explain why Crypto Killer is qualified — SpyOwl monitors ad networks across 50+ countries, database of 500+ scam brands. Reference technical capabilities.
-13. experience_signals: Include 3-5 SPECIFIC observations from investigating THIS brand. Reference actual creative counts, geo patterns, celebrity impersonation patterns from the data above. Each must sound like something only an investigator who looked at the actual ads would know.
-14. sources: Include 4-6 real authoritative sources with valid URLs. At least 1 regulatory (FCA/SEC/ASIC), 1 government (IC3/FTC), 1 technical, 1 consumer protection.
-15. disclaimer: Full YMYL disclaimer with investigation date range and scope limitations.`
-
-    // ─── Call Claude API ───
-    const anthropicResponse = await fetch(
-      'https://api.anthropic.com/v1/messages',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 8192,
-          system: systemPrompt,
-          messages: [
-            {
-              role: 'user',
-              content: userPrompt,
-            },
-          ],
-        }),
-      }
-    )
-
-          send({ step: 'ai_done', progress: 70, message: 'AI response received — parsing content...' })
-
-    if (!anthropicResponse.ok) {
-      const errorText = await anthropicResponse.text()
-      throw new Error(
-        `Claude API error: ${anthropicResponse.status} - ${errorText}`
-      )
-    }
-
-    const anthropicData = await anthropicResponse.json()
-
-    if (anthropicData.stop_reason === 'max_tokens') {
-      console.warn('Claude response was truncated at max_tokens — attempting repair')
-    }
-
-    const responseText =
-      anthropicData.content[0].type === 'text'
-        ? anthropicData.content[0].text
-        : ''
-
+          // ─── LEGACY COMPATIBILITY: Parse and process exactly like before ───
+          // The code below is kept from the original single-shot approach
+          const responseText = contentResult.text
+          const anthropicData = { stop_reason: contentResult.stopReason } // compat shim
     let reviewContent
     try {
       // ─── EXTRACT FIRST COMPLETE JSON OBJECT (balanced-brace parser) ───
@@ -620,7 +420,6 @@ E-E-A-T CRITICAL REQUIREMENTS:
           }
         }
       }
-
       if (!jsonStr) {
         // Fallback to greedy regex if balanced parse failed
         const jsonMatch = responseText.match(/\{[\s\S]*\}/)
@@ -651,7 +450,6 @@ E-E-A-T CRITICAL REQUIREMENTS:
     }
 
           send({ step: 'building', progress: 78, message: 'Building HTML article + schema markup...' })
-
     // ─── BUILD HTML ARTICLE ───
     const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -678,7 +476,6 @@ E-E-A-T CRITICAL REQUIREMENTS:
       const captionStyle = 'font-size:12px;color:rgba(255,255,255,0.6);margin-top:6px;line-height:1.4'
       const geoHeaderStyle = 'color:#f59e0b;font-size:15px;font-weight:600;margin:20px 0 10px;padding:6px 12px;background:rgba(245,158,11,0.08);border-radius:6px;display:inline-block'
       const rowStyle = 'display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px'
-
       let geoSections = ''
       for (const geo of Object.keys(byGeo)) {
         const imgs = byGeo[geo]
@@ -705,8 +502,7 @@ ${geoSections}`
       if (f.includes('regulat') || f.includes('licen') || f.includes('compliance')) return '⚖️'
       if (f.includes('ad ') || f.includes('creative') || f.includes('campaign') || f.includes('advertis')) return '📢'
       if (f.includes('testimonial') || f.includes('fake review') || f.includes('social proof')) return '👤'
-      if (f.includes('pressure') || f.includes('urgency') || f.includes('limited')) return '⏰'
-      if (f.includes('company') || f.includes('register') || f.includes('address') || f.includes('contact')) return '🏢'
+      if (f.includes('pressure') || f.includes('urgency') || f.includes('limited')) return '⏰'      if (f.includes('company') || f.includes('register') || f.includes('address') || f.includes('contact')) return '🏢'
       if (f.includes('video') || f.includes('youtube')) return '🎬'
       return '🚩'
     }
@@ -732,8 +528,7 @@ ${geoSections}`
     // ─── E-E-A-T CONTENT SECTIONS ───
     // Author byline HTML (word count placeholder replaced after fullArticle is built)
     const authorName = reviewContent.author_name || 'Crypto Killer Research Team'
-    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')
-    const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
+    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')    const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
 <p style="margin:0 0 4px;font-size:15px"><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
 <p style="margin:0 0 4px;font-size:13px;opacity:0.8"><em>${authorCredentials}</em></p>
 <p style="margin:0;font-size:13px;opacity:0.7"><time datetime="${currentDate}">Published: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</time> · {{WORD_COUNT}} words · {{READ_TIME}} min read</p>
@@ -760,7 +555,6 @@ ${geoSections}`
     const disclaimerHtml = reviewContent.disclaimer
       ? `<div style="margin:32px 0 16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1)"><p style="margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.5)"><strong>Disclaimer:</strong> ${escHtml(reviewContent.disclaimer)}</p></div>`
       : `<div style="margin:32px 0 16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1)"><p style="margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.5)"><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
-
     // ─── FULL ARTICLE HTML ───
     // COMPLETE self-contained review page matching Replit design.
     // Base44 renders ONLY this field via dangerouslySetInnerHTML.
@@ -792,7 +586,6 @@ ${geoSections}`
         `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:1px solid #1e293b"><span style="color:#cbd5e1;font-size:12px;font-weight:500">${region}</span><span style="color:#64748b;font-size:12px">${codes.join(', ')}</span></div>`
       ).join('')
     })()
-
     let fullArticle = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#f8fafc">
 
 <!-- BREADCRUMB -->
@@ -826,7 +619,6 @@ ${geoSections}`
 <span>👤 Crypto Killer Research Team</span>
 <span>🔍 SpyOwl Ad Surveillance</span>
 </div>
-
 <!-- STAT CARDS -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
@@ -847,7 +639,6 @@ ${geoSections}`
 </div>
 </div>
 </div>
-
 <!-- KEY TAKEAWAYS -->
 ${(reviewContent.key_takeaways || []).length > 0 ? `
 <div style="background:rgba(127,29,29,0.2);border:1px solid rgba(127,29,29,0.4);border-radius:12px;padding:24px;margin-bottom:48px">
@@ -872,7 +663,6 @@ ${sectionH2('📄', 'Investigation Summary')}
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
 </div>
 </section>
-
 <!-- HOW THIS SCAM WORKS — 4-stage funnel cards -->
 ${reviewContent.how_it_works ? (() => {
   const stageStyles = [
@@ -898,8 +688,7 @@ ${reviewContent.how_it_works ? (() => {
 <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0">
 <div style="width:40px;height:40px;border-radius:12px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,0.3)">${s.icon}</div>
 <span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:2px;color:${s.labelColor}">${s.label}</span>
-</div>
-<div style="flex:1;min-width:200px">
+</div><div style="flex:1;min-width:200px">
 <h3 style="font-weight:700;color:#f8fafc;font-size:17px;line-height:1.4;margin:0 0 12px">${escHtml(s.title)}</h3>
 <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px">
 ${bulletParts.map(bullet => `<li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:#cbd5e1;line-height:1.65">
@@ -928,7 +717,6 @@ ${stageCards}
 </div>
 </section>`
 })() : ''}
-
 <!-- RED FLAGS -->
 ${(reviewContent.red_flags || []).length > 0 ? `
 <section style="margin-bottom:48px">
@@ -958,7 +746,6 @@ ${(reviewContent.experience_signals || []).map((sig, idx) => `<div style="displa
 </div>`).join('\n')}
 </div>
 </section>` : ''}
-
 <!-- WHAT TO DO IF SCAMMED -->
 ${reviewContent.protection_steps ? `
 <section style="margin-bottom:48px">
@@ -990,7 +777,6 @@ ${sectionH2('✅', "What To Do If You've Been Scammed")}
 </div>
 </div>
 </section>` : ''}
-
 <!-- FAQ ACCORDION -->
 ${(reviewContent.faq || []).length > 0 ? `
 <section style="margin-bottom:48px">
@@ -1020,7 +806,6 @@ ${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 ${evidenceGridHtml}
 
 </div>
-
 <!-- RIGHT SIDEBAR -->
 <div style="flex:1;min-width:280px;max-width:380px">
 <div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:20px">
@@ -1048,8 +833,7 @@ ${evidenceGridHtml}
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_celebrities || 0}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.velocity_7d || 0} new</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Campaign Duration</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${longevityDays} days</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px"><span style="color:#94a3b8;font-size:12px">Status</span><span style="color:${isStillActive ? '#f87171' : '#94a3b8'};font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px">${isStillActive ? '<span style="width:6px;height:6px;border-radius:50%;background:#ef4444;display:inline-block"></span>Active Scam' : 'Inactive'}</span></div>
 </div>
 </div>
@@ -1078,8 +862,7 @@ ${geoRegions}
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
 <span style="font-size:16px">⛔</span>
 <span style="color:#f87171;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px">Final Verdict</span>
-</div>
-<p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
+</div><p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
 <p style="margin:0 0 12px;color:#f87171;font-weight:700;font-size:14px">Do not deposit any money.</p>
 <div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
 <p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${(brandData.total_creatives || 0).toLocaleString()} ad creatives across ${brandData.total_geos || 0} countries.</p>
@@ -1106,7 +889,6 @@ ${(reviewContent.sources || []).map(s => `<div style="display:flex;align-items:c
 <p style="margin:0 0 24px;color:#94a3b8;font-size:15px;max-width:600px;display:inline-block;line-height:1.6">Your report helps warn others and builds the evidence trail against this operation. If you've lost money, act quickly — chargebacks are time-sensitive.</p>
 <p style="margin:0;font-size:11px;color:#64748b;max-width:520px;display:inline-block">⚠️ Beware of "recovery agents" who contact you promising to retrieve your money for an upfront fee. These are often secondary scams targeting victims of ${escHtml(brandData.name)} and similar frauds.</p>
 </div>
-
 <!-- NOT FOR YOU -->
 ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
 
@@ -1135,7 +917,6 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
     let slug = baseSlug.endsWith('-review') ? baseSlug.replace(/-review$/, '') : baseSlug
-
     // ─── DEDUPLICATE SLUG (check if slug already taken) ───
     const existingByBrand = await supabaseRequest(
       `/reviews?brand_id=eq.${brand_id}&select=id,status`
@@ -1156,176 +937,64 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       ? existingByBrand
       : []
 
-    // ─── BUILD JSON-LD SCHEMA (@graph pattern) ───
-    // Organization → Person/Author → WebSite → Article → Review → ClaimReview → FAQPage
-    // Full E-E-A-T entity graph with @id cross-references
-    const siteUrl = 'https://crypto-killer.base44.app'
-    const reviewUrl = `${siteUrl}/reviews/${slug}`
+          // ═══════════════════════════════════════════════════════════════
+          // PHASE 5: QUALITY AUDIT (GPT-4o for fresh perspective, or Claude fallback)
+          // Runs 7 audit passes: anti-slop, E-E-A-T, source alignment, AI extractability,
+          // factual accuracy, tone & voice, schema-content parity
+          // ═══════════════════════════════════════════════════════════════
+          send({ step: 'audit', progress: 85, message: 'Phase 5/5: Quality audit via GPT-4o...' })
 
-    const schemaJsonLd = {
-      '@context': 'https://schema.org',
-      '@graph': [
-        // ── Organization Entity (Authoritativeness) ──
-        {
-          '@type': 'Organization',
-          '@id': `${siteUrl}/#organization`,
-          name: 'Crypto Killer',
-          url: siteUrl,
-          description: 'Scam intelligence platform powered by SpyOwl ad surveillance technology. Crypto Killer analyzes fraudulent advertising campaigns to protect consumers from cryptocurrency investment scams.',
-          knowsAbout: [
-            'Cryptocurrency Scams',
-            'Crypto Fraud Detection',
-            'Ad Surveillance Technology',
-            'Investment Scam Analysis',
-            'Celebrity Impersonation Scams',
-            'Financial Consumer Protection',
-            'Digital Advertising Fraud',
-          ],
-          sameAs: [
-            'https://github.com/nicro296/crypto-killer',
-          ],
-          subjectOf: {
-            '@type': 'WebSite',
-            '@id': `${siteUrl}/#website`,
-          },
-        },
-        // ── Person/Author Entity (Expertise + Experience) ──
-        {
-          '@type': 'Person',
-          '@id': `${siteUrl}/#author`,
-          name: 'Crypto Killer Research Team',
-          jobTitle: 'Crypto Fraud Intelligence Analysts',
-          worksFor: { '@id': `${siteUrl}/#organization` },
-          description: reviewContent.expertise_depth || 'Specialists in ad surveillance, blockchain analysis, and financial fraud pattern recognition.',
-          knowsAbout: [
-            'Cryptocurrency Fraud Investigation',
-            'Ad Surveillance Analysis',
-            'Scam Pattern Recognition',
-            'Financial Regulatory Compliance',
-            'WHOIS and SSL Certificate Analysis',
-          ],
-          hasCredential: {
-            '@type': 'EducationalOccupationalCredential',
-            credentialCategory: 'Professional Experience',
-            description: 'SpyOwl ad surveillance platform operators with access to 500+ scam brand investigations.',
-          },
-        },
-        // ── WebSite Entity ──
-        {
-          '@type': 'WebSite',
-          '@id': `${siteUrl}/#website`,
-          url: siteUrl,
-          name: 'Crypto Killer',
-          publisher: { '@id': `${siteUrl}/#organization` },
-        },
-        // ── Article Entity (primary content) ──
-        {
-          '@type': 'Article',
-          '@id': `${reviewUrl}#article`,
-          headline: reviewContent.headline || reviewContent.title,
-          description: reviewContent.meta_description,
-          datePublished: currentDate,
-          dateModified: currentDate,
-          wordCount: wordCount,
-          author: { '@id': `${siteUrl}/#author` },
-          publisher: { '@id': `${siteUrl}/#organization` },
-          isPartOf: { '@id': `${siteUrl}/#website` },
-          mainEntityOfPage: { '@id': `${reviewUrl}#webpage` },
-          about: {
-            '@type': 'Thing',
-            name: brandData.name,
-            description: `Alleged cryptocurrency investment scam with ${brandData.scam_score}/100 threat score`,
-          },
-          mentions: [
-            ...(brandData.celebrity_list || []).slice(0, 5).map(celeb => ({
-              '@type': 'Person',
-              name: celeb,
-            })),
-          ],
-          citation: (reviewContent.sources || []).map(s => ({
-            '@type': 'CreativeWork',
-            name: s.title,
-            url: s.url,
-          })),
-          speakable: {
-            '@type': 'SpeakableSpecification',
-            cssSelector: ['.author-byline', 'h2', 'h3', '.card p:first-of-type'],
-          },
-        },
-        // ── Review Entity (rating) ──
-        {
-          '@type': 'Review',
-          '@id': `${reviewUrl}#review`,
-          itemReviewed: {
-            '@type': 'Product',
-            name: brandData.name,
-            description: 'Cryptocurrency investment platform',
-            category: 'Cryptocurrency Investment',
-          },
-          reviewRating: {
-            '@type': 'Rating',
-            ratingValue: Math.max(1, Math.round((100 - brandData.scam_score) / 20)),
-            bestRating: 5,
-            worstRating: 1,
-            ratingExplanation: `Threat score of ${brandData.scam_score}/100 based on ${brandData.total_creatives} ad creatives detected across ${brandData.total_geos} countries.`,
-          },
-          author: { '@id': `${siteUrl}/#author` },
-          publisher: { '@id': `${siteUrl}/#organization` },
-          reviewBody: reviewContent.verdict,
-          datePublished: currentDate,
-        },
-        // ── ClaimReview Entity (fact-check signal) ──
-        {
-          '@type': 'ClaimReview',
-          '@id': `${reviewUrl}#claimreview`,
-          url: reviewUrl,
-          claimReviewed: `${brandData.name} is a legitimate cryptocurrency investment platform`,
-          author: { '@id': `${siteUrl}/#organization` },
-          datePublished: currentDate,
-          reviewRating: {
-            '@type': 'Rating',
-            ratingValue: 1,
-            bestRating: 5,
-            worstRating: 1,
-            alternateName: brandData.scam_score >= 80 ? 'False' : brandData.scam_score >= 50 ? 'Mostly False' : 'Unverified',
-          },
-          itemReviewed: {
-            '@type': 'Claim',
-            name: `${brandData.name} is a legitimate investment platform`,
-            author: { '@type': 'Organization', name: brandData.name },
-            datePublished: brandData.first_seen_at || currentDate,
-            appearance: {
-              '@type': 'CreativeWork',
-              name: `${brandData.name} advertising campaign`,
-              description: `${brandData.total_creatives} ad creatives detected across ${brandData.total_geos} countries`,
-            },
-          },
-        },
-        // ── FAQPage Entity (AI extraction target) ──
-        {
-          '@type': 'FAQPage',
-          '@id': `${reviewUrl}#faqpage`,
-          mainEntity: (reviewContent.faq || []).map(f => ({
-            '@type': 'Question',
-            name: f.question,
-            acceptedAnswer: {
-              '@type': 'Answer',
-              text: f.answer,
-            },
-          })),
-        },
-        // ── BreadcrumbList Entity (navigation + rich results) ──
-        {
-          '@type': 'BreadcrumbList',
-          '@id': `${reviewUrl}#breadcrumb`,
-          itemListElement: [
-            { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
-            { '@type': 'ListItem', position: 2, name: 'Investigations', item: `${siteUrl}/reviews` },
-            { '@type': 'ListItem', position: 3, name: brandData.name, item: reviewUrl },
-          ],
-        },
-      ],
-    }
+          let auditReport = null
+          try {
+            const auditModel = availableModelsInfo.openai ? 'gpt-4o' : 'claude-sonnet'
+            const auditPromptData = qualityAuditorPrompt()
+            // Build schema preview for parity check (schema built below, so we build a temp one)
+            const tempSchema = buildReviewSchema({
+              reviewContent,
+              brandData,
+              slug: slug || brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+              currentDate,
+              wordCount,
+              longevityDays,
+            })
+
+            const auditUserMsg = auditPromptData.userTemplate(
+              reviewContent,
+              brandData,
+              sourceLedger,
+              tempSchema
+            )
+
+            const auditResult = await callModel(auditModel, auditPromptData.system, auditUserMsg, {
+              jsonMode: true,
+            })
+
+            auditReport = extractJSON(auditResult.text)
+
+            const auditGrade = auditReport.grade || '?'
+            const auditScore = auditReport.overall_score || 0
+            const criticalCount = (auditReport.critical_fixes || []).length
+
+            send({
+              step: 'audit_done',
+              progress: 88,
+              message: `Audit complete: ${auditGrade} (${auditScore}/100) via ${auditResult.label} — ${criticalCount} critical fix${criticalCount !== 1 ? 'es' : ''}`,
+            })          } catch (auditError) {
+            // Audit failure is non-fatal — log and continue
+            console.error('Quality audit failed:', auditError.message)
+            send({ step: 'audit_skip', progress: 88, message: `Quality audit skipped: ${auditError.message}` })
+          }
+
+    // ─── BUILD JSON-LD SCHEMA (2026-compliant @graph pattern) ───
+    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo
+    const schemaJsonLd = buildReviewSchema({
+      reviewContent,
+      brandData,
+      slug,
+      currentDate,
+      wordCount,
+      longevityDays,
+    })
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })
 
@@ -1341,14 +1010,13 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       red_flags: (reviewContent.red_flags || []).map(rf => ({
         ...rf,
         flag: `${getRedFlagIcon(rf.flag)} ${rf.flag}`,
-      })),
-      verdict: reviewContent.verdict,
+      })),      verdict: reviewContent.verdict,
       faq: reviewContent.faq,
       full_article: fullArticle,
       scam_score: brandData.scam_score || 0,
       status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
-      ai_model: 'claude-haiku-4-5-20251001',
-      ai_prompt_version: 'eeat-v2.0-seo-v3.1-schema-v2-icp-v1',
+      ai_model: contentResult.model || 'claude-opus',
+      ai_prompt_version: 'multi-agent-v1.0-seo-v3.1-schema-v3-icp-v1',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
@@ -1372,8 +1040,17 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         countries_scanned: brandData.total_geos,
         celebrities_identified: brandData.total_celebrities,
         investigation_period_days: longevityDays,
-        data_source: 'SpyOwl Ad Surveillance',
-        evidence_images: availableImages.length,
+        data_source: 'SpyOwl Ad Surveillance',        evidence_images: availableImages.length,
+        // Multi-agent pipeline metadata
+        pipeline_version: 'multi-agent-v1.0',
+        source_research_model: contentResult.usedFallback ? contentResult.resolvedModel : 'gemini-flash',
+        content_model: contentResult.resolvedModel || 'claude-opus',
+        content_tokens: contentResult.outputTokens || null,
+        audit_model: auditReport ? 'gpt-4o' : null,
+        audit_score: auditReport?.overall_score || null,
+        audit_grade: auditReport?.grade || null,
+        audit_critical_fixes: auditReport?.critical_fixes || [],
+        verified_sources_count: sourceLedger.length,
       },
     }
 
@@ -1393,8 +1070,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
           body: JSON.stringify(reviewPayload),
           headers: { 'Prefer': 'return=representation' },
         })
-        reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id
-      } catch (insertError) {
+        reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id      } catch (insertError) {
         if (insertError.message.includes('23505') || insertError.message.includes('409')) {
           // Slug collision — find the conflicting review and update it
           const conflicting = await supabaseRequest(
@@ -1425,7 +1101,6 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
     } catch (revalError) {
       console.error('Revalidation error (non-fatal):', revalError.message)
     }
-
           send({
             step: 'done',
             progress: 100,
@@ -1436,8 +1111,15 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
               word_count: wordCount,
               images_embedded: availableImages.length,
-              schema_types: ['Organization', 'Person', 'Article', 'Review', 'ClaimReview', 'FAQPage'],
-              eeat_version: 'v2.0',
+              schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList'],
+              pipeline_version: 'multi-agent-v1.0',
+              audit_grade: auditReport?.grade || 'skipped',
+              audit_score: auditReport?.overall_score || null,
+              models_used: {
+                sources: contentResult.usedFallback ? contentResult.resolvedModel : 'gemini-flash',
+                content: contentResult.resolvedModel || 'claude-opus',
+                audit: auditReport ? 'gpt-4o' : 'skipped',
+              },
             },
           })
 
@@ -1455,8 +1137,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       },
-    })
-  } catch (error) {
+    })  } catch (error) {
     if (error.message.includes('Unauthorized')) {
       return unauthorizedResponse()
     }
