@@ -885,7 +885,8 @@ ${reviewContent.how_it_works ? (() => {
     { icon: '🚨', label: 'Stage 4', title: 'The Withdrawal Trap & Fee Extraction', bg: 'rgba(136,19,55,0.3)', border: 'rgba(190,18,60,0.5)', barColor: '#be123c', labelColor: '#fb7185', iconBg: '#be123c',
       statValue: '$500–$5k', statSub: 'unlock fees demanded' },
   ]
-  const paragraphs = reviewContent.how_it_works.split('\\n\\n').filter(p => p.trim())
+  // Split on real newlines OR literal \n\n (Claude sometimes returns either)
+  const paragraphs = reviewContent.how_it_works.split(/(?:\\n){2,}|\n{2,}/).filter(p => p.trim())
   const stageCards = paragraphs.map((p, i) => {
     const s = stageStyles[i] || stageStyles[stageStyles.length - 1]
     const sentences = p.split(/(?<=\.)\s+/).filter(st => st.trim())
