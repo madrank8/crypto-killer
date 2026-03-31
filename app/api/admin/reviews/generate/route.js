@@ -362,7 +362,7 @@ OUTPUT FORMAT: Valid JSON with these fields. All string values must use \\n for 
   "meta_description": "Under 155 chars. Must include: brand name, scam score, key evidence count, current year.",
   "summary": "2-3 sentences MAXIMUM, under 250 characters total. This is a card preview — NOT a full paragraph. First sentence answers the query: '{Brand} is a confirmed crypto scam with a {score}/100 threat score.' Second sentence: one key stat (ad count or country count). Third sentence (optional): one action. STRICT LIMIT: 250 characters. Anything longer breaks the homepage layout.",
   "key_takeaways": ["5-6 bullet points. Each must contain a specific number from the intelligence data. Declaration-first. These appear right after the intro as the BLUF summary."],
-  "how_it_works": "250-350 words explaining the scam mechanics. Structure as a 4-step process: (1) Celebrity bait — fake endorsement ads using {celebrity names}, (2) Geo-targeting — ads served in {N} countries including {examples}, (3) The funnel — fake testimonials, urgency pressure, minimum deposit, (4) The trap — no withdrawals, account lockout, fake support. Each step must cite specific intelligence data. Use domain-specific verbs: 'targets', 'deploys', 'impersonates', 'funnels', 'exploits'. Vary sentence rhythm — mix 8-word declaratives with 20-word compound sentences. CRITICAL: Use \\n\\n between each stage to create paragraph breaks. Each stage should be its own paragraph, not one wall of text.",
+  "how_it_works": "EXACTLY 4 paragraphs separated by \\n\\n — one per stage. Each paragraph is 50-80 words (3-5 sentences). The content renders inside stage cards, so brevity is critical. STAGE 1 (Celebrity Impersonation & Geo-Targeted Advertising): fake celebrity endorsement ads, geo-targeting, ad volume and celebrity count. STAGE 2 (The Funnel & Deposit Success): fake trading dashboard, urgency tactics, testimonials, minimum deposit, instant deposit confirmation. STAGE 3 (Fake Profits & Psychological Manipulation): fake dashboard profits, rising balances, pressure to deposit more, emotional manipulation, calls from 'account managers'. STAGE 4 (The Withdrawal Trap & Fee Extraction): withdrawal blocked, unlock fees demanded, compliance fees, account frozen, support vanishes. Each paragraph MUST cite specific numbers from the intelligence data. Declaration-first sentences. Domain verbs: targets, deploys, impersonates, funnels, exploits. STRICT: do NOT exceed 80 words per paragraph — the cards break visually if text is too long.",
   "red_flags": [{"flag": "Specific red flag title (under 8 words)", "detail": "70-100 words of evidence. MUST cite at least 2 specific numbers from intelligence data. Declaration-first. Include entity names (celebrities, countries, dates). End with a verdict statement."}],
   "protection_steps": "150-200 words. Actionable steps for readers: (1) Report to IC3.gov and local authorities, (2) Contact your bank for chargeback within 60 days, (3) File FTC complaint at ReportFraud.ftc.gov, (4) Document everything — screenshots of ads, transaction records, communications. Include specific org names and URLs.",
   "not_for_you": "80-120 words. The 'Not For You' block — name specific scenarios where this review may NOT apply. Example: 'This review covers the crypto investment scheme using the name {Brand}. If you encountered a different product with a similar name in a regulated market, or if {Brand} contacted you through a licensed financial advisor with verifiable credentials, that may be a separate entity. Our analysis is based on ad surveillance data from SpyOwl — it covers paid advertising campaigns, not organic search results or direct referrals.' This is a trust signal — the single strongest E-E-A-T differentiator.",
@@ -811,7 +811,14 @@ ${geoSections}`
 <span style="display:inline-flex;align-items:center;gap:6px;background:#dc2626;color:#fff;font-size:12px;font-weight:700;padding:6px 14px;border-radius:4px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap">${badgeLabel}</span>
 </div>
 
-<p style="font-size:17px;color:#cbd5e1;max-width:900px;margin:0 0 24px;line-height:1.7">${escHtml(reviewContent.summary || '')}</p>
+<p style="font-size:17px;color:#cbd5e1;max-width:900px;margin:0 0 24px;line-height:1.7">${(() => {
+  let s = escHtml(reviewContent.summary || '')
+  // Highlight threat score in red bold
+  s = s.replace(/(\d+\/100\s*threat\s*score)/gi, '<span style="color:#ef4444;font-weight:700">$1</span>')
+  // Bold key numbers: "N,NNN fraudulent advertisements", "NN countries", "NNN days", "NN celebrities"
+  s = s.replace(/(\d[\d,]*)\s+(fraudulent\s+ad\w*|ad\s+creatives?|countries|days|celebrities)/gi, '<strong style="color:#f8fafc;font-weight:700">$1 $2</strong>')
+  return s
+})()}</p>
 
 <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;font-size:13px;color:#94a3b8;margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid #1e293b">
 <span>📅 Published: ${publishedDateFmt}</span>
@@ -859,7 +866,8 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <!-- INVESTIGATION SUMMARY -->
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
-${(reviewContent.summary || '').split('\\n\\n').filter(p => p.trim()).map(p => `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(p)}</p>`).join('')}
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} is a confirmed crypto investment scam with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${(brandData.total_creatives || 0).toLocaleString()} fraudulent advertisements</strong> detected across <strong style="color:#f8fafc">${brandData.total_geos || 0} countries</strong> over <strong style="color:#f8fafc">${longevityDays} days</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${brandData.total_celebrities ? ` The scheme impersonates <strong style="color:#f8fafc">${brandData.total_celebrities} real celebrities</strong> in paid advertisements${(brandData.celebrity_list || []).length > 0 ? `, including ${brandData.celebrity_list.slice(0, 5).map(c => escHtml(c)).join(', ')}` : ''}.` : ''}</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. SpyOwl's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
 </div>
@@ -1304,6 +1312,16 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               text: f.answer,
             },
           })),
+        },
+        // ── BreadcrumbList Entity (navigation + rich results) ──
+        {
+          '@type': 'BreadcrumbList',
+          '@id': `${reviewUrl}#breadcrumb`,
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: siteUrl },
+            { '@type': 'ListItem', position: 2, name: 'Investigations', item: `${siteUrl}/reviews` },
+            { '@type': 'ListItem', position: 3, name: brandData.name, item: reviewUrl },
+          ],
         },
       ],
     }
