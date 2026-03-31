@@ -1077,7 +1077,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
-    let slug = baseSlug.endsWith('-review') ? baseSlug : `${baseSlug}-review`
+    let slug = baseSlug.endsWith('-review') ? baseSlug.replace(/-review$/, '') : baseSlug
 
     // ─── DEDUPLICATE SLUG (check if slug already taken) ───
     const existingByBrand = await supabaseRequest(
