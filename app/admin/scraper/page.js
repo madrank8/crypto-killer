@@ -184,6 +184,262 @@ function RecentlyDiscovered({ brands }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   SCRAPE CONTROL PANEL
+   ═══════════════════════════════════════════════════════════════ */
+
+function ScrapeControl({ token, spyowlConnected }) {
+  const [history, setHistory] = useState(null);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerResult, setTriggerResult] = useState(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const fetchHistory = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/admin/scraper/history?limit=10', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setHistory(await res.json());
+    } catch { /* silent */ }
+    setLoadingHistory(false);
+  }, [token]);
+
+  useEffect(() => { fetchHistory(); }, [fetchHistory]);
+
+  // Poll for active job updates
+  useEffect(() => {
+    if (!history?.has_active) return;
+    const interval = setInterval(fetchHistory, 8000);
+    return () => clearInterval(interval);
+  }, [history?.has_active, fetchHistory]);
+
+  const handleTrigger = async () => {
+    setTriggering(true);
+    setTriggerResult(null);
+    try {
+      const res = await fetch('/api/admin/scraper/trigger', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      setTriggerResult(data);
+      fetchHistory();
+    } catch (e) {
+      setTriggerResult({ error: e.message });
+    }
+    setTriggering(false);
+  };
+
+  const activeJob = history?.active_job;
+  const hasRuns = history?.runs?.length > 0;
+
+  const statusColors = {
+    pending: 'text-yellow-400 bg-yellow-500/10',
+    running: 'text-blue-400 bg-blue-500/10',
+    completed: 'text-green-400 bg-green-500/10',
+    failed: 'text-red-400 bg-red-500/10',
+  };
+
+  const statusIcons = {
+    pending: '⏳',
+    running: '⚡',
+    completed: '✓',
+    failed: '✗',
+  };
+
+  function formatDuration(start, end) {
+    if (!start || !end) return '—';
+    const sec = Math.round((new Date(end) - new Date(start)) / 1000);
+    if (sec < 60) return `${sec}s`;
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+    return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+  }
+
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl overflow-hidden">
+      <div className="px-5 pt-5 pb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+              Scrape Control
+              {activeJob && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full animate-pulse">
+                  ⚡ Running
+                </span>
+              )}
+            </h2>
+            <p className="text-gray-500 text-sm mt-0.5">Trigger on-demand scrapes • Auto-scrape runs daily at midnight UTC</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasRuns && (
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="text-xs font-medium text-gray-400 hover:text-white px-3 py-2 rounded-lg border border-gray-700 hover:border-gray-600 transition"
+              >
+                {showHistory ? 'Hide' : 'Show'} History
+              </button>
+            )}
+            <button
+              onClick={handleTrigger}
+              disabled={triggering || !!activeJob || !spyowlConnected}
+              className={`text-sm font-semibold px-5 py-2 rounded-lg transition flex items-center gap-2 ${
+                triggering || !!activeJob || !spyowlConnected
+                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                  : 'bg-red-600 hover:bg-red-500 text-white shadow-lg shadow-red-900/30'
+              }`}
+            >
+              {triggering ? (
+                <>
+                  <span className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                  Initiating...
+                </>
+              ) : activeJob ? (
+                <>⚡ Scrape Running</>
+              ) : !spyowlConnected ? (
+                <>🔌 SpyOwl Disconnected</>
+              ) : (
+                <>▶ Run Scrape Now</>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Trigger result feedback */}
+        {triggerResult && (
+          <div className={`text-sm rounded-lg px-4 py-3 mb-3 ${
+            triggerResult.success
+              ? 'bg-green-500/10 border border-green-500/20 text-green-300'
+              : 'bg-red-500/10 border border-red-500/20 text-red-300'
+          }`}>
+            {triggerResult.success
+              ? `✓ Scrape initiated — ${triggerResult.message}`
+              : `✗ ${triggerResult.error}`}
+          </div>
+        )}
+
+        {/* Active job progress */}
+        {activeJob && (
+          <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-4 py-3 mb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
+                <span className="text-sm text-blue-300 font-medium">
+                  Scrape {activeJob.status === 'pending' ? 'queued' : 'in progress'}
+                </span>
+                <span className="text-xs text-gray-500">
+                  Started {activeJob.started_at ? timeAgo(activeJob.started_at) : '—'}
+                </span>
+              </div>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 capitalize">
+                {activeJob.trigger_type || 'manual'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Last scrape summary (when no active job) */}
+        {!activeJob && hasRuns && !showHistory && (
+          <div className="flex items-center gap-4 text-sm">
+            {(() => {
+              const last = history.runs[0];
+              return (
+                <>
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[last.status]}`}>
+                    {statusIcons[last.status]} {last.status}
+                  </span>
+                  <span className="text-gray-500">
+                    {last.started_at ? new Date(last.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                  </span>
+                  {last.status === 'completed' && (
+                    <>
+                      <span className="text-gray-400">
+                        {last.new_brands || 0} new brands • {last.new_creatives || 0} new creatives
+                      </span>
+                      <span className="text-gray-600">
+                        {formatDuration(last.started_at, last.finished_at)}
+                      </span>
+                    </>
+                  )}
+                  {last.status === 'failed' && last.error_message && (
+                    <span className="text-red-400/70 text-xs truncate max-w-xs">{last.error_message}</span>
+                  )}
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 capitalize">{last.trigger_type || 'manual'}</span>
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+
+      {/* Scrape History Table */}
+      {showHistory && hasRuns && (
+        <div className="border-t border-gray-800/60">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-gray-800/60">
+                  <th className="text-left px-5 py-2">Status</th>
+                  <th className="text-left px-3 py-2">Type</th>
+                  <th className="text-left px-3 py-2">Started</th>
+                  <th className="text-right px-3 py-2">Duration</th>
+                  <th className="text-right px-3 py-2">New Brands</th>
+                  <th className="text-right px-3 py-2">New Creatives</th>
+                  <th className="text-right px-3 py-2">Total Synced</th>
+                  <th className="text-right px-3 py-2">API Calls</th>
+                  <th className="text-left px-5 py-2">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.runs.map((run) => (
+                  <tr key={run.id} className="border-b border-gray-800/30 hover:bg-white/[0.02] transition">
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[run.status]}`}>
+                        {statusIcons[run.status]} {run.status}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="text-xs text-gray-400 capitalize">{run.trigger_type || 'manual'}</span>
+                    </td>
+                    <td className="px-3 py-3 text-gray-400 text-xs">
+                      {run.started_at ? new Date(run.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    </td>
+                    <td className="text-right px-3 py-3 text-gray-400 text-xs">
+                      {formatDuration(run.started_at, run.finished_at)}
+                    </td>
+                    <td className="text-right px-3 py-3 text-green-400 font-medium">{run.new_brands || 0}</td>
+                    <td className="text-right px-3 py-3 text-blue-400 font-medium">{run.new_creatives || 0}</td>
+                    <td className="text-right px-3 py-3 text-gray-400">{run.creatives_synced || 0}</td>
+                    <td className="text-right px-3 py-3 text-gray-500">{run.total_api || 0}</td>
+                    <td className="px-5 py-3 text-xs text-gray-500 max-w-[200px] truncate">
+                      {run.geo_filter || (run.error_message ? <span className="text-red-400/70">{run.error_message}</span> : '—')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {history.summary && (
+            <div className="px-5 py-3 border-t border-gray-800/40 flex items-center gap-6 text-xs text-gray-500">
+              <span>Total runs: {history.summary.total_runs}</span>
+              <span>Completed: {history.summary.completed}</span>
+              <span>Failed: {history.summary.failed}</span>
+              {history.summary.avg_duration_seconds > 0 && (
+                <span>Avg duration: {formatDuration(0, history.summary.avg_duration_seconds * 1000)}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    COUNTRIES TAB COMPONENTS
    ═══════════════════════════════════════════════════════════════ */
 
@@ -543,6 +799,7 @@ export default function ScraperPage() {
   }
 
   if (!data) return null;
+
   const { spyowl, ingestion, activity, quality } = data;
 
   return (
@@ -583,6 +840,9 @@ export default function ScraperPage() {
         <>
           {/* SpyOwl Connection Status */}
           <SpyOwlBanner spyowl={spyowl} />
+
+          {/* Scrape Control Panel */}
+          <ScrapeControl token={token} spyowlConnected={spyowl?.connected} />
 
           {/* KPI Row 1: Pipeline Totals */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
