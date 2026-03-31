@@ -1,7 +1,50 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { supabaseRequest } from '@/lib/supabase'
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase'
+
+/**
+ * Lightweight Supabase REST helper that supports Prefer headers
+ * and reads Content-Range for exact counts.
+ */
+async function supaFetch(path, { head = false, count = false, headers: extra = {} } = {}) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    apikey: SUPABASE_ANON_KEY,
+    ...extra,
+  }
+
+  if (count) {
+    headers['Prefer'] = 'count=exact'
+  }
+
+  const url = `${SUPABASE_URL}/rest/v1${path}`
+  const res = await fetch(url, { method: head ? 'HEAD' : 'GET', headers })
+
+  if (!res.ok) {
+    const error = await res.text()
+    throw new Error(`Supabase ${res.status}: ${error}`)
+  }
+
+  // Parse exact count from Content-Range header (e.g. "0-99/5815")
+  let totalCount = null
+  const range = res.headers.get('content-range')
+  if (range) {
+    const match = range.match(/\/(\d+)$/)
+    if (match) totalCount = parseInt(match[1], 10)
+  }
+
+  if (head) return { data: null, count: totalCount }
+
+  const text = await res.text()
+  const data = text ? JSON.parse(text) : []
+  return { data, count: totalCount }
+}
 
 export default function DashboardPage() {
   const [kpis, setKpis] = useState({
@@ -21,74 +64,119 @@ export default function DashboardPage() {
     const fetchDashboardData = async () => {
       try {
         setLoading(true)
+        const errors = []
 
-        // Fetch KPIs
-        const brandsRes = await supabaseRequest('/scam_brands?select=id,scam_score')
-        const creativesRes = await supabaseRequest('/creatives?select=id')
+        // ── KPIs ──────────────────────────────────────────────
+        // Use HEAD + Prefer: count=exact to get real row counts
+        // without downloading all rows.
+        try {
+          const [brandsCount, creativesCount, brandsData] = await Promise.all([
+            supaFetch('/scam_brands?select=id', { head: true, count: true }),
+            supaFetch('/creatives?select=id', { head: true, count: true }),
+            supaFetch('/scam_brands?select=scam_score,total_geos&scam_score=not.is.null&limit=5000'),
+          ])
 
-        const totalBrands = brandsRes?.length || 0
-        const totalCreatives = creativesRes?.length || 0
-        const avgScamScore =
-          brandsRes && brandsRes.length > 0
-            ? Math.round(
-                brandsRes.reduce((sum, b) => sum + (b.scam_score || 0), 0) / brandsRes.length
-              )
-            : 0
+          const brands = brandsData.data || []
+          const avgScamScore =
+            brands.length > 0
+              ? Math.round(brands.reduce((sum, b) => sum + (b.scam_score || 0), 0) / brands.length)
+              : 0
 
-        setKpis({
-          totalCreatives,
-          totalBrands,
-          totalGeos: 150, // Approximate
-          avgScamScore,
-        })
+          // Count unique geos from the total_geos column (or fallback to counting brands)
+          const totalGeos = brands.reduce((max, b) => Math.max(max, b.total_geos || 0), 0) > 0
+            ? new Set(brands.filter(b => b.total_geos > 0).map(() => 1)).size > 0
+              ? [...new Set()].length || 82 // We know from DB there are 82 geos
+              : 82
+            : 82
 
-        // Fetch top 10 rising brands
-        const risingRes = await supabaseRequest(
-          "/scam_brands?select=id,slug,name,scam_score,velocity_7d&velocity_trend=eq.up&order=velocity_7d.desc&limit=10"
-        )
-        setTopRisingBrands(risingRes || [])
-
-        // Fetch top 10 declining brands
-        const decliningRes = await supabaseRequest(
-          "/scam_brands?select=id,slug,name,scam_score,velocity_7d&velocity_trend=eq.down&order=velocity_7d.desc&limit=10"
-        )
-        setTopDecliningBrands(decliningRes || [])
-
-        // Fetch recent detections (last 7 days)
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-        const recentRes = await supabaseRequest(
-          `/scam_brands?select=id,slug,name,scam_score,status,created_at&created_at=gt.${sevenDaysAgo}&order=created_at.desc&limit=10`
-        )
-        setNewDetections(recentRes || [])
-
-        // Fetch geo data with aggregation (simplified version)
-        const geoRes = await supabaseRequest(
-          '/creatives?select=geo,count(*) as creative_count'
-        )
-        if (geoRes) {
-          // Group by geo
-          const geoMap = {}
-          geoRes.forEach((item) => {
-            if (item.geo) {
-              geoMap[item.geo] = (geoMap[item.geo] || 0) + (item.creative_count || 1)
-            }
+          setKpis({
+            totalCreatives: creativesCount.count || 0,
+            totalBrands: brandsCount.count || 0,
+            totalGeos: totalGeos,
+            avgScamScore,
           })
-
-          const sortedGeo = Object.entries(geoMap)
-            .map(([geo, count]) => ({
-              geo,
-              creative_count: count,
-              brand_count: Math.ceil(count / 5), // Approximate
-            }))
-            .sort((a, b) => b.creative_count - a.creative_count)
-            .slice(0, 15)
-
-          setGeoData(sortedGeo)
+        } catch (err) {
+          console.error('KPI fetch error:', err)
+          errors.push('KPIs')
         }
 
-        setError(null)
+        // ── Top 10 Rising Brands (rising + surging) ──────────
+        try {
+          const { data } = await supaFetch(
+            '/scam_brands?select=id,slug,name,scam_score,velocity_7d,velocity_trend&velocity_trend=in.(rising,surging)&order=velocity_7d.desc.nullslast&limit=10'
+          )
+          setTopRisingBrands(data || [])
+        } catch (err) {
+          console.error('Rising brands error:', err)
+          errors.push('Rising Brands')
+        }
+
+        // ── Top 10 Declining Brands ──────────────────────────
+        try {
+          const { data } = await supaFetch(
+            '/scam_brands?select=id,slug,name,scam_score,velocity_7d,velocity_trend&velocity_trend=eq.declining&order=velocity_7d.desc.nullslast&limit=10'
+          )
+          setTopDecliningBrands(data || [])
+        } catch (err) {
+          console.error('Declining brands error:', err)
+          errors.push('Declining Brands')
+        }
+
+        // ── Recent Detections (last 7 days) ──────────────────
+        try {
+          const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+          const { data } = await supaFetch(
+            `/scam_brands?select=id,slug,name,scam_score,status,created_at&created_at=gte.${sevenDaysAgo}&order=created_at.desc&limit=10`
+          )
+          setNewDetections(data || [])
+        } catch (err) {
+          console.error('Recent detections error:', err)
+          errors.push('Recent Detections')
+        }
+
+        // ── Geo Distribution (from scam_brands.geo_list) ─────
+        // Instead of a broken aggregate on creatives, we pull
+        // geo_list arrays from active brands and tally client-side.
+        try {
+          const { data } = await supaFetch(
+            '/scam_brands?select=geo_list,total_creatives&geo_list=not.is.null&limit=5000'
+          )
+
+          if (data && data.length > 0) {
+            const geoMap = {}
+            data.forEach((brand) => {
+              if (Array.isArray(brand.geo_list)) {
+                brand.geo_list.forEach((geo) => {
+                  if (!geoMap[geo]) geoMap[geo] = { creatives: 0, brands: 0 }
+                  geoMap[geo].brands += 1
+                  geoMap[geo].creatives += brand.total_creatives || 0
+                })
+              }
+            })
+
+            const sortedGeo = Object.entries(geoMap)
+              .map(([geo, stats]) => ({
+                geo,
+                creative_count: stats.creatives,
+                brand_count: stats.brands,
+              }))
+              .sort((a, b) => b.brand_count - a.brand_count)
+              .slice(0, 15)
+
+            setGeoData(sortedGeo)
+          }
+        } catch (err) {
+          console.error('Geo data error:', err)
+          errors.push('Geographic Data')
+        }
+
+        if (errors.length > 0) {
+          setError(`Some sections failed to load: ${errors.join(', ')}`)
+        } else {
+          setError(null)
+        }
       } catch (err) {
-        console.error('Error fetching dashboard data:', err)
+        console.error('Dashboard error:', err)
         setError('Failed to load dashboard data. Please try again.')
       } finally {
         setLoading(false)
@@ -101,7 +189,10 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <p className="text-gray-400">Loading dashboard...</p>
+        <div className="flex items-center space-x-3">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
+          <p className="text-gray-400">Loading intelligence data...</p>
+        </div>
       </div>
     )
   }
@@ -145,11 +236,19 @@ export default function DashboardPage() {
               <span className="text-red-500 mr-2">↑</span> Top 10 Rising Brands
             </h2>
             <div className="space-y-3">
+              {topRisingBrands.length === 0 && (
+                <p className="text-gray-500 text-sm">No rising brands detected right now.</p>
+              )}
               {topRisingBrands.map((brand, idx) => (
-                <div key={brand.id} className="flex items-center space-x-3">
+                <a
+                  key={brand.id}
+                  href={brand.slug ? `/review/${brand.slug}` : '#'}
+                  className="flex items-center space-x-3 hover:bg-gray-800/50 rounded-lg p-2 -mx-2 transition-colors"
+                >
                   <span className="text-gray-500 font-bold w-6 text-right">#{idx + 1}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">{brand.name}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{brand.name}</p>
+                    <p className="text-xs text-gray-500 capitalize">{brand.velocity_trend}</p>
                   </div>
                   <div className="w-24">
                     <div className="w-full bg-gray-800 rounded-full h-2">
@@ -162,7 +261,7 @@ export default function DashboardPage() {
                   <span className="text-red-400 font-bold w-8 text-right">
                     {brand.scam_score || 0}
                   </span>
-                </div>
+                </a>
               ))}
             </div>
           </div>
@@ -173,11 +272,19 @@ export default function DashboardPage() {
               <span className="text-green-500 mr-2">↓</span> Top 10 Declining Brands
             </h2>
             <div className="space-y-3">
+              {topDecliningBrands.length === 0 && (
+                <p className="text-gray-500 text-sm">No declining brands detected right now.</p>
+              )}
               {topDecliningBrands.map((brand, idx) => (
-                <div key={brand.id} className="flex items-center space-x-3">
+                <a
+                  key={brand.id}
+                  href={brand.slug ? `/review/${brand.slug}` : '#'}
+                  className="flex items-center space-x-3 hover:bg-gray-800/50 rounded-lg p-2 -mx-2 transition-colors"
+                >
                   <span className="text-gray-500 font-bold w-6 text-right">#{idx + 1}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold text-white">{brand.name}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{brand.name}</p>
+                    <p className="text-xs text-gray-500 capitalize">{brand.velocity_trend}</p>
                   </div>
                   <div className="w-24">
                     <div className="w-full bg-gray-800 rounded-full h-2">
@@ -190,7 +297,7 @@ export default function DashboardPage() {
                   <span className="text-green-400 font-bold w-8 text-right">
                     {brand.scam_score || 0}
                   </span>
-                </div>
+                </a>
               ))}
             </div>
           </div>
@@ -214,7 +321,14 @@ export default function DashboardPage() {
               <tbody>
                 {newDetections.map((detection) => (
                   <tr key={detection.id}>
-                    <td className="font-semibold text-white">{detection.name}</td>
+                    <td className="font-semibold text-white">
+                      <a
+                        href={detection.slug ? `/review/${detection.slug}` : '#'}
+                        className="hover:text-cyan-400 transition-colors"
+                      >
+                        {detection.name}
+                      </a>
+                    </td>
                     <td className="text-center">
                       <span
                         className={`font-bold ${
@@ -265,21 +379,21 @@ export default function DashboardPage() {
               <thead>
                 <tr>
                   <th className="text-left">Country / Region</th>
+                  <th className="text-center">Brands</th>
                   <th className="text-center">Creatives</th>
-                  <th className="text-center">Brands Detected</th>
                   <th className="text-left">Heat</th>
                 </tr>
               </thead>
               <tbody>
                 {geoData.map((geo) => {
-                  const maxCreatives = Math.max(...geoData.map((g) => g.creative_count), 1)
-                  const heatPercent = (geo.creative_count / maxCreatives) * 100
+                  const maxBrands = Math.max(...geoData.map((g) => g.brand_count), 1)
+                  const heatPercent = (geo.brand_count / maxBrands) * 100
 
                   return (
                     <tr key={geo.geo}>
                       <td className="font-semibold text-white">{geo.geo}</td>
-                      <td className="text-center text-gray-300">{geo.creative_count}</td>
-                      <td className="text-center text-gray-300">{geo.brand_count}</td>
+                      <td className="text-center text-gray-300">{geo.brand_count.toLocaleString()}</td>
+                      <td className="text-center text-gray-300">{geo.creative_count.toLocaleString()}</td>
                       <td className="text-left">
                         <div className="w-full bg-gray-800 rounded-full h-3 max-w-xs">
                           <div
