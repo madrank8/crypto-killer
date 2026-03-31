@@ -25,6 +25,7 @@ function StatCard({ label, value, sub, color = 'gray', icon }) {
     </div>
   );
 }
+
 function SectionHeader({ title, sub }) {
   return (
     <div className="mb-4">
@@ -52,7 +53,8 @@ function IngestionChart({ data }) {
                 height: `${Math.max(pct, 2)}%`,
                 backgroundColor: isToday ? '#ef4444' : d.brands > 0 ? '#3b82f6' : '#1f2937',
                 minHeight: '2px',
-              }} />              <span className="text-[9px] text-gray-600">
+              }} />
+              <span className="text-[9px] text-gray-600">
                 {new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
               </span>
             </div>
@@ -82,7 +84,8 @@ function SpyOwlBanner({ spyowl }) {
         <div>
           <span className={`text-sm font-medium ${
             spyowl.connected ? (isOld ? 'text-amber-300' : 'text-green-300') : 'text-red-400'
-          }`}>            SpyOwl {spyowl.connected ? 'Connected' : 'Disconnected'}
+          }`}>
+            SpyOwl {spyowl.connected ? 'Connected' : 'Disconnected'}
           </span>
           {spyowl.connected && spyowl.cookie_age_hours !== null && (
             <span className="text-xs text-gray-500 ml-2">
@@ -112,7 +115,8 @@ function SurgingTable({ brands }) {
       <div className="px-5 pt-5 pb-3">
         <SectionHeader title="Surging Funnels" sub="Highest velocity — prime SEO targets" />
       </div>
-      <div className="overflow-x-auto">        <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
           <thead>
             <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-gray-800/60">
               <th className="text-left px-5 py-2">Funnel</th>
@@ -141,7 +145,8 @@ function SurgingTable({ brands }) {
                 <td className="text-right px-3 py-3 text-gray-400">{b.total_geos}</td>
                 <td className="text-right px-5 py-3 text-amber-400">{b.total_celebrities || '—'}</td>
               </tr>
-            ))}          </tbody>
+            ))}
+          </tbody>
         </table>
       </div>
     </div>
@@ -172,17 +177,325 @@ function RecentlyDiscovered({ brands }) {
               </span>
             </div>
           </div>
-        ))}      </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-/* ─── Main Page ─── */
+/* ═══════════════════════════════════════════════════════════════
+   COUNTRIES TAB COMPONENTS
+   ═══════════════════════════════════════════════════════════════ */
+
+function CountryRankingCard({ title, sub, items, valueLabel, color = 'blue' }) {
+  const barColors = {
+    blue: 'bg-blue-500',
+    red: 'bg-red-500',
+    purple: 'bg-purple-500',
+    amber: 'bg-amber-500',
+  };
+  if (!items || items.length === 0) return null;
+  const maxVal = Math.max(...items.map(i => i.value), 1);
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+      <SectionHeader title={title} sub={sub} />
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div key={item.code} className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 w-5 text-right">{i + 1}</span>
+            <span className="text-base w-7">{item.flag}</span>
+            <span className="text-sm text-white w-28 truncate">{item.name}</span>
+            <div className="flex-1 h-5 bg-gray-800/50 rounded overflow-hidden">
+              <div
+                className={`h-full ${barColors[color]} rounded opacity-70`}
+                style={{ width: `${(item.value / maxVal) * 100}%` }}
+              />
+            </div>
+            <span className="text-sm font-bold text-gray-300 w-16 text-right">
+              {typeof item.value === 'number' && item.value % 1 !== 0 ? item.value.toFixed(1) : item.value?.toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
+      {valueLabel && <div className="text-[10px] text-gray-600 text-right mt-2">{valueLabel}</div>}
+    </div>
+  );
+}
+
+function CountryDetailRow({ country, isExpanded, onToggle }) {
+  return (
+    <>
+      <tr
+        className="border-b border-gray-800/30 hover:bg-white/[0.02] transition cursor-pointer"
+        onClick={onToggle}
+      >
+        <td className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{country.flag}</span>
+            <span className="text-sm text-white font-medium">{country.name}</span>
+            <span className="text-[10px] text-gray-600 ml-1">{country.code}</span>
+          </div>
+        </td>
+        <td className="text-right px-3 py-3 text-gray-300 font-bold">{country.total_funnels.toLocaleString()}</td>
+        <td className="text-right px-3 py-3">
+          <span className={country.active_funnels > 0 ? 'text-green-400' : 'text-gray-600'}>{country.active_funnels}</span>
+        </td>
+        <td className="text-right px-3 py-3 text-red-400 font-bold">{country.total_velocity}</td>
+        <td className="text-right px-3 py-3">
+          <span className={`font-bold ${country.avg_scam_score >= 50 ? 'text-red-400' : country.avg_scam_score >= 30 ? 'text-amber-400' : 'text-gray-400'}`}>
+            {country.avg_scam_score}
+          </span>
+        </td>
+        <td className="text-right px-3 py-3 text-purple-400">{country.unique_celebrities}</td>
+        <td className="text-right px-3 py-3 text-gray-400">{country.total_celeb_mentions.toLocaleString()}</td>
+        <td className="text-right px-3 py-3 text-gray-500">{country.campaign_duration_days}d</td>
+        <td className="text-right px-4 py-3 text-gray-500 text-xs">
+          {country.languages.slice(0, 3).join(', ')}
+          {country.languages.length > 3 && ` +${country.languages.length - 3}`}
+        </td>
+        <td className="px-3 py-3 text-center">
+          <span className={`text-gray-500 transition-transform inline-block ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr className="bg-gray-900/30">
+          <td colSpan={10} className="px-6 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Top Funnels (by velocity)</h4>
+                <div className="space-y-1">
+                  {country.top_funnels.map((f) => (
+                    <div key={f.id} className="flex items-center justify-between text-sm py-1">
+                      <span className="text-gray-300 truncate mr-3">{f.name}</span>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-red-400 font-bold text-xs">{f.velocity_7d} vel</span>
+                        <span className="text-gray-500 text-xs">{f.total_creatives} ads</span>
+                        <span className={`text-xs font-bold ${f.scam_score >= 80 ? 'text-red-400' : f.scam_score >= 60 ? 'text-amber-400' : 'text-gray-500'}`}>
+                          {f.scam_score}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {country.top_funnels.length === 0 && <span className="text-gray-600 text-xs">No funnels</span>}
+                </div>
+              </div>
+              <div>
+                <h4 className="text-xs uppercase tracking-wider text-gray-500 mb-2">Campaign Timeline</h4>
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">First seen</span>
+                    <span className="text-gray-300">{country.earliest_campaign ? new Date(country.earliest_campaign).toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Latest activity</span>
+                    <span className="text-gray-300">{country.latest_activity ? new Date(country.latest_activity).toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Duration</span>
+                    <span className="text-gray-300">{country.campaign_duration_days} days</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Languages</span>
+                    <span className="text-gray-300">{country.languages.join(', ') || '—'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function CountriesTab({ token }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [sortField, setSortField] = useState('total_funnels');
+  const [sortDir, setSortDir] = useState('desc');
+  const [search, setSearch] = useState('');
+  const [expandedCode, setExpandedCode] = useState(null);
+
+  const fetchCountries = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/scraper/countries', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      setData(await res.json());
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { fetchCountries(); }, [fetchCountries]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex items-center gap-3 text-gray-500">
+          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+          Loading country intelligence...
+        </div>
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-red-400 mb-3">Failed to load country data</p>
+        <button onClick={fetchCountries} className="text-sm text-gray-400 hover:text-white px-4 py-2 rounded-lg border border-gray-700 transition">Retry</button>
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const sortableFields = [
+    { key: 'total_funnels', label: 'Funnels' },
+    { key: 'active_funnels', label: 'Active' },
+    { key: 'total_velocity', label: 'Velocity' },
+    { key: 'avg_scam_score', label: 'Score' },
+    { key: 'unique_celebrities', label: 'Celebs' },
+    { key: 'total_celeb_mentions', label: 'Mentions' },
+    { key: 'campaign_duration_days', label: 'Duration' },
+  ];
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDir(sortDir === 'desc' ? 'asc' : 'desc');
+    } else {
+      setSortField(field);
+      setSortDir('desc');
+    }
+  };
+
+  const filtered = (data.countries || [])
+    .filter(c => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      const av = a[sortField] || 0;
+      const bv = b[sortField] || 0;
+      return sortDir === 'desc' ? bv - av : av - bv;
+    });
+
+  return (
+    <div className="space-y-6">
+      {/* KPI Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard label="Countries Targeted" value={data.total_countries} color="blue" icon="🌍" />
+        <StatCard
+          label="Most Targeted"
+          value={data.countries[0]?.name || '—'}
+          sub={`${data.countries[0]?.total_funnels || 0} funnels`}
+          color="red"
+        />
+        <StatCard
+          label="Most Celeb Abuse"
+          value={data.rankings.by_celebrities[0]?.name || '—'}
+          sub={`${data.rankings.by_celebrities[0]?.value || 0} unique celebs`}
+          color="purple"
+        />
+        <StatCard
+          label="Highest Threat"
+          value={data.rankings.by_threat[0]?.name || '—'}
+          sub={`avg score ${data.rankings.by_threat[0]?.value || 0}`}
+          color="amber"
+        />
+      </div>
+
+      {/* Rankings Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <CountryRankingCard
+          title="Top by Funnels"
+          sub="Most scam funnels targeting this country"
+          items={data.countries.slice(0, 10).map(c => ({ code: c.code, name: c.name, flag: c.flag, value: c.total_funnels }))}
+          valueLabel="funnels"
+          color="blue"
+        />
+        <CountryRankingCard
+          title="Top by Celebrity Abuse"
+          sub="Most unique celebrities exploited"
+          items={data.rankings.by_celebrities}
+          valueLabel="unique celebrities"
+          color="purple"
+        />
+        <CountryRankingCard
+          title="Top by Velocity"
+          sub="Highest combined ad velocity this week"
+          items={data.rankings.by_velocity}
+          valueLabel="velocity/week"
+          color="red"
+        />
+      </div>
+
+      {/* Full Country Table */}
+      <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl overflow-hidden">
+        <div className="px-5 pt-5 pb-3 flex items-center justify-between">
+          <SectionHeader title="All Countries" sub={`${filtered.length} of ${data.total_countries} countries`} />
+          <input
+            type="text"
+            placeholder="Search country..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-sm bg-gray-800/60 border border-gray-700/50 rounded-lg px-3 py-1.5 text-white placeholder-gray-500 focus:outline-none focus:border-gray-600 w-48"
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-gray-500 text-xs uppercase tracking-wider border-b border-gray-800/60">
+                <th className="text-left px-4 py-2">Country</th>
+                {sortableFields.map(f => (
+                  <th
+                    key={f.key}
+                    className="text-right px-3 py-2 cursor-pointer hover:text-gray-300 transition select-none"
+                    onClick={() => handleSort(f.key)}
+                  >
+                    {f.label}
+                    {sortField === f.key && (
+                      <span className="ml-1">{sortDir === 'desc' ? '↓' : '↑'}</span>
+                    )}
+                  </th>
+                ))}
+                <th className="text-right px-4 py-2">Langs</th>
+                <th className="px-3 py-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(c => (
+                <CountryDetailRow
+                  key={c.code}
+                  country={c}
+                  isExpanded={expandedCode === c.code}
+                  onToggle={() => setExpandedCode(expandedCode === c.code ? null : c.code)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN PAGE WITH TABS
+   ═══════════════════════════════════════════════════════════════ */
+
 export default function ScraperPage() {
   const { token } = useAdmin();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
 
   const fetchData = useCallback(async () => {
     if (!token) return;
@@ -202,6 +515,11 @@ export default function ScraperPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'countries', label: 'Countries' },
+  ];
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -212,6 +530,7 @@ export default function ScraperPage() {
       </div>
     );
   }
+
   if (error) {
     return (
       <div className="text-center py-20">
@@ -224,7 +543,6 @@ export default function ScraperPage() {
   }
 
   if (!data) return null;
-
   const { spyowl, ingestion, activity, quality } = data;
 
   return (
@@ -243,52 +561,80 @@ export default function ScraperPage() {
         </button>
       </div>
 
-      {/* SpyOwl Connection Status */}
-      <SpyOwlBanner spyowl={spyowl} />
-      {/* KPI Row 1: Pipeline Totals */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Funnels" value={data.total_brands} color="blue" icon="🎯" />
-        <StatCard label="Total Creatives" value={data.total_creatives} color="purple" icon="🖼" />
-        <StatCard label="Avg Ads/Funnel" value={data.avg_creatives_per_brand} color="gray" icon="📊" />
-        <StatCard
-          label="Last Creative"
-          value={ingestion.last_creative_at ? timeAgo(ingestion.last_creative_at) : 'N/A'}
-          color={ingestion.last_creative_at && isStale(ingestion.last_creative_at) ? 'red' : 'green'}
-          icon="⏱"
-        />
+      {/* Tab Bar */}
+      <div className="flex gap-1 bg-gray-900/50 border border-gray-800/60 rounded-xl p-1">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition ${
+              activeTab === tab.id
+                ? 'bg-white/10 text-white'
+                : 'text-gray-500 hover:text-gray-300 hover:bg-white/[0.03]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* KPI Row 2: Ingestion Velocity */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard label="New (24h)" value={ingestion.last_24h} sub="funnels discovered" color={ingestion.last_24h > 0 ? 'green' : 'red'} />
-        <StatCard label="New (7d)" value={ingestion.last_7d} sub="funnels discovered" color="blue" />
-        <StatCard label="New (30d)" value={ingestion.last_30d} sub="funnels discovered" color="gray" />
-      </div>
+      {/* Tab Content */}
+      {activeTab === 'overview' && (
+        <>
+          {/* SpyOwl Connection Status */}
+          <SpyOwlBanner spyowl={spyowl} />
 
-      {/* Ingestion Chart */}
-      <IngestionChart data={ingestion.daily_trend} />
+          {/* KPI Row 1: Pipeline Totals */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard label="Total Funnels" value={data.total_brands} color="blue" icon="🎯" />
+            <StatCard label="Total Creatives" value={data.total_creatives} color="purple" icon="🖼" />
+            <StatCard label="Avg Ads/Funnel" value={data.avg_creatives_per_brand} color="gray" icon="📊" />
+            <StatCard
+              label="Last Creative"
+              value={ingestion.last_creative_at ? timeAgo(ingestion.last_creative_at) : 'N/A'}
+              color={ingestion.last_creative_at && isStale(ingestion.last_creative_at) ? 'red' : 'green'}
+              icon="⏱"
+            />
+          </div>
 
-      {/* KPI Row 3: Campaign Activity */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <StatCard label="Active" value={activity.active} color="green" />
-        <StatCard label="Surging" value={activity.surging} color="red" />
-        <StatCard label="Rising" value={activity.rising} color="amber" />
-        <StatCard label="Stale" value={activity.stale} sub="active but no recent data" color="amber" />
-        <StatCard label="Dead" value={activity.dead} color="gray" />      </div>
+          {/* KPI Row 2: Ingestion Velocity */}
+          <div className="grid grid-cols-3 gap-3">
+            <StatCard label="New (24h)" value={ingestion.last_24h} sub="funnels discovered" color={ingestion.last_24h > 0 ? 'green' : 'red'} />
+            <StatCard label="New (7d)" value={ingestion.last_7d} sub="funnels discovered" color="blue" />
+            <StatCard label="New (30d)" value={ingestion.last_30d} sub="funnels discovered" color="gray" />
+          </div>
 
-      {/* KPI Row 4: Data Quality / SEO Intel */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="High Score (80+)" value={quality.high_score} sub="critical threat funnels" color="red" />
-        <StatCard label="Unscored" value={quality.unscored} sub="need scoring" color={quality.unscored > 0 ? 'amber' : 'green'} />
-        <StatCard label="Celebrity Funnels" value={quality.with_celebrities} sub={`${quality.total_celeb_mentions} total mentions`} color="purple" />
-        <StatCard label="Geo Entries" value={quality.total_geo_entries} sub="country targeting data" color="blue" />
-      </div>
+          {/* Ingestion Chart */}
+          <IngestionChart data={ingestion.daily_trend} />
 
-      {/* Two-column: Surging + Recent */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <SurgingTable brands={data.top_surging} />
-        <RecentlyDiscovered brands={data.recently_discovered} />
-      </div>
+          {/* KPI Row 3: Campaign Activity */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <StatCard label="Active" value={activity.active} color="green" />
+            <StatCard label="Surging" value={activity.surging} color="red" />
+            <StatCard label="Rising" value={activity.rising} color="amber" />
+            <StatCard label="Stale" value={activity.stale} sub="active but no recent data" color="amber" />
+            <StatCard label="Dead" value={activity.dead} color="gray" />
+          </div>
+
+          {/* KPI Row 4: Data Quality / SEO Intel */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard label="High Score (80+)" value={quality.high_score} sub="critical threat funnels" color="red" />
+            <StatCard label="Unscored" value={quality.unscored} sub="need scoring" color={quality.unscored > 0 ? 'amber' : 'green'} />
+            <StatCard label="Celebrity Funnels" value={quality.with_celebrities} sub={`${quality.total_celeb_mentions} total mentions`} color="purple" />
+            <StatCard label="Geo Entries" value={quality.total_geo_entries} sub="country targeting data" color="blue" />
+          </div>
+
+          {/* Two-column: Surging + Recent */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <SurgingTable brands={data.top_surging} />
+            <RecentlyDiscovered brands={data.recently_discovered} />
+          </div>
+        </>
+      )}
+
+      {activeTab === 'countries' && (
+        <CountriesTab token={token} />
+      )}
     </div>
   );
 }
