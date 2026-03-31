@@ -865,12 +865,51 @@ ${(reviewContent.summary || '').split('\\n\\n').filter(p => p.trim()).map(p => `
 </div>
 </section>
 
-<!-- HOW THIS SCAM WORKS -->
-${reviewContent.how_it_works ? `
-<section style="margin-bottom:48px">
+<!-- HOW THIS SCAM WORKS — 4-stage funnel cards -->
+${reviewContent.how_it_works ? (() => {
+  const stageStyles = [
+    { icon: '📢', label: 'Stage 1', title: 'Celebrity Impersonation & Targeting', bg: 'rgba(124,45,18,0.2)', border: 'rgba(194,65,12,0.4)', barColor: '#ea580c', labelColor: '#fb923c', iconBg: '#ea580c' },
+    { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Trap', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706' },
+    { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626' },
+    { icon: '🚨', label: 'Stage 4', title: 'The Withdrawal Trap', bg: 'rgba(136,19,55,0.3)', border: 'rgba(190,18,60,0.5)', barColor: '#be123c', labelColor: '#fb7185', iconBg: '#be123c' },
+  ]
+  const paragraphs = reviewContent.how_it_works.split('\\n\\n').filter(p => p.trim())
+  // Extract first sentence as a title override if it looks like one (short, no period-heavy)
+  const stageCards = paragraphs.map((p, i) => {
+    const s = stageStyles[i] || stageStyles[stageStyles.length - 1]
+    const sentences = p.split(/(?<=\.)\s+/).filter(s => s.trim())
+    // First sentence becomes the intro/title area, rest become bullet points
+    const introPart = sentences[0] || ''
+    const bulletParts = sentences.slice(1)
+    return `<div style="position:relative;display:flex;gap:0;border-radius:16px;background:${s.bg};border:1px solid ${s.border};overflow:hidden;margin-bottom:12px">
+<div style="width:4px;flex-shrink:0;background:${s.barColor};opacity:0.6"></div>
+<div style="flex:1;padding:24px">
+<div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0">
+<div style="width:40px;height:40px;border-radius:12px;background:${s.iconBg};display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,0.3)">${s.icon}</div>
+<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:2px;color:${s.labelColor}">${s.label}</span>
+</div>
+<div style="flex:1;min-width:200px">
+<h3 style="font-weight:700;color:#f8fafc;font-size:17px;line-height:1.4;margin:0 0 12px">${escHtml(s.title)}</h3>
+${bulletParts.length > 0 ? `<ul style="list-style:none;padding:0;margin:0 0 8px;display:flex;flex-direction:column;gap:10px">
+${bulletParts.map(bullet => `<li style="display:flex;align-items:flex-start;gap:10px;font-size:14px;color:#cbd5e1;line-height:1.65">
+<div style="margin-top:7px;width:6px;height:6px;border-radius:50%;background:${s.iconBg};flex-shrink:0"></div>
+<span>${escHtml(bullet)}</span>
+</li>`).join('')}
+</ul>` : `<p style="margin:0;font-size:14px;color:#cbd5e1;line-height:1.65">${escHtml(introPart)}</p>`}
+</div>
+</div>
+</div>
+</div>`
+  }).join('')
+  return `<section style="margin-bottom:48px">
 ${sectionH2('🔬', 'How This Scam Works')}
-${reviewContent.how_it_works.split('\\n\\n').filter(p => p.trim()).map(p => `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(p)}</p>`).join('')}
-</section>` : ''}
+<p style="color:#94a3b8;font-size:14px;margin:0 0 24px;line-height:1.6">${escHtml(brandData.name)} deploys a <strong style="color:#f8fafc;font-weight:600">four-stage confidence scheme</strong> targeting retail investors. Each stage advances victims deeper into the trap.</p>
+<div style="position:relative;display:flex;flex-direction:column;gap:0">
+${stageCards}
+</div>
+</section>`
+})() : ''}
 
 <!-- RED FLAGS -->
 ${(reviewContent.red_flags || []).length > 0 ? `
