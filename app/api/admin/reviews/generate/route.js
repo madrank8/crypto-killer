@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache'
 import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
@@ -1115,6 +1116,15 @@ ${disclaimerHtml}`
           throw insertError
         }
       }
+    }
+
+    // ─── REVALIDATE CACHED PAGES ───
+    try {
+      revalidatePath(`/review/${slug}`)
+      revalidatePath('/')
+      revalidatePath('/scams')
+    } catch (revalError) {
+      console.error('Revalidation error (non-fatal):', revalError.message)
     }
 
           send({

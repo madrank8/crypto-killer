@@ -1,8 +1,34 @@
 import Link from 'next/link'
 import { supabaseRequest } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
+import FaqAccordion from './FaqAccordion'
+import {
+  Shield,
+  AlertTriangle,
+  Flag,
+  X,
+  CheckCircle,
+  Calendar,
+  Eye,
+  User,
+  Clock,
+  ShieldAlert,
+  Globe,
+  Lock,
+  Scale,
+  BookOpen,
+  FileText,
+  ExternalLink,
+  AlertOctagon,
+  ArrowRight,
+  Flame,
+  TrendingUp,
+  TrendingDown,
+} from 'lucide-react'
 
-// Generate static paths for all published reviews
+export const revalidate = 60
+export const dynamicParams = true
+
 export async function generateStaticParams() {
   try {
     const reviews = await supabaseRequest(
@@ -17,7 +43,6 @@ export async function generateStaticParams() {
   }
 }
 
-// Generate metadata for SEO
 export async function generateMetadata({ params }) {
   try {
     const reviews = await supabaseRequest(
@@ -49,51 +74,40 @@ export async function generateMetadata({ params }) {
   }
 }
 
-function ScamScoreGauge({ score }) {
-  const radius = 60
-  const circumference = 2 * Math.PI * radius
-  const strokeDashoffset = circumference - (score / 100) * circumference
+function RiskBadge({ score }) {
+  if (score >= 70) {
+    return (
+      <div className="inline-flex items-center gap-2 bg-red-950/40 border border-red-900/60 px-4 py-2 rounded-full">
+        <AlertOctagon size={18} className="text-red-500" />
+        <span className="text-red-400 font-bold text-sm">CONFIRMED SCAM</span>
+      </div>
+    )
+  }
+  if (score >= 50) {
+    return (
+      <div className="inline-flex items-center gap-2 bg-amber-950/40 border border-amber-900/60 px-4 py-2 rounded-full">
+        <AlertTriangle size={18} className="text-amber-500" />
+        <span className="text-amber-400 font-bold text-sm">HIGH RISK</span>
+      </div>
+    )
+  }
+  return null
+}
 
-  let color = '#10b981'
-  if (score >= 70) color = '#dc2626'
-  else if (score >= 50) color = '#f59e0b'
-  else if (score >= 30) color = '#eab308'
-
+function StatCard({ icon: Icon, label, value }) {
   return (
-    <div className="flex flex-col items-center">
-      <svg width="280" height="200" viewBox="0 0 280 200" className="gauge-svg">
-        <path
-          d="M 30 170 A 120 120 0 0 1 250 170"
-          fill="none"
-          stroke="#374151"
-          strokeWidth="12"
-        />
-        <path
-          d="M 30 170 A 120 120 0 0 1 250 170"
-          fill="none"
-          stroke={color}
-          strokeWidth="12"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          style={{
-            transition: 'stroke-dashoffset 0.5s ease',
-            strokeLinecap: 'round',
-          }}
-        />
-        <text x="140" y="110" textAnchor="middle" className="text-5xl font-bold" fill={color}>
-          {score}
-        </text>
-        <text x="140" y="140" textAnchor="middle" className="text-sm" fill="#9ca3af">
-          SCAM SCORE
-        </text>
-      </svg>
+    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 flex items-start gap-3">
+      <Icon size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
+        <p className="text-white font-bold text-lg mt-1">{value}</p>
+      </div>
     </div>
   )
 }
 
 export default async function ReviewPage({ params }) {
   try {
-    // Fetch review with brand data + E-E-A-T fields
     const reviews = await supabaseRequest(
       `/reviews?slug=eq.${params.slug}&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at`
     )
@@ -104,7 +118,6 @@ export default async function ReviewPage({ params }) {
 
     const review = reviews[0]
 
-    // Fetch associated brand
     let brand = null
     if (review.brand_id) {
       try {
@@ -119,7 +132,6 @@ export default async function ReviewPage({ params }) {
       }
     }
 
-    // Fetch related scams (same trend)
     let relatedScams = []
     if (brand) {
       try {
@@ -132,7 +144,6 @@ export default async function ReviewPage({ params }) {
       }
     }
 
-    // Parse red_flags — handle both array and object formats
     const redFlags = Array.isArray(review.red_flags)
       ? review.red_flags
       : typeof review.red_flags === 'string'
@@ -141,36 +152,36 @@ export default async function ReviewPage({ params }) {
           ? Object.entries(review.red_flags).map(([k, v]) => ({ flag: k, detail: typeof v === 'string' ? v : '' }))
           : []
 
-    // Parse FAQ — handle array or string
     const faqItems = Array.isArray(review.faq)
       ? review.faq
       : typeof review.faq === 'string'
         ? (() => { try { const p = JSON.parse(review.faq); return Array.isArray(p) ? p : []; } catch { return []; } })()
         : []
 
-    // Parse sources, key_takeaways, experience_signals
     const safeJsonArray = (val) => {
       if (Array.isArray(val)) return val
       if (typeof val === 'string') { try { const p = JSON.parse(val); return Array.isArray(p) ? p : []; } catch { return []; } }
       return []
     }
+
     const sources = safeJsonArray(review.sources)
     const keyTakeaways = safeJsonArray(review.key_takeaways)
     const experienceSignals = safeJsonArray(review.experience_signals)
     const trustIndicators = typeof review.trust_indicators === 'object' && review.trust_indicators ? review.trust_indicators : {}
 
-    // Use schema_json from database (E-E-A-T enhanced @graph) or fallback
     const schemaJson = review.schema_json || null
-
-    // Publish date
     const publishDate = review.published_at || review.created_at || review.review_date
     const formattedDate = publishDate
       ? new Date(publishDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : null
 
+    const daysActive = brand && brand.first_seen_at && brand.last_seen_at
+      ? Math.ceil((new Date(brand.last_seen_at) - new Date(brand.first_seen_at)) / 86400000)
+      : null
+
     return (
-      <div className="bg-dark-bg text-gray-100 min-h-screen">
-        {/* JSON-LD Schema — full E-E-A-T @graph from database */}
+      <div className="bg-slate-950 text-slate-300 min-h-screen">
+        {/* JSON-LD Schema */}
         {schemaJson && (
           <script
             type="application/ld+json"
@@ -180,362 +191,395 @@ export default async function ReviewPage({ params }) {
           />
         )}
 
-        {/* Header */}
-        <div className="bg-dark-surface border-b border-gray-800">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <Link href="/scams" className="text-red-500 hover:text-red-400 text-sm font-semibold mb-4 inline-block">
-              &larr; Back to All Scams
+        {/* Sticky Navigation */}
+        <nav className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur border-b border-slate-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
+            <Link href="/" className="flex items-center gap-2 font-bold text-white hover:text-red-400 transition-colors">
+              <Flame size={24} className="text-red-500" />
+              <span className="text-lg">CryptoKiller</span>
+              <span className="text-xs text-slate-500 ml-1">by SpyOwl</span>
             </Link>
-            <h1 className="text-4xl font-bold text-white mb-2">{review.title}</h1>
-            {review.headline && (
-              <p className="text-xl text-gray-300">{review.headline}</p>
-            )}
+            <div className="flex items-center gap-6">
+              <Link href="/" className="text-sm text-slate-400 hover:text-white transition-colors">Home</Link>
+              <Link href="/scams" className="text-sm text-slate-400 hover:text-white transition-colors">Investigations</Link>
+              <a href="#report" className="text-sm text-slate-400 hover:text-white transition-colors">Report</a>
+              <a href="#" className="text-sm text-slate-400 hover:text-white transition-colors">About</a>
+              <div className="inline-flex items-center gap-2 bg-red-950/30 border border-red-900/40 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400">
+                <AlertOctagon size={14} />
+                SCAM ALERT
+              </div>
+            </div>
+          </div>
+        </nav>
 
-            {/* Author Byline — E-E-A-T Experience + Expertise signal */}
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-gray-400">
-              <span className="text-gray-300 font-medium">
-                {review.author_name || 'Crypto Killer Research Team'}
-              </span>
-              {review.author_credentials && (
-                <>
-                  <span className="text-gray-600">·</span>
-                  <span>{review.author_credentials}</span>
-                </>
-              )}
-              {formattedDate && (
-                <>
-                  <span className="text-gray-600">·</span>
-                  <time dateTime={publishDate}>{formattedDate}</time>
-                </>
-              )}
-              {review.word_count && (
-                <>
-                  <span className="text-gray-600">·</span>
-                  <span>{Math.ceil(review.word_count / 250)} min read</span>
-                </>
-              )}
-              {review.fact_check_status && review.fact_check_status !== 'ai_generated' && (
-                <>
-                  <span className="text-gray-600">·</span>
-                  <span className="text-green-400">Fact-checked</span>
-                </>
-              )}
+        {/* Breadcrumb */}
+        <div className="bg-slate-900/50 border-b border-slate-800">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              <Link href="/" className="hover:text-white transition-colors">Home</Link>
+              <span className="text-slate-600">/</span>
+              <Link href="/scams" className="hover:text-white transition-colors">Investigations</Link>
+              <span className="text-slate-600">/</span>
+              <span className="text-white">{brand?.name || review.title}</span>
             </div>
           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Content */}
-            <div className="lg:col-span-2">
-              {/* Scam Score */}
-              <div className="card mb-8">
-                <h2 className="text-2xl font-bold text-white mb-6">Scam Score Assessment</h2>
-                <ScamScoreGauge score={review.scam_score || 0} />
-                <div className="text-center mt-8 pt-6 border-t border-gray-700">
-                  <p className="text-gray-400 text-sm mb-2">Risk Level</p>
-                  {review.scam_score >= 70 ? (
-                    <span className="badge badge-danger text-lg">CRITICAL RISK</span>
-                  ) : review.scam_score >= 50 ? (
-                    <span className="badge badge-warning text-lg">HIGH RISK</span>
-                  ) : review.scam_score >= 30 ? (
-                    <span className="badge badge-warning text-lg">MEDIUM RISK</span>
-                  ) : (
-                    <span className="badge badge-success text-lg">LOW RISK</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Summary */}
-              {review.summary && (
-                <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Investigation Summary</h2>
-                  <p className="text-gray-300 leading-relaxed">{review.summary}</p>
-                </div>
-              )}
-
-              {/* Key Takeaways — BLUF for scanners */}
-              {keyTakeaways.length > 0 && (
-                <div className="card mb-8 border-l-4 border-blue-500">
-                  <h2 className="text-2xl font-bold text-white mb-4">Key Takeaways</h2>
-                  <ul className="space-y-2">
-                    {keyTakeaways.map((t, i) => (
-                      <li key={i} className="flex items-start gap-2 text-gray-300">
-                        <span className="text-blue-400 mt-1 flex-shrink-0">&#x2713;</span>
-                        <span>{typeof t === 'string' ? t : t.text || ''}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Methodology — E-E-A-T Experience signal */}
-              {review.methodology && (
-                <div className="card mb-8 bg-gray-900/50">
-                  <h2 className="text-2xl font-bold text-white mb-4">Our Investigation Methodology</h2>
-                  <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.methodology.split('\n').filter(Boolean).map((paragraph, idx) => (
-                      <p key={idx}>{paragraph}</p>
-                    ))}
-                  </div>
-                  {experienceSignals.length > 0 && (
-                    <div className="mt-6 pt-4 border-t border-gray-700">
-                      <h3 className="text-lg font-semibold text-white mb-3">Key Investigation Findings</h3>
-                      <ul className="space-y-2">
-                        {experienceSignals.map((signal, i) => (
-                          <li key={i} className="flex items-start gap-2 text-gray-300 text-sm">
-                            <span className="text-amber-400 mt-0.5 flex-shrink-0">&#x1F50D;</span>
-                            <span>{typeof signal === 'string' ? signal : signal.text || ''}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Red Flags */}
-              {redFlags.length > 0 && (
-                <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-6">Red Flags: {redFlags.length} Warning Signs</h2>
-                  <div className="space-y-4">
-                    {redFlags.map((rf, i) => (
-                      <div key={i} className="flex items-start space-x-3 p-4 bg-dark-surface rounded border border-gray-800">
-                        <span className="text-red-500 text-xl flex-shrink-0 mt-0.5">&#x26A0;&#xFE0F;</span>
-                        <div>
-                          <h3 className="font-semibold text-white">
-                            {rf.flag || (typeof rf === 'string' ? rf : `Red Flag ${i + 1}`)}
-                          </h3>
-                          {rf.detail && (
-                            <p className="text-gray-400 text-sm mt-1 leading-relaxed">{rf.detail}</p>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* How It Works */}
-              {review.how_it_works && (
-                <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">How This Scam Works</h2>
-                  <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.how_it_works.split('\n').filter(Boolean).map((paragraph, idx) => (
-                      <p key={idx}>{paragraph}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Protection Steps */}
-              {review.protection_steps && (
-                <div className="card mb-8 border-l-4 border-green-600">
-                  <h2 className="text-2xl font-bold text-white mb-4">What To Do If You&apos;ve Been Targeted</h2>
-                  <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.protection_steps.split('\n').filter(Boolean).map((paragraph, idx) => (
-                      <p key={idx}>{paragraph}</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Not For You — Trust signal */}
-              {review.not_for_you && (
-                <div className="card mb-8 bg-gray-900/50 border border-gray-700">
-                  <h2 className="text-2xl font-bold text-white mb-4">When This Review May Not Apply</h2>
-                  <blockquote className="text-gray-300 leading-relaxed border-l-4 border-gray-600 pl-4">
-                    {review.not_for_you}
-                  </blockquote>
-                </div>
-              )}
-
-              {/* FAQ — AI Overview extraction target */}
-              {faqItems.length > 0 && (
-                <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-6">Frequently Asked Questions</h2>
-                  <div className="space-y-6">
-                    {faqItems.map((faq, i) => (
-                      <div key={i}>
-                        <h3 className="text-lg font-semibold text-white mb-2">{faq.question}</h3>
-                        <p className="text-gray-300 leading-relaxed">{faq.answer}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Verdict */}
-              {review.verdict && (
-                <div className="card border-l-4 border-red-600 mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Final Verdict</h2>
-                  <div className="text-gray-300 leading-relaxed space-y-4">
-                    {review.verdict.split('\n').filter(Boolean).map((paragraph, idx) => (
-                      <p key={idx}>{paragraph}</p>
-                    ))}
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-gray-700">
-                    <a href="https://www.ic3.gov/" target="_blank" rel="noopener noreferrer" className="btn-primary w-full text-center block">
-                      Report This Scam (IC3.gov)
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              {/* Sources — Authoritativeness signal */}
-              {sources.length > 0 && (
-                <div className="card mb-8">
-                  <h2 className="text-2xl font-bold text-white mb-4">Sources &amp; References</h2>
-                  <ol className="space-y-2 list-decimal list-inside">
-                    {sources.map((s, i) => (
-                      <li key={i} className="text-gray-300 text-sm">
-                        <a href={s.url} target="_blank" rel="nofollow noopener noreferrer" className="text-blue-400 hover:text-blue-300">
-                          {s.title}
-                        </a>
-                        <span className="text-gray-500 ml-1">
-                          ({s.type}{s.accessed_date ? `, accessed ${s.accessed_date}` : ''})
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-
-              {/* Disclaimer — YMYL Trust signal */}
-              {review.disclaimer && (
-                <div className="card mb-8 bg-gray-900/30 text-sm">
-                  <p className="text-gray-400 leading-relaxed">
-                    <strong className="text-gray-300">Disclaimer:</strong> {review.disclaimer}
-                  </p>
-                </div>
-              )}
+        {/* Hero Section */}
+        <div className="bg-gradient-to-b from-slate-900/50 to-slate-950 border-b border-slate-800 py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="mb-6 flex flex-wrap items-center gap-4">
+              <h1 className="text-5xl md:text-7xl font-black text-white leading-tight">
+                {brand?.name || review.title}
+              </h1>
+              {review.scam_score >= 70 && <RiskBadge score={review.scam_score} />}
             </div>
 
-            {/* Sidebar */}
-            <div className="lg:col-span-1">
-              {/* Brand Info */}
-              {brand && (
-                <div className="card mb-6 sticky top-20">
-                  <h3 className="text-lg font-bold text-white mb-4">Threat Intelligence</h3>
+            {review.headline && (
+              <p className="text-xl text-slate-300 max-w-2xl mb-6 leading-relaxed">
+                {review.headline}
+              </p>
+            )}
 
-                  <div className="space-y-4">
-                    <div className="bg-dark-surface p-3 rounded">
-                      <p className="text-gray-400 text-xs">Status</p>
-                      <p className="text-white font-semibold mt-1">
-                        <span
-                          className={`badge ${
-                            brand.status === 'active'
-                              ? 'badge-danger'
-                              : brand.status === 'detected'
-                                ? 'badge-warning'
-                                : 'badge-info'
-                          }`}
+            {/* Meta Bar */}
+            <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400 mb-8 pb-8 border-b border-slate-800">
+              {formattedDate && (
+                <div className="flex items-center gap-2">
+                  <Calendar size={16} className="text-slate-500" />
+                  <time dateTime={publishDate}>{formattedDate}</time>
+                </div>
+              )}
+              {review.word_count && (
+                <div className="flex items-center gap-2">
+                  <Clock size={16} className="text-slate-500" />
+                  <span>{Math.ceil(review.word_count / 250)} min read</span>
+                </div>
+              )}
+              {review.author_name && (
+                <div className="flex items-center gap-2">
+                  <User size={16} className="text-slate-500" />
+                  <span>{review.author_name}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Eye size={16} className="text-slate-500" />
+                <span>SpyOwl Ad Surveillance</span>
+              </div>
+            </div>
+
+            {/* Stats Grid */}
+            {brand && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatCard
+                  icon={Flame}
+                  label="Ad Creatives"
+                  value={brand.total_creatives?.toLocaleString() || '0'}
+                />
+                <StatCard
+                  icon={Globe}
+                  label="Countries Targeted"
+                  value={brand.total_geos?.toLocaleString() || '0'}
+                />
+                <StatCard
+                  icon={Clock}
+                  label="Days Active"
+                  value={daysActive !== null ? daysActive.toLocaleString() : 'N/A'}
+                />
+                <StatCard
+                  icon={AlertOctagon}
+                  label="Celebrities Abused"
+                  value={brand.total_celebrities?.toLocaleString() || '0'}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Key Takeaways */}
+        {keyTakeaways.length > 0 && (
+          <div className="bg-red-950/20 border-t border-b border-red-900/40 py-8">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                <AlertTriangle size={28} className="text-red-500" />
+                Key Takeaways
+              </h2>
+              <div className="grid md:grid-cols-2 gap-4">
+                {keyTakeaways.map((t, i) => (
+                  <div key={i} className="flex gap-3">
+                    <X size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-slate-200 text-sm leading-relaxed">
+                      {typeof t === 'string' ? t : t.text || ''}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Main Content */}
+        <div className="py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Main Content - Col Span 2 */}
+              <div className="lg:col-span-2 space-y-8">
+                {/* Investigation Summary */}
+                {review.summary && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                      <BookOpen size={24} className="text-amber-500" />
+                      Investigation Summary
+                    </h2>
+                    <div className="space-y-4 text-slate-300 leading-relaxed">
+                      {review.summary.split('\n\n').map((para, i) => (
+                        <p key={i}>{para}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* How It Works */}
+                {review.how_it_works && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                      <ShieldAlert size={24} className="text-amber-500" />
+                      How This Scam Works
+                    </h2>
+                    <div className="space-y-4 text-slate-300 leading-relaxed">
+                      {review.how_it_works.split('\n\n').map((para, i) => (
+                        <p key={i}>{para}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Red Flags */}
+                {redFlags.length > 0 && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                      <Flag size={24} className="text-red-500" />
+                      Red Flags ({redFlags.length})
+                    </h2>
+                    <div className="space-y-4">
+                      {redFlags.map((rf, i) => (
+                        <div
+                          key={i}
+                          className="bg-slate-950/50 border border-slate-700 rounded-lg p-4 flex gap-3"
                         >
-                          {brand.status}
-                        </span>
-                      </p>
+                          <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="text-sm text-slate-400 uppercase tracking-wide font-semibold mb-1">
+                              Red Flag {i + 1}
+                            </p>
+                            <h3 className="font-semibold text-white">
+                              {rf.flag || (typeof rf === 'string' ? rf : `Warning Sign`)}
+                            </h3>
+                            {rf.detail && (
+                              <p className="text-slate-400 text-sm mt-2 leading-relaxed">{rf.detail}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                )}
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Countries</p>
-                        <p className="text-white font-bold text-lg">{brand.total_geos || 0}</p>
-                      </div>
-                      <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Ad Creatives</p>
-                        <p className="text-white font-bold text-lg">{brand.total_creatives || 0}</p>
-                      </div>
+                {/* Protection Steps */}
+                {review.protection_steps && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                      <Lock size={24} className="text-green-500" />
+                      Protection Steps
+                    </h2>
+                    <div className="space-y-4 text-slate-300 leading-relaxed">
+                      {review.protection_steps.split('\n').filter(Boolean).map((step, i) => (
+                        <div key={i} className="flex gap-3">
+                          <CheckCircle size={20} className="text-green-500 flex-shrink-0 mt-0.5" />
+                          <p>{step}</p>
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                )}
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Celebrities</p>
-                        <p className="text-white font-bold text-lg">{brand.total_celebrities || 0}</p>
-                      </div>
-                      <div className="bg-dark-surface p-3 rounded">
-                        <p className="text-gray-400 text-xs">Trend</p>
-                        <p className="text-white font-bold text-lg">
-                          {brand.velocity_trend === 'up' ? '&#x2191;' : brand.velocity_trend === 'down' ? '&#x2193;' : '&#x2192;'}
-                        </p>
-                      </div>
+                {/* FAQ */}
+                {faqItems.length > 0 && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                      <FileText size={24} className="text-amber-500" />
+                      Frequently Asked Questions
+                    </h2>
+                    <FaqAccordion items={faqItems} />
+                  </div>
+                )}
+
+                {/* Methodology */}
+                {review.methodology && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+                      <Scale size={24} className="text-slate-400" />
+                      Methodology
+                    </h2>
+                    <div className="space-y-4 text-slate-300 leading-relaxed">
+                      {review.methodology.split('\n').filter(Boolean).map((para, i) => (
+                        <p key={i}>{para}</p>
+                      ))}
                     </div>
+                  </div>
+                )}
 
-                    {brand.first_seen_at && (
-                      <div className="bg-dark-surface p-3 rounded text-sm">
-                        <p className="text-gray-400">First Detected</p>
-                        <p className="text-white mt-1">
-                          {new Date(brand.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </p>
-                      </div>
-                    )}
+                {/* Disclaimer */}
+                {review.disclaimer && (
+                  <div className="bg-slate-950/50 border border-slate-800 rounded-lg p-6">
+                    <p className="text-slate-400 text-sm leading-relaxed">
+                      <strong className="text-slate-300">Disclaimer:</strong> {review.disclaimer}
+                    </p>
+                  </div>
+                )}
+              </div>
 
-                    {brand.last_seen_at && (
-                      <div className="bg-dark-surface p-3 rounded text-sm">
-                        <p className="text-gray-400">Last Active</p>
-                        <p className="text-white mt-1">
-                          {new Date(brand.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                        </p>
-                      </div>
-                    )}
+              {/* Sidebar - Col Span 1 */}
+              <div className="lg:col-span-1 space-y-6">
+                {/* Threat Score Card */}
+                <div className="sticky top-24 bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
+                  <h3 className="text-lg font-bold text-white">Threat Score</h3>
+                  <div className="text-center">
+                    <div className="text-6xl font-black text-red-500">
+                      {review.scam_score || 0}
+                    </div>
+                    <p className="text-slate-400 text-sm mt-2">/100</p>
                   </div>
 
-                  {/* Trust Indicators */}
-                  {Object.keys(trustIndicators).length > 0 && (
-                    <div className="mt-4 pt-4 border-t border-gray-700">
-                      <h4 className="text-sm font-semibold text-gray-400 mb-3">Investigation Scope</h4>
-                      <div className="space-y-2 text-sm">
-                        {trustIndicators.creatives_analyzed && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Creatives Analyzed</span>
-                            <span className="text-white font-medium">{trustIndicators.creatives_analyzed}</span>
-                          </div>
-                        )}
-                        {trustIndicators.countries_scanned && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Countries Scanned</span>
-                            <span className="text-white font-medium">{trustIndicators.countries_scanned}</span>
-                          </div>
-                        )}
-                        {trustIndicators.investigation_period_days && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Investigation Period</span>
-                            <span className="text-white font-medium">{trustIndicators.investigation_period_days} days</span>
-                          </div>
-                        )}
-                        {trustIndicators.data_source && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-400">Data Source</span>
-                            <span className="text-white font-medium">{trustIndicators.data_source}</span>
-                          </div>
-                        )}
+                  {/* Progress bar */}
+                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-red-600 to-red-500 rounded-full"
+                      style={{ width: `${Math.min(100, review.scam_score || 0)}%` }}
+                    />
+                  </div>
+
+                  {/* Risk Level */}
+                  <div className="text-center">
+                    {review.scam_score >= 70 ? (
+                      <span className="inline-block bg-red-950/40 border border-red-900/60 px-3 py-1 rounded-full text-red-400 text-xs font-bold">
+                        CRITICAL RISK
+                      </span>
+                    ) : review.scam_score >= 50 ? (
+                      <span className="inline-block bg-amber-950/40 border border-amber-900/60 px-3 py-1 rounded-full text-amber-400 text-xs font-bold">
+                        HIGH RISK
+                      </span>
+                    ) : (
+                      <span className="inline-block bg-green-950/40 border border-green-900/60 px-3 py-1 rounded-full text-green-400 text-xs font-bold">
+                        LOW RISK
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Threat Intelligence Table */}
+                {brand && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
+                    <h3 className="text-lg font-bold text-white">Threat Intelligence</h3>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                        <span className="text-slate-400">Ad Creatives</span>
+                        <span className="text-white font-semibold">{brand.total_creatives?.toLocaleString() || '0'}</span>
                       </div>
+                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                        <span className="text-slate-400">Countries</span>
+                        <span className="text-white font-semibold">{brand.total_geos?.toLocaleString() || '0'}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                        <span className="text-slate-400">Celebrities Abused</span>
+                        <span className="text-white font-semibold">{brand.total_celebrities?.toLocaleString() || '0'}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                        <span className="text-slate-400">Campaign Duration</span>
+                        <span className="text-white font-semibold">{daysActive !== null ? `${daysActive} days` : 'N/A'}</span>
+                      </div>
+                      {brand.first_seen_at && (
+                        <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                          <span className="text-slate-400">First Detected</span>
+                          <span className="text-white font-semibold">
+                            {new Date(brand.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+                      )}
+                      {brand.last_seen_at && (
+                        <div className="flex justify-between items-center pb-3 border-b border-slate-700">
+                          <span className="text-slate-400">Last Active</span>
+                          <span className="text-white font-semibold">
+                            {new Date(brand.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </span>
+                        </div>
+                      )}
+                      {brand.status && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Status</span>
+                          <div className="flex items-center gap-2">
+                            {brand.status === 'active' && <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
+                            <span className="text-white font-semibold capitalize">{brand.status}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
 
-              {/* Expertise Sidebar — E-E-A-T Expertise signal */}
-              {review.expertise_depth && (
-                <div className="card mb-6 bg-gray-900/50">
-                  <h3 className="text-lg font-bold text-white mb-3">About This Analysis</h3>
-                  <p className="text-gray-300 text-sm leading-relaxed">{review.expertise_depth}</p>
-                </div>
-              )}
+                {/* Final Verdict Card */}
+                {review.verdict && (
+                  <div className="bg-red-950/20 border border-red-900/40 rounded-lg p-6">
+                    <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
+                      <AlertOctagon size={20} className="text-red-500" />
+                      Final Verdict
+                    </h3>
+                    <p className="text-slate-200 text-sm leading-relaxed">
+                      {review.verdict.split('\n').filter(Boolean).join(' ')}
+                    </p>
+                  </div>
+                )}
 
-              {/* Related Scams */}
-              {relatedScams.length > 0 && (
-                <div className="card">
-                  <h3 className="text-lg font-bold text-white mb-4">Related Scams</h3>
-                  <div className="space-y-3">
-                    {relatedScams.map((scam) => (
-                      <Link key={scam.id} href={`/review/${scam.slug}`}>
-                        <div className="bg-dark-surface p-3 rounded hover:bg-dark-card transition-colors cursor-pointer group">
-                          <h4 className="text-sm font-semibold text-white group-hover:text-red-400 transition-colors">
+                {/* Sources Card */}
+                {sources.length > 0 && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      <FileText size={20} className="text-slate-400" />
+                      Sources
+                    </h3>
+                    <div className="space-y-3">
+                      {sources.map((source, i) => (
+                        <a
+                          key={i}
+                          href={source.url || '#'}
+                          target="_blank"
+                          rel="nofollow noopener noreferrer"
+                          className="block text-sm text-slate-300 hover:text-white transition-colors flex items-start gap-2 group"
+                        >
+                          <ExternalLink size={16} className="text-slate-500 group-hover:text-amber-500 flex-shrink-0 mt-0.5 transition-colors" />
+                          <span>{source.name || source.title || 'Reference'}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Related Scams */}
+                {relatedScams.length > 0 && (
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
+                    <h3 className="text-lg font-bold text-white mb-4">Related Scams</h3>
+                    <div className="space-y-3">
+                      {relatedScams.map((scam) => (
+                        <Link
+                          key={scam.id}
+                          href={`/review/${scam.slug}`}
+                          className="block bg-slate-950/50 hover:bg-slate-800/50 border border-slate-700 rounded p-3 transition-colors group"
+                        >
+                          <h4 className="text-sm font-semibold text-slate-200 group-hover:text-amber-400 transition-colors flex items-center justify-between">
                             {scam.name}
+                            <ArrowRight size={16} />
                           </h4>
-                          <div className="flex justify-between items-center mt-2">
-                            <span className="text-xs text-gray-400">Score:</span>
+                          <div className="mt-2 flex items-center justify-between">
+                            <span className="text-xs text-slate-500">Scam Score</span>
                             <span
                               className={`text-xs font-bold ${
                                 scam.scam_score >= 70
@@ -548,15 +592,85 @@ export default async function ReviewPage({ params }) {
                               {scam.scam_score}/100
                             </span>
                           </div>
-                        </div>
-                      </Link>
-                    ))}
+                        </Link>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
         </div>
+
+        {/* CTA Section */}
+        <div className="bg-gradient-to-r from-red-950/40 to-red-900/30 border-y border-red-900/60 py-12">
+          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              Were You Targeted by {brand?.name || 'This Scam'}?
+            </h2>
+            <p className="text-slate-300 mb-6 max-w-xl mx-auto">
+              If you've been affected by this scam, report it to authorities and seek help from fraud recovery specialists.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <a
+                href="https://www.ic3.gov/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+              >
+                <AlertOctagon size={18} />
+                Report to IC3
+              </a>
+              <a
+                href="#"
+                className="inline-flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+              >
+                <FileText size={18} />
+                Recovery Guide
+              </a>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="bg-slate-900 border-t border-slate-800 py-8">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid md:grid-cols-4 gap-8 mb-8">
+              <div>
+                <Link href="/" className="flex items-center gap-2 font-bold text-white hover:text-red-400 transition-colors mb-2">
+                  <Flame size={20} className="text-red-500" />
+                  CryptoKiller
+                </Link>
+                <p className="text-slate-400 text-sm">Powered by SpyOwl</p>
+              </div>
+              <div>
+                <h4 className="font-semibold text-white mb-3">Product</h4>
+                <ul className="space-y-2 text-slate-400 text-sm">
+                  <li><Link href="/scams" className="hover:text-white transition-colors">Investigations</Link></li>
+                  <li><a href="#" className="hover:text-white transition-colors">Browser Extension</a></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-white mb-3">Legal</h4>
+                <ul className="space-y-2 text-slate-400 text-sm">
+                  <li><a href="#" className="hover:text-white transition-colors">Privacy</a></li>
+                  <li><a href="#" className="hover:text-white transition-colors">Terms</a></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-white mb-3">Contact</h4>
+                <ul className="space-y-2 text-slate-400 text-sm">
+                  <li><a href="mailto:info@crypto-killer.com" className="hover:text-white transition-colors">Email</a></li>
+                  <li><a href="#" className="hover:text-white transition-colors">Twitter</a></li>
+                </ul>
+              </div>
+            </div>
+            <div className="border-t border-slate-800 pt-8 flex items-center justify-between text-sm text-slate-500">
+              <p>&copy; 2026 CryptoKiller. All rights reserved.</p>
+              <p>Ad intelligence powered by SpyOwl</p>
+            </div>
+          </div>
+        </footer>
       </div>
     )
   } catch (error) {

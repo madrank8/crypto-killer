@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache'
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
@@ -33,6 +34,10 @@ export async function POST(request, { params }) {
 
     updates.updated_at = new Date().toISOString()
 
+    // Fetch the review slug for revalidation
+    const reviewData = await supabaseRequest(`/reviews?id=eq.${id}&select=slug`)
+    const reviewSlug = Array.isArray(reviewData) && reviewData[0]?.slug
+
     // Perform update
     await supabaseRequest(
       `/reviews?id=eq.${id}`,
@@ -41,6 +46,15 @@ export async function POST(request, { params }) {
         body: JSON.stringify(updates),
       }
     )
+
+    // Revalidate cached pages so changes appear immediately
+    try {
+      if (reviewSlug) revalidatePath(`/review/${reviewSlug}`)
+      revalidatePath('/')
+      revalidatePath('/scams')
+    } catch (revalError) {
+      console.error('Revalidation error (non-fatal):', revalError.message)
+    }
 
     return Response.json({
       success: true,
