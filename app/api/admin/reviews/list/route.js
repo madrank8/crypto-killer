@@ -2,6 +2,25 @@ import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 /**
+ * Paginate through ALL rows from a Supabase REST endpoint.
+ * Supabase caps each request at 1000 rows, so we page in batches.
+ */
+async function fetchAllReviews(pageSize = 1000) {
+  const allRows = []
+  let offset = 0
+  while (true) {
+    const data = await supabaseRequest(
+      `/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
+    )
+    if (!Array.isArray(data) || data.length === 0) break
+    allRows.push(...data)
+    if (data.length < pageSize) break
+    offset += pageSize
+  }
+  return allRows
+}
+
+/**
  * GET /api/admin/reviews/list
  * Fetch all reviews directly from the reviews table, joined with brand data.
  * This replaces the old approach of going through brands API with review_status filter.
@@ -10,11 +29,8 @@ export async function GET(request) {
   try {
     verifyAdmin(request)
 
-    // Fetch all reviews with key fields (Range header bypasses 1000-row default)
-    const reviews = await supabaseRequest(
-      '/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&order=updated_at.desc&limit=5000',
-      { headers: { 'Range': '0-4999' } }
-    )
+    // Fetch all reviews with pagination to bypass 1000-row cap
+    const reviews = await fetchAllReviews()
 
     if (!Array.isArray(reviews)) {
       return Response.json({ error: 'Failed to fetch reviews' }, { status: 500 })
@@ -68,6 +84,7 @@ export async function GET(request) {
         word_count: r.word_count || 0,
         updated_at: r.updated_at,
         published_at: r.published_at,
+        // Brand fields
         brand_name: brand.name || 'Unknown Brand',
         brand_slug: brand.slug || '',
         scam_score: brand.scam_score || 0,
