@@ -47,10 +47,20 @@ export async function POST(request) {
     }
 
     // Generate slug from brand name
-    const slug = brandData.slug || brandData.name
+    let slug = brandData.slug || brandData.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
+
+    // Check if slug already taken by another brand's review
+    const existingBySlug = await supabaseRequest(
+      `/reviews?slug=eq.${slug}&select=id,brand_id`
+    )
+    if (Array.isArray(existingBySlug) && existingBySlug.length > 0) {
+      // Slug taken — append brand_id fragment to deduplicate
+      const shortId = brand_id.slice(0, 8)
+      slug = `${slug}-${shortId}`
+    }
 
     // Create blank review
     const reviewPayload = {

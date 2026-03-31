@@ -814,7 +814,27 @@ ${disclaimerHtml}`
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
-    const slug = baseSlug.endsWith('-review') ? baseSlug : `${baseSlug}-review`
+    let slug = baseSlug.endsWith('-review') ? baseSlug : `${baseSlug}-review`
+
+    // ─── DEDUPLICATE SLUG (check if slug already taken) ───
+    const existingByBrand = await supabaseRequest(
+      `/reviews?brand_id=eq.${brand_id}&select=id,status`
+    )
+    const existingBySlug = await supabaseRequest(
+      `/reviews?slug=eq.${slug}&select=id,status,brand_id`
+    )
+    // If slug is taken by a DIFFERENT brand, make it unique
+    if (
+      Array.isArray(existingBySlug) && existingBySlug.length > 0 &&
+      !(Array.isArray(existingByBrand) && existingByBrand.length > 0)
+    ) {
+      const shortId = brand_id.slice(0, 8)
+      slug = `${slug}-${shortId}`
+    }
+    // Resolve existing review for later upsert logic
+    const existingReview = (Array.isArray(existingByBrand) && existingByBrand.length > 0)
+      ? existingByBrand
+      : []
 
     // ─── BUILD JSON-LD SCHEMA (@graph pattern) ───
     // Organization → Person/Author → WebSite → Article → Review → ClaimReview → FAQPage
@@ -978,11 +998,6 @@ ${disclaimerHtml}`
     }
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })
-
-    // Check if review already exists for this brand
-    const existingReview = await supabaseRequest(
-      `/reviews?brand_id=eq.${brand_id}&select=id,status`
-    )
 
     let reviewId
     const reviewPayload = {
