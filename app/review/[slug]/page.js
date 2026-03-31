@@ -24,6 +24,7 @@ import {
   Flame,
   TrendingUp,
   TrendingDown,
+  ChevronRight,
 } from 'lucide-react'
 
 export const revalidate = 60
@@ -74,34 +75,45 @@ export async function generateMetadata({ params }) {
   }
 }
 
+function SectionTitle({ icon: Icon, children }) {
+  return (
+    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2.5 border-b border-slate-800 pb-3">
+      <span className="text-red-500">{Icon && <Icon size={24} />}</span>
+      {children}
+    </h2>
+  )
+}
+
 function RiskBadge({ score }) {
   if (score >= 70) {
     return (
-      <div className="inline-flex items-center gap-2 bg-red-950/40 border border-red-900/60 px-4 py-2 rounded-full">
-        <AlertOctagon size={18} className="text-red-500" />
-        <span className="text-red-400 font-bold text-sm">CONFIRMED SCAM</span>
+      <div className="inline-flex items-center gap-2 bg-red-600 text-white text-sm px-3 py-1.5 rounded-full uppercase tracking-widest font-bold">
+        <ShieldAlert size={16} />
+        CONFIRMED SCAM
       </div>
     )
   }
   if (score >= 50) {
     return (
-      <div className="inline-flex items-center gap-2 bg-amber-950/40 border border-amber-900/60 px-4 py-2 rounded-full">
-        <AlertTriangle size={18} className="text-amber-500" />
-        <span className="text-amber-400 font-bold text-sm">HIGH RISK</span>
+      <div className="inline-flex items-center gap-2 bg-amber-600 text-white text-sm px-3 py-1.5 rounded-full uppercase tracking-widest font-bold">
+        <AlertTriangle size={16} />
+        HIGH RISK
       </div>
     )
   }
   return null
 }
 
-function StatCard({ icon: Icon, label, value }) {
+function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-4 flex items-start gap-3">
-      <Icon size={20} className="text-amber-500 flex-shrink-0 mt-0.5" />
-      <div className="flex-1 min-w-0">
-        <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
-        <p className="text-white font-bold text-lg mt-1">{value}</p>
+    <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-5">
+      <div className="flex items-start gap-3 mb-3">
+        <div className={`w-10 h-10 rounded-full bg-slate-900/80 border border-slate-700 flex items-center justify-center ${colorClass}`}>
+          <Icon size={20} />
+        </div>
       </div>
+      <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-white font-bold text-2xl">{value}</p>
     </div>
   )
 }
@@ -147,9 +159,9 @@ export default async function ReviewPage({ params }) {
     const redFlags = Array.isArray(review.red_flags)
       ? review.red_flags
       : typeof review.red_flags === 'string'
-        ? (() => { try { const p = JSON.parse(review.red_flags); return Array.isArray(p) ? p : Object.entries(p).map(([k, v]) => ({ flag: k, detail: v })); } catch { return []; } })()
+        ? (() => { try { const p = JSON.parse(review.red_flags); return Array.isArray(p) ? p : Object.entries(p).map(([k, v]) => ({ flag: k, detail: v, emoji: undefined })); } catch { return []; } })()
         : typeof review.red_flags === 'object' && review.red_flags
-          ? Object.entries(review.red_flags).map(([k, v]) => ({ flag: k, detail: typeof v === 'string' ? v : '' }))
+          ? Object.entries(review.red_flags).map(([k, v]) => ({ flag: k, detail: typeof v === 'string' ? v : '', emoji: undefined }))
           : []
 
     const faqItems = Array.isArray(review.faq)
@@ -179,6 +191,9 @@ export default async function ReviewPage({ params }) {
       ? Math.ceil((new Date(brand.last_seen_at) - new Date(brand.first_seen_at)) / 86400000)
       : null
 
+    // Red flag emojis to cycle through
+    const redFlagEmojis = ['🎭', '📢', '🔒', '⚖️', '⏰', '👤', '📞', '🌍']
+
     return (
       <div className="bg-slate-950 text-slate-300 min-h-screen">
         {/* JSON-LD Schema */}
@@ -191,58 +206,41 @@ export default async function ReviewPage({ params }) {
           />
         )}
 
-        {/* Sticky Navigation */}
-        <nav className="sticky top-0 z-40 bg-slate-950/95 backdrop-blur border-b border-slate-800">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-2 font-bold text-white hover:text-red-400 transition-colors">
-              <Flame size={24} className="text-red-500" />
-              <span className="text-lg">CryptoKiller</span>
-              <span className="text-xs text-slate-500 ml-1">by SpyOwl</span>
-            </Link>
-            <div className="flex items-center gap-6">
-              <Link href="/" className="text-sm text-slate-400 hover:text-white transition-colors">Home</Link>
-              <Link href="/scams" className="text-sm text-slate-400 hover:text-white transition-colors">Investigations</Link>
-              <a href="#report" className="text-sm text-slate-400 hover:text-white transition-colors">Report</a>
-              <a href="#" className="text-sm text-slate-400 hover:text-white transition-colors">About</a>
-              <div className="inline-flex items-center gap-2 bg-red-950/30 border border-red-900/40 px-3 py-1.5 rounded-full text-xs font-semibold text-red-400">
-                <AlertOctagon size={14} />
-                SCAM ALERT
-              </div>
-            </div>
-          </div>
-        </nav>
-
         {/* Breadcrumb */}
-        <div className="bg-slate-900/50 border-b border-slate-800">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              <Link href="/" className="hover:text-white transition-colors">Home</Link>
-              <span className="text-slate-600">/</span>
-              <Link href="/scams" className="hover:text-white transition-colors">Investigations</Link>
-              <span className="text-slate-600">/</span>
-              <span className="text-white">{brand?.name || review.title}</span>
+        <div className="bg-slate-900/30 border-b border-slate-800/50">
+          <div className="max-w-6xl mx-auto container px-4 py-4">
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <Link href="/" className="text-slate-400 hover:text-white transition-colors">Home</Link>
+              <ChevronRight size={16} className="text-slate-600" />
+              <Link href="/scams" className="text-slate-400 hover:text-white transition-colors">Investigations</Link>
+              <ChevronRight size={16} className="text-slate-600" />
+              <span className="text-white font-medium">{brand?.name || review.title}</span>
             </div>
           </div>
         </div>
 
         {/* Hero Section */}
-        <div className="bg-gradient-to-b from-slate-900/50 to-slate-950 border-b border-slate-800 py-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="mb-6 flex flex-wrap items-center gap-4">
-              <h1 className="text-5xl md:text-7xl font-black text-white leading-tight">
-                {brand?.name || review.title}
-              </h1>
-              {review.scam_score >= 70 && <RiskBadge score={review.scam_score} />}
+        <div className="bg-slate-950 border-b border-slate-800/50 py-16">
+          <div className="max-w-6xl mx-auto container px-4">
+            <div className="mb-8">
+              <div className="flex flex-wrap items-center gap-4 mb-6">
+                <h1 className="text-5xl md:text-7xl font-black text-white leading-tight">
+                  {brand?.name || review.title}
+                </h1>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <RiskBadge score={review.scam_score} />
+              </div>
             </div>
 
             {review.headline && (
-              <p className="text-xl text-slate-300 max-w-2xl mb-6 leading-relaxed">
+              <p className="text-xl text-slate-300 max-w-3xl mb-8 leading-relaxed">
                 {review.headline}
               </p>
             )}
 
             {/* Meta Bar */}
-            <div className="flex flex-wrap items-center gap-4 text-sm text-slate-400 mb-8 pb-8 border-b border-slate-800">
+            <div className="flex flex-wrap items-center gap-6 text-sm text-slate-400 mb-10 pb-8 border-b border-slate-800/50">
               {formattedDate && (
                 <div className="flex items-center gap-2">
                   <Calendar size={16} className="text-slate-500" />
@@ -274,21 +272,25 @@ export default async function ReviewPage({ params }) {
                   icon={Flame}
                   label="Ad Creatives"
                   value={brand.total_creatives?.toLocaleString() || '0'}
+                  colorClass="text-red-500"
                 />
                 <StatCard
                   icon={Globe}
                   label="Countries Targeted"
                   value={brand.total_geos?.toLocaleString() || '0'}
+                  colorClass="text-amber-500"
                 />
                 <StatCard
-                  icon={Clock}
+                  icon={TrendingUp}
                   label="Days Active"
                   value={daysActive !== null ? daysActive.toLocaleString() : 'N/A'}
+                  colorClass="text-orange-500"
                 />
                 <StatCard
-                  icon={AlertOctagon}
+                  icon={AlertTriangle}
                   label="Celebrities Abused"
                   value={brand.total_celebrities?.toLocaleString() || '0'}
+                  colorClass="text-blue-500"
                 />
               </div>
             )}
@@ -297,54 +299,56 @@ export default async function ReviewPage({ params }) {
 
         {/* Key Takeaways */}
         {keyTakeaways.length > 0 && (
-          <div className="bg-red-950/20 border-t border-b border-red-900/40 py-8">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                <AlertTriangle size={28} className="text-red-500" />
+          <div className="bg-red-950/20 border-b border-red-900/40 py-10">
+            <div className="max-w-6xl mx-auto container px-4">
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2.5 border-b border-red-900/40 pb-3">
+                <span className="text-red-500"><AlertOctagon size={24} /></span>
                 Key Takeaways
               </h2>
-              <div className="grid md:grid-cols-2 gap-4">
+              <ul className="space-y-3">
                 {keyTakeaways.map((t, i) => (
-                  <div key={i} className="flex gap-3">
-                    <X size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <li key={i} className="flex gap-3 items-start">
+                    <X size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                     <p className="text-slate-200 text-sm leading-relaxed">
                       {typeof t === 'string' ? t : t.text || ''}
                     </p>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </div>
         )}
 
         {/* Main Content */}
-        <div className="py-12">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="py-16">
+          <div className="max-w-6xl mx-auto container px-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Main Content - Col Span 2 */}
-              <div className="lg:col-span-2 space-y-8">
+              <div className="lg:col-span-2 space-y-10">
                 {/* Investigation Summary */}
                 {review.summary && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-                      <BookOpen size={24} className="text-amber-500" />
-                      Investigation Summary
-                    </h2>
+                  <div>
+                    <SectionTitle icon={FileText}>Investigation Summary</SectionTitle>
                     <div className="space-y-4 text-slate-300 leading-relaxed">
                       {review.summary.split('\n\n').map((para, i) => (
                         <p key={i}>{para}</p>
                       ))}
+                    </div>
+                    <div className="mt-6 bg-slate-900 border border-red-900/50 rounded-lg p-4">
+                      <p className="text-slate-400 text-sm leading-relaxed">
+                        <span className="text-red-400 font-semibold">Warning:</span> This analysis is for informational purposes only and should not be considered financial advice.
+                      </p>
                     </div>
                   </div>
                 )}
 
                 {/* How It Works */}
                 {review.how_it_works && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-                      <ShieldAlert size={24} className="text-amber-500" />
-                      How This Scam Works
-                    </h2>
+                  <div>
+                    <SectionTitle icon={ShieldAlert}>How This Scam Works</SectionTitle>
+                    <p className="text-slate-300 mb-4 leading-relaxed">
+                      Understanding the mechanics of this scam can help you recognize similar patterns:
+                    </p>
                     <div className="space-y-4 text-slate-300 leading-relaxed">
                       {review.how_it_works.split('\n\n').map((para, i) => (
                         <p key={i}>{para}</p>
@@ -355,28 +359,29 @@ export default async function ReviewPage({ params }) {
 
                 {/* Red Flags */}
                 {redFlags.length > 0 && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                      <Flag size={24} className="text-red-500" />
-                      Red Flags ({redFlags.length})
-                    </h2>
+                  <div>
+                    <SectionTitle icon={Flag}>Red Flags</SectionTitle>
                     <div className="space-y-4">
                       {redFlags.map((rf, i) => (
                         <div
                           key={i}
-                          className="bg-slate-950/50 border border-slate-700 rounded-lg p-4 flex gap-3"
+                          className="rounded-xl bg-slate-900/60 border border-slate-800 overflow-hidden"
                         >
-                          <AlertTriangle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
-                          <div className="flex-1">
-                            <p className="text-sm text-slate-400 uppercase tracking-wide font-semibold mb-1">
-                              Red Flag {i + 1}
-                            </p>
-                            <h3 className="font-semibold text-white">
-                              {rf.flag || (typeof rf === 'string' ? rf : `Warning Sign`)}
-                            </h3>
-                            {rf.detail && (
-                              <p className="text-slate-400 text-sm mt-2 leading-relaxed">{rf.detail}</p>
-                            )}
+                          <div className="p-5 flex gap-4">
+                            <div className="w-8 h-8 rounded-full bg-red-950/60 border border-red-900/60 flex items-center justify-center flex-shrink-0">
+                              <span className="text-lg">{redFlagEmojis[i % redFlagEmojis.length]}</span>
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-red-400 text-xs uppercase font-bold tracking-wide mb-2">
+                                RED FLAG {i + 1}
+                              </p>
+                              <h3 className="font-bold text-white mb-2">
+                                {rf.flag || (typeof rf === 'string' ? rf : `Warning Sign`)}
+                              </h3>
+                              {rf.detail && (
+                                <p className="text-slate-400 text-sm leading-relaxed">{rf.detail}</p>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -384,18 +389,17 @@ export default async function ReviewPage({ params }) {
                   </div>
                 )}
 
-                {/* Protection Steps */}
+                {/* What To Do If You've Been Scammed */}
                 {review.protection_steps && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                      <Lock size={24} className="text-green-500" />
-                      Protection Steps
-                    </h2>
-                    <div className="space-y-4 text-slate-300 leading-relaxed">
+                  <div>
+                    <SectionTitle icon={CheckCircle}>What To Do If You've Been Scammed</SectionTitle>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {review.protection_steps.split('\n').filter(Boolean).map((step, i) => (
-                        <div key={i} className="flex gap-3">
-                          <CheckCircle size={20} className="text-green-500 flex-shrink-0 mt-0.5" />
-                          <p>{step}</p>
+                        <div key={i} className="bg-slate-900/50 border border-slate-800/50 rounded-lg p-4">
+                          <div className="flex items-start gap-3">
+                            <CheckCircle size={20} className="text-green-500 flex-shrink-0 mt-0.5" />
+                            <p className="text-slate-300 text-sm">{step}</p>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -404,199 +408,169 @@ export default async function ReviewPage({ params }) {
 
                 {/* FAQ */}
                 {faqItems.length > 0 && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                      <FileText size={24} className="text-amber-500" />
-                      Frequently Asked Questions
-                    </h2>
+                  <div>
+                    <SectionTitle icon={BookOpen}>Frequently Asked Questions</SectionTitle>
                     <FaqAccordion items={faqItems} />
                   </div>
                 )}
 
                 {/* Methodology */}
                 {review.methodology && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-                      <Scale size={24} className="text-slate-400" />
-                      Methodology
-                    </h2>
-                    <div className="space-y-4 text-slate-300 leading-relaxed">
-                      {review.methodology.split('\n').filter(Boolean).map((para, i) => (
+                  <div>
+                    <SectionTitle icon={Eye}>Research Methodology</SectionTitle>
+                    <div className="space-y-4 text-slate-400 text-sm leading-relaxed">
+                      {review.methodology.split('\n\n').filter(Boolean).map((para, i) => (
                         <p key={i}>{para}</p>
                       ))}
                     </div>
                   </div>
                 )}
-
-                {/* Disclaimer */}
-                {review.disclaimer && (
-                  <div className="bg-slate-950/50 border border-slate-800 rounded-lg p-6">
-                    <p className="text-slate-400 text-sm leading-relaxed">
-                      <strong className="text-slate-300">Disclaimer:</strong> {review.disclaimer}
-                    </p>
-                  </div>
-                )}
               </div>
 
               {/* Sidebar - Col Span 1 */}
-              <div className="lg:col-span-1 space-y-6">
-                {/* Threat Score Card */}
-                <div className="sticky top-24 bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
-                  <h3 className="text-lg font-bold text-white">Threat Score</h3>
-                  <div className="text-center">
-                    <div className="text-6xl font-black text-red-500">
-                      {review.scam_score || 0}
+              <div className="lg:col-span-1">
+                <div className="space-y-6 lg:sticky lg:top-20">
+                  {/* Threat Score Card */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Threat Score</h3>
+                    <div className="text-center py-4">
+                      <div className={`text-6xl font-black ${
+                        review.scam_score >= 70 ? 'text-red-500' : review.scam_score >= 50 ? 'text-amber-500' : 'text-green-500'
+                      }`}>
+                        {review.scam_score || 0}
+                      </div>
+                      <p className="text-slate-400 text-sm mt-2">/ 100</p>
                     </div>
-                    <p className="text-slate-400 text-sm mt-2">/100</p>
-                  </div>
 
-                  {/* Progress bar */}
-                  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-red-600 to-red-500 rounded-full"
-                      style={{ width: `${Math.min(100, review.scam_score || 0)}%` }}
-                    />
-                  </div>
+                    {/* Progress bar */}
+                    <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          review.scam_score >= 70 ? 'bg-red-600' : review.scam_score >= 50 ? 'bg-amber-600' : 'bg-green-600'
+                        }`}
+                        style={{ width: `${Math.min(100, review.scam_score || 0)}%` }}
+                      />
+                    </div>
 
-                  {/* Risk Level */}
-                  <div className="text-center">
-                    {review.scam_score >= 70 ? (
-                      <span className="inline-block bg-red-950/40 border border-red-900/60 px-3 py-1 rounded-full text-red-400 text-xs font-bold">
-                        CRITICAL RISK
-                      </span>
-                    ) : review.scam_score >= 50 ? (
-                      <span className="inline-block bg-amber-950/40 border border-amber-900/60 px-3 py-1 rounded-full text-amber-400 text-xs font-bold">
-                        HIGH RISK
-                      </span>
-                    ) : (
-                      <span className="inline-block bg-green-950/40 border border-green-900/60 px-3 py-1 rounded-full text-green-400 text-xs font-bold">
-                        LOW RISK
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Threat Intelligence Table */}
-                {brand && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6 space-y-4">
-                    <h3 className="text-lg font-bold text-white">Threat Intelligence</h3>
-                    <div className="space-y-3 text-sm">
-                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                        <span className="text-slate-400">Ad Creatives</span>
-                        <span className="text-white font-semibold">{brand.total_creatives?.toLocaleString() || '0'}</span>
-                      </div>
-                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                        <span className="text-slate-400">Countries</span>
-                        <span className="text-white font-semibold">{brand.total_geos?.toLocaleString() || '0'}</span>
-                      </div>
-                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                        <span className="text-slate-400">Celebrities Abused</span>
-                        <span className="text-white font-semibold">{brand.total_celebrities?.toLocaleString() || '0'}</span>
-                      </div>
-                      <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                        <span className="text-slate-400">Campaign Duration</span>
-                        <span className="text-white font-semibold">{daysActive !== null ? `${daysActive} days` : 'N/A'}</span>
-                      </div>
-                      {brand.first_seen_at && (
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                          <span className="text-slate-400">First Detected</span>
-                          <span className="text-white font-semibold">
-                            {new Date(brand.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </span>
-                        </div>
+                    {/* Risk Level */}
+                    <div className="text-center pt-2">
+                      {review.scam_score >= 70 ? (
+                        <span className="text-red-400 text-sm font-bold">
+                          Extreme Risk — Do Not Deposit
+                        </span>
+                      ) : review.scam_score >= 50 ? (
+                        <span className="text-amber-400 text-sm font-bold">
+                          High Risk — Exercise Caution
+                        </span>
+                      ) : (
+                        <span className="text-green-400 text-sm font-bold">
+                          Lower Risk
+                        </span>
                       )}
-                      {brand.last_seen_at && (
-                        <div className="flex justify-between items-center pb-3 border-b border-slate-700">
-                          <span className="text-slate-400">Last Active</span>
-                          <span className="text-white font-semibold">
-                            {new Date(brand.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </span>
-                        </div>
-                      )}
-                      {brand.status && (
+                    </div>
+                  </div>
+
+                  {/* Threat Intelligence Table */}
+                  {brand && (
+                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
+                      <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Threat Intelligence</h3>
+                      <div className="space-y-4 text-sm">
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Status</span>
-                          <div className="flex items-center gap-2">
-                            {brand.status === 'active' && <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
-                            <span className="text-white font-semibold capitalize">{brand.status}</span>
-                          </div>
+                          <span className="text-slate-400">Ad Creatives</span>
+                          <span className="text-white font-semibold">{brand.total_creatives?.toLocaleString() || '0'}</span>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Final Verdict Card */}
-                {review.verdict && (
-                  <div className="bg-red-950/20 border border-red-900/40 rounded-lg p-6">
-                    <h3 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-                      <AlertOctagon size={20} className="text-red-500" />
-                      Final Verdict
-                    </h3>
-                    <p className="text-slate-200 text-sm leading-relaxed">
-                      {review.verdict.split('\n').filter(Boolean).join(' ')}
-                    </p>
-                  </div>
-                )}
-
-                {/* Sources Card */}
-                {sources.length > 0 && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-                      <FileText size={20} className="text-slate-400" />
-                      Sources
-                    </h3>
-                    <div className="space-y-3">
-                      {sources.map((source, i) => (
-                        <a
-                          key={i}
-                          href={source.url || '#'}
-                          target="_blank"
-                          rel="nofollow noopener noreferrer"
-                          className="block text-sm text-slate-300 hover:text-white transition-colors flex items-start gap-2 group"
-                        >
-                          <ExternalLink size={16} className="text-slate-500 group-hover:text-amber-500 flex-shrink-0 mt-0.5 transition-colors" />
-                          <span>{source.name || source.title || 'Reference'}</span>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Related Scams */}
-                {relatedScams.length > 0 && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-6">
-                    <h3 className="text-lg font-bold text-white mb-4">Related Scams</h3>
-                    <div className="space-y-3">
-                      {relatedScams.map((scam) => (
-                        <Link
-                          key={scam.id}
-                          href={`/review/${scam.slug}`}
-                          className="block bg-slate-950/50 hover:bg-slate-800/50 border border-slate-700 rounded p-3 transition-colors group"
-                        >
-                          <h4 className="text-sm font-semibold text-slate-200 group-hover:text-amber-400 transition-colors flex items-center justify-between">
-                            {scam.name}
-                            <ArrowRight size={16} />
-                          </h4>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-xs text-slate-500">Scam Score</span>
-                            <span
-                              className={`text-xs font-bold ${
-                                scam.scam_score >= 70
-                                  ? 'text-red-400'
-                                  : scam.scam_score >= 50
-                                    ? 'text-amber-400'
-                                    : 'text-green-400'
-                              }`}
-                            >
-                              {scam.scam_score}/100
+                        <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                          <span className="text-slate-400">Countries</span>
+                          <span className="text-white font-semibold">{brand.total_geos?.toLocaleString() || '0'}</span>
+                        </div>
+                        <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                          <span className="text-slate-400">Celebrities Abused</span>
+                          <span className="text-white font-semibold">{brand.total_celebrities?.toLocaleString() || '0'}</span>
+                        </div>
+                        <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                          <span className="text-slate-400">Campaign Duration</span>
+                          <span className="text-white font-semibold">{daysActive !== null ? `${daysActive} days` : 'N/A'}</span>
+                        </div>
+                        {brand.first_seen_at && (
+                          <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                            <span className="text-slate-400">First Detected</span>
+                            <span className="text-white font-semibold text-xs">
+                              {new Date(brand.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </span>
                           </div>
-                        </Link>
+                        )}
+                        {brand.last_seen_at && (
+                          <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                            <span className="text-slate-400">Last Active</span>
+                            <span className="text-white font-semibold text-xs">
+                              {new Date(brand.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          </div>
+                        )}
+                        {brand.status && (
+                          <div className="flex justify-between items-center border-t border-slate-800 pt-4">
+                            <span className="text-slate-400">Status</span>
+                            <div className="flex items-center gap-2">
+                              {brand.status === 'active' && <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
+                              <span className="text-white font-semibold capitalize">{brand.status}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Regulatory Status */}
+                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
+                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Regulatory Status</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {['FCA', 'SEC', 'ASIC', 'CySEC'].map((reg) => (
+                        <div key={reg} className="bg-red-950/30 border border-red-900/40 rounded px-2 py-1.5 text-center">
+                          <p className="text-xs text-slate-400 font-semibold">{reg}</p>
+                          <div className="flex justify-center mt-1">
+                            <X size={16} className="text-red-500" />
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">None</p>
+                        </div>
                       ))}
                     </div>
                   </div>
-                )}
+
+                  {/* Final Verdict Card */}
+                  {review.verdict && (
+                    <div className="bg-red-950/30 border border-red-800/50 rounded-lg p-5">
+                      <h3 className="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                        <AlertOctagon size={18} className="text-red-500" />
+                        Final Verdict
+                      </h3>
+                      <p className="text-slate-200 text-sm leading-relaxed mb-3">
+                        <span className="font-semibold">{brand?.name || 'This operation'} is a confirmed crypto scam.</span>
+                      </p>
+                      <p className="text-red-400 text-sm font-semibold">Do not deposit any money.</p>
+                    </div>
+                  )}
+
+                  {/* Sources Card */}
+                  {sources.length > 0 && (
+                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-6">
+                      <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide mb-4">Sources</h3>
+                      <div className="space-y-3">
+                        {sources.map((source, i) => (
+                          <a
+                            key={i}
+                            href={source.url || '#'}
+                            target="_blank"
+                            rel="nofollow noopener noreferrer"
+                            className="text-sm text-slate-300 hover:text-white transition-colors flex items-start gap-2 group"
+                          >
+                            <ExternalLink size={14} className="text-slate-500 group-hover:text-amber-500 flex-shrink-0 mt-0.5 transition-colors" />
+                            <span className="leading-snug">{source.name || source.title || 'Reference'}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -632,45 +606,6 @@ export default async function ReviewPage({ params }) {
           </div>
         </div>
 
-        {/* Footer */}
-        <footer className="bg-slate-900 border-t border-slate-800 py-8">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid md:grid-cols-4 gap-8 mb-8">
-              <div>
-                <Link href="/" className="flex items-center gap-2 font-bold text-white hover:text-red-400 transition-colors mb-2">
-                  <Flame size={20} className="text-red-500" />
-                  CryptoKiller
-                </Link>
-                <p className="text-slate-400 text-sm">Powered by SpyOwl</p>
-              </div>
-              <div>
-                <h4 className="font-semibold text-white mb-3">Product</h4>
-                <ul className="space-y-2 text-slate-400 text-sm">
-                  <li><Link href="/scams" className="hover:text-white transition-colors">Investigations</Link></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Browser Extension</a></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold text-white mb-3">Legal</h4>
-                <ul className="space-y-2 text-slate-400 text-sm">
-                  <li><a href="#" className="hover:text-white transition-colors">Privacy</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Terms</a></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-semibold text-white mb-3">Contact</h4>
-                <ul className="space-y-2 text-slate-400 text-sm">
-                  <li><a href="mailto:info@crypto-killer.com" className="hover:text-white transition-colors">Email</a></li>
-                  <li><a href="#" className="hover:text-white transition-colors">Twitter</a></li>
-                </ul>
-              </div>
-            </div>
-            <div className="border-t border-slate-800 pt-8 flex items-center justify-between text-sm text-slate-500">
-              <p>&copy; 2026 CryptoKiller. All rights reserved.</p>
-              <p>Ad intelligence powered by SpyOwl</p>
-            </div>
-          </div>
-        </footer>
       </div>
     )
   } catch (error) {

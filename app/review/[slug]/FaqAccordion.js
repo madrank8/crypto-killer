@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 
 export default function FaqAccordion({ items }) {
   const [openIndex, setOpenIndex] = useState(null)
@@ -11,32 +11,26 @@ export default function FaqAccordion({ items }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="divide-y divide-slate-800 border border-slate-800 rounded-xl overflow-hidden">
       {items.map((item, index) => (
-        <div
-          key={index}
-          className="border border-slate-800 rounded-lg overflow-hidden bg-slate-900/40 hover:bg-slate-900/60 transition-colors"
-        >
+        <div key={index} className="bg-slate-900/50">
           <button
             onClick={() => setOpenIndex(openIndex === index ? null : index)}
-            className="w-full px-6 py-4 flex items-center justify-between text-left hover:bg-slate-800/30 transition-colors"
+            className="w-full text-left flex items-center justify-between gap-4 p-5 hover:bg-slate-800/40 transition-colors"
           >
-            <h3 className="text-base font-semibold text-slate-100 pr-4">
+            <h3 className="font-semibold text-white text-sm">
               {item.question}
             </h3>
-            <ChevronDown
-              size={20}
-              className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${
-                openIndex === index ? 'transform rotate-180' : ''
-              }`}
-            />
+            {openIndex === index ? (
+              <ChevronUp size={18} className="text-slate-400 flex-shrink-0" />
+            ) : (
+              <ChevronDown size={18} className="text-slate-400 flex-shrink-0" />
+            )}
           </button>
 
           {openIndex === index && (
-            <div className="px-6 py-4 bg-slate-950/50 border-t border-slate-800">
-              <p className="text-slate-300 leading-relaxed text-sm">
-                {item.answer}
-              </p>
+            <div className="px-5 pb-5 text-slate-400 text-sm leading-relaxed">
+              {item.answer}
             </div>
           )}
         </div>
