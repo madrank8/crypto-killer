@@ -10,9 +10,10 @@ export async function GET(request) {
   try {
     verifyAdmin(request)
 
-    // Fetch all reviews with key fields
+    // Fetch all reviews with key fields (Range header bypasses 1000-row default)
     const reviews = await supabaseRequest(
-      '/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&order=updated_at.desc'
+      '/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&order=updated_at.desc&limit=5000',
+      { headers: { 'Range': '0-4999' } }
     )
 
     if (!Array.isArray(reviews)) {
@@ -26,19 +27,31 @@ export async function GET(request) {
       })
     }
 
-    // Fetch all associated brands in one query
+    // Fetch associated brands in batched chunks to avoid URL length limits
     const brandIds = [...new Set(reviews.map((r) => r.brand_id).filter(Boolean))]
     let brandMap = {}
 
     if (brandIds.length > 0) {
-      // Supabase supports `in.(id1,id2,...)` filter
-      const brandIdList = brandIds.join(',')
-      const brands = await supabaseRequest(
-        `/scam_brands?id=in.(${brandIdList})&select=id,name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend`
+      const CHUNK_SIZE = 80
+      const chunks = []
+      for (let i = 0; i < brandIds.length; i += CHUNK_SIZE) {
+        chunks.push(brandIds.slice(i, i + CHUNK_SIZE))
+      }
+
+      const batchResults = await Promise.all(
+        chunks.map((chunk) => {
+          const idList = chunk.join(',')
+          return supabaseRequest(
+            `/scam_brands?id=in.(${idList})&select=id,name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend`
+          )
+        })
       )
-      if (Array.isArray(brands)) {
-        for (const b of brands) {
-          brandMap[b.id] = b
+
+      for (const brands of batchResults) {
+        if (Array.isArray(brands)) {
+          for (const b of brands) {
+            brandMap[b.id] = b
+          }
         }
       }
     }
@@ -55,7 +68,6 @@ export async function GET(request) {
         word_count: r.word_count || 0,
         updated_at: r.updated_at,
         published_at: r.published_at,
-        // Brand fields
         brand_name: brand.name || 'Unknown Brand',
         brand_slug: brand.slug || '',
         scam_score: brand.scam_score || 0,

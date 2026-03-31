@@ -11,7 +11,12 @@ async function supaFetch(path, { head = false, count = false, headers: extra = {
     apikey: SUPABASE_ANON_KEY,
     ...extra,
   }
-  if (count) headers['Prefer'] = 'count=exact'
+  // Merge Prefer header: count=exact with any existing Prefer value
+  if (count) {
+    headers['Prefer'] = headers['Prefer']
+      ? headers['Prefer'] + ', count=exact'
+      : 'count=exact'
+  }
 
   const url = `${SUPABASE_URL}/rest/v1${path}`
   const res = await fetch(url, { method: head ? 'HEAD' : 'GET', headers })
@@ -50,33 +55,37 @@ export async function GET(request) {
     ] = await Promise.all([
       supaFetch('/scam_brands?select=id', { head: true, count: true }),
       supaFetch('/creatives?select=id', { head: true, count: true }),
-      supaFetch('/scam_brands?select=id,velocity_7d,velocity_trend,total_creatives,scam_score,total_geos&limit=10000'),
-      supaFetch('/reviews?select=id,brand_id,status,updated_at,published_at&limit=10000'),
+      supaFetch('/scam_brands?select=id,velocity_7d,velocity_trend,total_creatives,scam_score,total_geos&limit=10000', {
+        headers: { 'Range': '0-9999' },
+      }),
+      supaFetch('/reviews?select=id,brand_id,status,updated_at,published_at&limit=10000', {
+        headers: { 'Range': '0-9999' },
+      }),
     ])
 
     const brands = brandsData.data || []
     const reviews = reviewsData.data || []
 
-    // ── Core KPIs ──
+    // Core KPIs
     const totalBrands = brandsCount.count || brands.length
     const totalCreatives = creativesCount.count || 0
     const activeBrands = brands.filter(b => b.velocity_7d > 0).length
 
-    // ── Review Pipeline ──
+    // Review Pipeline
     const publishedReviews = reviews.filter(r => r.status === 'published').length
     const draftReviews = reviews.filter(r => r.status === 'draft').length
     const totalReviews = reviews.length
     const brandsWithReview = new Set(reviews.map(r => r.brand_id)).size
     const brandsWithoutReview = totalBrands - brandsWithReview
 
-    // ── Velocity Breakdown ──
+    // Velocity Breakdown
     const velocityBreakdown = {}
     brands.forEach(b => {
       const trend = b.velocity_trend || 'unknown'
       velocityBreakdown[trend] = (velocityBreakdown[trend] || 0) + 1
     })
 
-    // ── Score Distribution ──
+    // Score Distribution
     const scoreDistribution = { critical: 0, high: 0, medium: 0, low: 0 }
     brands.forEach(b => {
       const score = b.scam_score || 0
@@ -86,7 +95,7 @@ export async function GET(request) {
       else scoreDistribution.low++
     })
 
-    // ── Recent Review Activity (last 10) ──
+    // Recent Review Activity (last 10)
     const recentActivity = reviews
       .filter(r => r.updated_at)
       .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at))
@@ -99,7 +108,7 @@ export async function GET(request) {
         published_at: r.published_at,
       }))
 
-    // ── High-Priority Unreviewed (surging/rising, high score, no review) ──
+    // High-Priority Unreviewed (surging/rising, high score, no review)
     const reviewedBrandIds = new Set(reviews.map(r => r.brand_id))
     const highPriorityCount = brands.filter(b =>
       !reviewedBrandIds.has(b.id) &&
@@ -112,23 +121,18 @@ export async function GET(request) {
       total_brands: totalBrands,
       total_creatives: totalCreatives,
       active_brands: activeBrands,
-
       // Pipeline
       published_reviews: publishedReviews,
       draft_reviews: draftReviews,
       total_reviews: totalReviews,
       brands_with_review: brandsWithReview,
       brands_without_review: brandsWithoutReview,
-
       // Velocity
       velocity_breakdown: velocityBreakdown,
-
       // Score
       score_distribution: scoreDistribution,
-
       // Priority
       high_priority_unreviewed: highPriorityCount,
-
       // Recent
       recent_activity: recentActivity,
     })
