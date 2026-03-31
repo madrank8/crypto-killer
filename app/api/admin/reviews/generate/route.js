@@ -123,7 +123,8 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
   }
 
   const eventCards = events.map((evt, i) => {
-    const pc = phaseColors[evt.phase]    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
+    const pc = phaseColors[evt.phase]
+    const pct = Math.round(((evt.date.getTime() - timelineStart) / timelineSpan) * 100)
     const delay = i * 120
     return `<div class="ck-tl-card" style="display:flex;gap:16px;align-items:flex-start;padding:14px 16px;margin:0 0 2px;background:${pc.bg};border-left:3px solid ${pc.border};border-radius:0 8px 8px 0;animation:ckTlSlide 0.4s ease ${delay}ms both" data-pct="${pct}">
   <div style="flex-shrink:0;width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:${pc.bg};border:1px solid ${pc.border};font-size:18px">${evt.icon}</div>
@@ -305,7 +306,8 @@ export async function POST(request) {
           const imgBuffer = await spyRes.arrayBuffer()
           if (imgBuffer.byteLength < 1000) return null
           // Upload to Supabase Storage
-          const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`          const uploadRes = await fetch(uploadUrl, {
+          const uploadUrl = `${STORAGE_UPLOAD_BASE}/${entry.id}.webp`
+          const uploadRes = await fetch(uploadUrl, {
             method: 'POST',
             headers: {
               'apikey': SUPABASE_KEY,
@@ -502,7 +504,8 @@ ${geoSections}`
       if (f.includes('regulat') || f.includes('licen') || f.includes('compliance')) return '⚖️'
       if (f.includes('ad ') || f.includes('creative') || f.includes('campaign') || f.includes('advertis')) return '📢'
       if (f.includes('testimonial') || f.includes('fake review') || f.includes('social proof')) return '👤'
-      if (f.includes('pressure') || f.includes('urgency') || f.includes('limited')) return '⏰'      if (f.includes('company') || f.includes('register') || f.includes('address') || f.includes('contact')) return '🏢'
+      if (f.includes('pressure') || f.includes('urgency') || f.includes('limited')) return '⏰'
+      if (f.includes('company') || f.includes('register') || f.includes('address') || f.includes('contact')) return '🏢'
       if (f.includes('video') || f.includes('youtube')) return '🎬'
       return '🚩'
     }
@@ -528,7 +531,8 @@ ${geoSections}`
     // ─── E-E-A-T CONTENT SECTIONS ───
     // Author byline HTML (word count placeholder replaced after fullArticle is built)
     const authorName = reviewContent.author_name || 'Crypto Killer Research Team'
-    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')    const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
+    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')
+    const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
 <p style="margin:0 0 4px;font-size:15px"><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
 <p style="margin:0 0 4px;font-size:13px;opacity:0.8"><em>${authorCredentials}</em></p>
 <p style="margin:0;font-size:13px;opacity:0.7"><time datetime="${currentDate}">Published: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</time> · {{WORD_COUNT}} words · {{READ_TIME}} min read</p>
