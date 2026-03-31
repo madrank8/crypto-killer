@@ -12,7 +12,12 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z" />
     </svg>
   ),
-  brands: (
+  scraper: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+    </svg>
+  ),
+  funnels: (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
     </svg>
@@ -21,8 +26,7 @@ const icons = {
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
-  ),
-  logout: (
+  ),  logout: (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
     </svg>
@@ -37,11 +41,11 @@ const icons = {
 
 const navItems = [
   { href: '/admin', label: 'Dashboard', icon: icons.dashboard, exact: true },
-  { href: '/admin/brands', label: 'Brands', icon: icons.brands },
+  { href: '/admin/scraper', label: 'Scraper', icon: icons.scraper },
+  { href: '/admin/brands', label: 'Funnels', icon: icons.funnels },
   { href: '/admin/reviews', label: 'Reviews', icon: icons.reviews },
   { href: '/admin/settings', label: 'Settings', icon: icons.settings },
 ];
-
 function NavLink({ href, label, icon, isActive }) {
   return (
     <Link
@@ -70,8 +74,7 @@ function AdminAuthGate({ children }) {
     setLoginError('');
     setLoginLoading(true);
 
-    try {
-      const res = await fetch('/api/admin/auth', {
+    try {      const res = await fetch('/api/admin/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
@@ -104,8 +107,7 @@ function AdminAuthGate({ children }) {
     );
   }
 
-  if (!token) {
-    return (
+  if (!token) {    return (
       <div className="h-screen bg-dark-bg flex items-center justify-center">
         <div className="w-full max-w-sm px-6">
           <div className="text-center mb-8">
@@ -147,7 +149,6 @@ function AdminAuthGate({ children }) {
       </div>
     );
   }
-
   // Check if we're on a review editor page
   const isEditorPage = pathname.startsWith('/admin/review/');
 
@@ -184,8 +185,7 @@ function AdminAuthGate({ children }) {
         </nav>
 
         {/* Footer */}
-        <div className="px-3 pb-4 border-t border-gray-800/60 pt-4">
-          <button
+        <div className="px-3 pb-4 border-t border-gray-800/60 pt-4">          <button
             onClick={() => {
               sessionStorage.removeItem('admin_token');
               logout();

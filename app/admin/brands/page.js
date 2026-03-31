@@ -30,7 +30,6 @@ function ScamScoreChip({ score }) {
     </span>
   );
 }
-
 export default function BrandsPage() {
   const { token } = useAdmin();
   const router = useRouter();
@@ -63,7 +62,6 @@ export default function BrandsPage() {
         page: pageNum,
         limit: 30,
       });
-
       const res = await fetch(`/api/admin/brands?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -97,7 +95,6 @@ export default function BrandsPage() {
     setPage(1);
     fetchBrands(1);
   }, [fetchBrands]);
-
   const loadMore = () => {
     const next = page + 1;
     setPage(next);
@@ -135,15 +132,14 @@ export default function BrandsPage() {
       setGeneratingId(null);
     }
   };
-
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Brands</h1>
+          <h1 className="text-2xl font-bold text-white">Funnels</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {total} scam brands tracked
+            {total} scam funnels tracked
           </p>
         </div>
       </div>
@@ -171,7 +167,6 @@ export default function BrandsPage() {
           <option value="velocity">Most Active</option>
           <option value="scam_score">Highest Score</option>
         </select>
-
         {/* Trend */}
         <select
           value={trendFilter}
@@ -200,8 +195,7 @@ export default function BrandsPage() {
       </div>
 
       {/* Brands List */}
-      <div className="space-y-2">
-        {brands.map((brand) => (
+      <div className="space-y-2">        {brands.map((brand) => (
           <div
             key={brand.id}
             className={`bg-dark-card border rounded-xl px-5 py-4 flex items-center gap-4 transition hover:border-gray-700 ${
@@ -228,7 +222,6 @@ export default function BrandsPage() {
                 )}
               </div>
             </div>
-
             {/* Review Status + Action */}
             <div className="flex items-center gap-3 shrink-0">
               {brand.review_status === 'published' ? (
@@ -258,8 +251,7 @@ export default function BrandsPage() {
                   onClick={() => handleOneClickGenerate(brand.id)}
                   disabled={generatingId === brand.id}
                   className="text-xs font-semibold text-red-400 hover:text-red-300 px-4 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 border border-red-600/20 transition"
-                >
-                  {generatingId === brand.id ? (
+                >                  {generatingId === brand.id ? (
                     <span className="flex items-center gap-1.5">
                       <span className="animate-spin">⟳</span> Generating...
                     </span>
@@ -294,8 +286,7 @@ export default function BrandsPage() {
             onClick={loadMore}
             disabled={loading}
             className="text-sm text-gray-400 hover:text-white px-6 py-2 rounded-lg border border-gray-800 hover:border-gray-700 transition"
-          >
-            {loading ? 'Loading...' : 'Load More'}
+          >            {loading ? 'Loading...' : 'Load More'}
           </button>
         </div>
       )}
