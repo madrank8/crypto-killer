@@ -1078,6 +1078,7 @@ ${disclaimerHtml}`
     }
 
     if (Array.isArray(existingReview) && existingReview.length > 0) {
+      // Brand already has a review → update it
       reviewId = existingReview[0].id
       await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
         method: 'PATCH',
@@ -1085,12 +1086,35 @@ ${disclaimerHtml}`
         headers: { 'Prefer': 'return=minimal' },
       })
     } else {
-      const createResponse = await supabaseRequest('/reviews', {
-        method: 'POST',
-        body: JSON.stringify(reviewPayload),
-        headers: { 'Prefer': 'return=representation' },
-      })
-      reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id
+      // New review → try INSERT, fall back to PATCH on slug collision
+      try {
+        const createResponse = await supabaseRequest('/reviews', {
+          method: 'POST',
+          body: JSON.stringify(reviewPayload),
+          headers: { 'Prefer': 'return=representation' },
+        })
+        reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id
+      } catch (insertError) {
+        if (insertError.message.includes('23505') || insertError.message.includes('409')) {
+          // Slug collision — find the conflicting review and update it
+          const conflicting = await supabaseRequest(
+            `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id`
+          )
+          if (Array.isArray(conflicting) && conflicting.length > 0) {
+            reviewId = conflicting[0].id
+            await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
+              method: 'PATCH',
+              body: JSON.stringify(reviewPayload),
+              headers: { 'Prefer': 'return=minimal' },
+            })
+          } else {
+            // Slug collision but can't find conflicting record — rethrow
+            throw insertError
+          }
+        } else {
+          throw insertError
+        }
+      }
     }
 
           send({

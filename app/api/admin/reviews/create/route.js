@@ -82,15 +82,34 @@ export async function POST(request) {
       updated_at: new Date().toISOString(),
     }
 
-    const createResponse = await supabaseRequest('/reviews', {
-      method: 'POST',
-      body: JSON.stringify(reviewPayload),
-      headers: { 'Prefer': 'return=representation' },
-    })
-
-    const reviewId = Array.isArray(createResponse)
-      ? createResponse[0].id
-      : createResponse.id
+    let reviewId
+    try {
+      const createResponse = await supabaseRequest('/reviews', {
+        method: 'POST',
+        body: JSON.stringify(reviewPayload),
+        headers: { 'Prefer': 'return=representation' },
+      })
+      reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id
+    } catch (insertError) {
+      if (insertError.message.includes('23505') || insertError.message.includes('409')) {
+        // Slug collision — find and update the conflicting review
+        const conflicting = await supabaseRequest(
+          `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id`
+        )
+        if (Array.isArray(conflicting) && conflicting.length > 0) {
+          reviewId = conflicting[0].id
+          await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(reviewPayload),
+            headers: { 'Prefer': 'return=minimal' },
+          })
+        } else {
+          throw insertError
+        }
+      } else {
+        throw insertError
+      }
+    }
 
     return Response.json({
       review_id: reviewId,
