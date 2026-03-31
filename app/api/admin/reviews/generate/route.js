@@ -591,11 +591,41 @@ E-E-A-T CRITICAL REQUIREMENTS:
 
     let reviewContent
     try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-      if (!jsonMatch) {
+      // ─── EXTRACT FIRST COMPLETE JSON OBJECT (balanced-brace parser) ───
+      // The greedy regex /\{[\s\S]*\}/ fails when Claude adds commentary
+      // after the JSON that contains braces. Instead, find the first '{' and
+      // walk forward counting nesting depth to find its matching '}'.
+      let jsonStr = null
+      const startIdx = responseText.indexOf('{')
+      if (startIdx === -1) {
         throw new Error('No JSON found in response')
       }
-      let jsonStr = jsonMatch[0]
+
+      let depth = 0
+      let inString = false
+      let escaped = false
+      for (let i = startIdx; i < responseText.length; i++) {
+        const ch = responseText[i]
+        if (escaped) { escaped = false; continue }
+        if (ch === '\\' && inString) { escaped = true; continue }
+        if (ch === '"' && !escaped) { inString = !inString; continue }
+        if (inString) continue
+        if (ch === '{' || ch === '[') depth++
+        else if (ch === '}' || ch === ']') {
+          depth--
+          if (depth === 0) {
+            jsonStr = responseText.slice(startIdx, i + 1)
+            break
+          }
+        }
+      }
+
+      if (!jsonStr) {
+        // Fallback to greedy regex if balanced parse failed
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) throw new Error('No JSON found in response')
+        jsonStr = jsonMatch[0]
+      }
 
       // Repair common LLM JSON issues
       jsonStr = jsonStr.replace(/,\s*([}\]])/g, '$1')
