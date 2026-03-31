@@ -762,72 +762,304 @@ ${geoSections}`
       : `<div style="margin:32px 0 16px;padding:16px;background:rgba(255,255,255,0.04);border-radius:8px;border:1px solid rgba(255,255,255,0.1)"><p style="margin:0;font-size:13px;line-height:1.6;color:rgba(255,255,255,0.5)"><strong>Disclaimer:</strong> This review is for informational purposes only and does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.</p></div>`
 
     // ─── FULL ARTICLE HTML ───
-    // Contains ONLY the analytical deep-dive content that Base44 does NOT render
-    // from individual fields. Base44's ReviewDetail.jsx separately renders:
-    //   - Summary (hero section)
-    //   - How It Works (from how_it_works field)
-    //   - Red Flags (via <RedFlags> component)
-    //   - Protection Steps (via <ActionSteps> component)
-    //   - FAQs (via <FAQSection> component)
-    //   - Verdict (via verdict section)
-    // So full_article provides: byline, takeaways, methodology, investigation
-    // findings, threat intelligence tables, evidence images, sources, disclaimer.
-    // Table cell styles
-    const thStyle = 'padding:10px 14px;text-align:left;font-size:13px;font-weight:600;color:#f59e0b;background:rgba(245,158,11,0.1);border-bottom:2px solid rgba(245,158,11,0.3)'
-    const tdLabelStyle = 'padding:10px 14px;font-size:14px;color:rgba(255,255,255,0.7);border-bottom:1px solid rgba(255,255,255,0.06)'
-    const tdValueStyle = 'padding:10px 14px;font-size:14px;color:rgba(255,255,255,0.95);border-bottom:1px solid rgba(255,255,255,0.06);font-weight:500'
-    const tableStyle = 'width:100%;border-collapse:collapse;margin:16px 0 24px;background:rgba(255,255,255,0.03);border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)'
+    // COMPLETE self-contained review page matching Replit design.
+    // Base44 renders ONLY this field via dangerouslySetInnerHTML.
+    // All styles are inline. Uses <details>/<summary> for FAQ accordion (no JS).
+    // Responsive 2-col layout via flexbox with flex-wrap.
 
-    let fullArticle = `${authorBylineTemplate}
+    // Helper: risk label based on score
+    const riskLabel = brandData.scam_score >= 90 ? 'Extreme Risk — Do Not Deposit'
+      : brandData.scam_score >= 80 ? 'Very High Risk — Avoid All Contact'
+      : brandData.scam_score >= 70 ? 'High Risk — Exercise Extreme Caution'
+      : 'Moderate Risk — Be Very Careful'
+    const badgeLabel = brandData.scam_score >= 80 ? '⚠️ CONFIRMED SCAM' : '⚠️ HIGH RISK'
+    const isStillActive = brandData.last_seen_at && (Math.round((new Date() - new Date(brandData.last_seen_at)) / 86400000) <= 14)
+    const firstDetectedFmt = brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
+    const lastActiveFmt = brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
+    const publishedDateFmt = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
+    // Section title helper
+    const sectionH2 = (icon, title) => `<h2 style="font-size:22px;font-weight:700;color:#f8fafc;margin:0 0 20px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #1e293b;padding-bottom:12px"><span style="color:#ef4444">${icon}</span>${escHtml(title)}</h2>`
+
+    // Geo regions for sidebar
+    const geoRegions = (() => {
+      const geos = brandData.geo_list || []
+      if (geos.length === 0) return ''
+      const regionMap = { 'GB':'Europe','DE':'Europe','FR':'Europe','IT':'Europe','ES':'Europe','NL':'Europe','PL':'Europe','SE':'Europe','AT':'Europe','CH':'Europe','BE':'Europe','CZ':'Europe','DK':'Europe','FI':'Europe','NO':'Europe','IE':'Europe','PT':'Europe','RO':'Europe','HU':'Europe','GR':'Europe','SK':'Europe','BG':'Europe','HR':'Europe','SI':'Europe','LT':'Europe','LV':'Europe','EE':'Europe','US':'Americas','CA':'Americas','BR':'Americas','MX':'Americas','AR':'Americas','CO':'Americas','CL':'Americas','PE':'Americas','IN':'Asia','JP':'Asia','KR':'Asia','SG':'Asia','MY':'Asia','TH':'Asia','PH':'Asia','ID':'Asia','VN':'Asia','TW':'Asia','HK':'Asia','AU':'Oceania','NZ':'Oceania','ZA':'Africa','NG':'Africa','KE':'Africa','EG':'Africa' }
+      const regions = {}
+      geos.forEach(g => { const r = regionMap[g] || 'Other'; if (!regions[r]) regions[r] = []; regions[r].push(g) })
+      return Object.entries(regions).map(([region, codes]) =>
+        `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:1px solid #1e293b"><span style="color:#cbd5e1;font-size:12px;font-weight:500">${region}</span><span style="color:#64748b;font-size:12px">${codes.join(', ')}</span></div>`
+      ).join('')
+    })()
+
+    let fullArticle = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#f8fafc">
+
+<!-- BREADCRUMB -->
+<div style="font-size:13px;color:#64748b;margin-bottom:24px">
+<a href="/" style="color:#94a3b8;text-decoration:none">Home</a>
+<span style="margin:0 6px;color:#475569">›</span>
+<a href="/investigations" style="color:#94a3b8;text-decoration:none">Investigations</a>
+<span style="margin:0 6px;color:#475569">›</span>
+<span style="color:#cbd5e1">${escHtml(brandData.name)}</span>
+</div>
+
+<!-- HERO -->
+<div style="margin-bottom:40px">
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin-bottom:16px">
+<h1 style="margin:0;font-size:clamp(36px,5vw,56px);font-weight:900;color:#f8fafc;letter-spacing:-1px">${escHtml(brandData.name)}</h1>
+<span style="display:inline-flex;align-items:center;gap:6px;background:#dc2626;color:#fff;font-size:12px;font-weight:700;padding:6px 14px;border-radius:4px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap">${badgeLabel}</span>
+</div>
+
+<p style="font-size:17px;color:#cbd5e1;max-width:900px;margin:0 0 24px;line-height:1.7">${escHtml(reviewContent.summary || '')}</p>
+
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px;font-size:13px;color:#94a3b8;margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid #1e293b">
+<span>📅 Published: ${publishedDateFmt}</span>
+<span>⏱️ {{WORD_COUNT}} words · {{READ_TIME}} min read</span>
+<span>👤 Crypto Killer Research Team</span>
+<span>🔍 SpyOwl Ad Surveillance</span>
+</div>
+
+<!-- STAT CARDS -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;border-radius:50%;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📊</div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Ad Creatives</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${(brandData.total_creatives || 0).toLocaleString()}</p></div>
+</div>
+<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;border-radius:50%;background:rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🌍</div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Countries Targeted</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${brandData.total_geos || 0}</p></div>
+</div>
+<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;border-radius:50%;background:rgba(249,115,22,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⏰</div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Days Active</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${longevityDays}</p></div>
+</div>
+<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
+<div style="width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⭐</div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${brandData.total_celebrities || 0}</p></div>
+</div>
+</div>
+</div>
+
+<!-- KEY TAKEAWAYS -->
+${(reviewContent.key_takeaways || []).length > 0 ? `
+<div style="background:rgba(127,29,29,0.2);border:1px solid rgba(127,29,29,0.4);border-radius:12px;padding:24px;margin-bottom:48px">
+<h3 style="font-size:18px;font-weight:700;color:#f87171;margin:0 0 16px;display:flex;align-items:center;gap:8px">⚠️ Key Takeaways</h3>
+<ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px">
+${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px;align-items:flex-start;font-size:14px;color:#cbd5e1;line-height:1.6"><span style="color:#ef4444;font-weight:700;flex-shrink:0;margin-top:1px">✕</span><span>${escHtml(t)}</span></li>`).join('\n')}
+</ul>
+</div>` : ''}
+
+<!-- TWO COLUMN LAYOUT -->
+<div style="display:flex;gap:32px;flex-wrap:wrap;margin-bottom:48px">
+
+<!-- LEFT COLUMN -->
+<div style="flex:2;min-width:300px">
+
+<!-- INVESTIGATION SUMMARY -->
+<section style="margin-bottom:48px">
+${sectionH2('📄', 'Investigation Summary')}
+${(reviewContent.summary || '').split('\\n\\n').filter(p => p.trim()).map(p => `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(p)}</p>`).join('')}
+<div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
+<p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
+</div>
+</section>
+
+<!-- HOW THIS SCAM WORKS -->
+${reviewContent.how_it_works ? `
+<section style="margin-bottom:48px">
+${sectionH2('🔬', 'How This Scam Works')}
+${reviewContent.how_it_works.split('\\n\\n').filter(p => p.trim()).map(p => `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(p)}</p>`).join('')}
+</section>` : ''}
+
+<!-- RED FLAGS -->
+${(reviewContent.red_flags || []).length > 0 ? `
+<section style="margin-bottom:48px">
+${sectionH2('🚩', 'Red Flags')}
+<div style="display:flex;flex-direction:column;gap:12px">
+${(reviewContent.red_flags || []).map((rf, idx) => `<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;overflow:hidden">
+<div style="display:flex;align-items:flex-start;gap:14px;padding:20px">
+<div style="width:36px;height:36px;border-radius:50%;background:rgba(127,29,29,0.4);border:1px solid rgba(220,38,38,0.3);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">${getRedFlagIcon(rf.flag)}</div>
+<div style="flex:1;min-width:0">
+<div style="font-size:11px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px">Red Flag ${idx + 1}</div>
+<h3 style="margin:0 0 8px;font-size:15px;font-weight:700;color:#f8fafc">${escHtml(rf.flag)}</h3>
+<p style="margin:0;font-size:14px;color:#94a3b8;line-height:1.6">${escHtml(rf.detail)}</p>
+</div>
+</div>
+</div>`).join('\n')}
+</div>
+</section>` : ''}
+
+<!-- KEY INVESTIGATION FINDINGS -->
+${(reviewContent.experience_signals || []).length > 0 ? `
+<section style="margin-bottom:48px">
+${sectionH2('🔍', 'Key Investigation Findings')}
+<div style="display:flex;flex-direction:column;gap:12px">
+${(reviewContent.experience_signals || []).map((sig, idx) => `<div style="display:flex;gap:12px;align-items:flex-start;padding:16px;background:rgba(15,23,42,0.4);border:1px solid rgba(30,41,59,0.5);border-radius:8px">
+<div style="width:28px;height:28px;border-radius:6px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="color:#f59e0b;font-size:12px;font-weight:700">${idx + 1}</span></div>
+<p style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.6">${escHtml(sig)}</p>
+</div>`).join('\n')}
+</div>
+</section>` : ''}
+
+<!-- WHAT TO DO IF SCAMMED -->
+${reviewContent.protection_steps ? `
+<section style="margin-bottom:48px">
+${sectionH2('✅', "What To Do If You've Been Scammed")}
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">📋</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">Report to FBI IC3</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">ic3.gov</p></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">⚖️</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">File FTC Complaint</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">reportfraud.ftc.gov</p></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">🏦</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">Contact Your Bank</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">Request a chargeback</p></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">🔑</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">Change All Passwords</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">Secure your accounts</p></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">📸</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">Document Everything</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">Screenshots, emails, transactions</p></div>
+</div>
+<div style="display:flex;align-items:center;gap:12px;padding:14px;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.2);border-radius:10px">
+<span style="font-size:20px;flex-shrink:0">🚨</span>
+<div><p style="margin:0;color:#f8fafc;font-size:13px;font-weight:600">Report to Local Police</p><p style="margin:2px 0 0;color:#64748b;font-size:11px">Needed for insurance claims</p></div>
+</div>
+</div>
+</section>` : ''}
+
+<!-- FAQ ACCORDION -->
+${(reviewContent.faq || []).length > 0 ? `
+<section style="margin-bottom:48px">
+${sectionH2('📖', 'Frequently Asked Questions')}
+<div style="border:1px solid #1e293b;border-radius:10px;overflow:hidden">
+${(reviewContent.faq || []).map((f, idx) => `<details style="border-bottom:${idx < (reviewContent.faq || []).length - 1 ? '1px solid #1e293b' : 'none'}">
+<summary style="padding:16px 20px;background:rgba(15,23,42,0.5);cursor:pointer;font-weight:600;font-size:14px;color:#f8fafc;list-style:none;user-select:none">${escHtml(f.question)}</summary>
+<div style="padding:16px 20px;color:#94a3b8;font-size:14px;line-height:1.7;border-top:1px solid rgba(30,41,59,0.5)">${escHtml(f.answer)}</div>
+</details>`).join('\n')}
+</div>
+</section>` : ''}
+
+<!-- METHODOLOGY -->
+${reviewContent.methodology ? `
+<section style="margin-bottom:48px">
+${sectionH2('🔬', 'Our Investigation Methodology')}
+<p style="margin:0 0 16px;color:#94a3b8;font-size:14px;line-height:1.7">${escHtml(reviewContent.methodology)}</p>
+</section>` : ''}
+
+<!-- AUTHOR BYLINE -->
+${authorBylineTemplate}
+
+<!-- CAMPAIGN TIMELINE -->
 ${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 
-<h3 style="color:#f59e0b;font-size:17px;margin:28px 0 12px">Key Takeaways</h3>
-<ul style="list-style:none;padding:0;margin:0 0 20px">
-${(reviewContent.key_takeaways || []).map(t => `<li style="padding:8px 12px;margin:6px 0;background:rgba(245,158,11,0.06);border-radius:6px;border-left:2px solid rgba(245,158,11,0.4);line-height:1.6;color:rgba(255,255,255,0.85)">✅ ${escHtml(t)}</li>`).join('\n')}
-</ul>
+<!-- EVIDENCE GRID -->
 ${evidenceGridHtml}
 
-${methodologyHtml}
-${experienceSignalsHtml}
+</div>
 
-<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Threat Intelligence Overview</h2>
-<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.85)">${escHtml(brandData.name)} has been flagged by our ad surveillance system with a threat score of ${brandData.scam_score}/100. The platform has deployed ${brandData.total_creatives} ad creatives across ${brandData.total_geos} countries over a ${longevityDays}-day campaign.</p>
-<table style="${tableStyle}">
-<thead><tr><th style="${thStyle}">Metric</th><th style="${thStyle}">Value</th></tr></thead>
-<tbody>
-<tr><td style="${tdLabelStyle}">Threat Score</td><td style="${tdValueStyle}"><strong style="color:#ef4444">${brandData.scam_score}/100</strong></td></tr>
-<tr><td style="${tdLabelStyle}">Ad Creatives Detected</td><td style="${tdValueStyle}">${brandData.total_creatives}</td></tr>
-<tr><td style="${tdLabelStyle}">Countries Targeted</td><td style="${tdValueStyle}">${brandData.total_geos}</td></tr>
-<tr><td style="${tdLabelStyle}">Celebrities Impersonated</td><td style="${tdValueStyle}">${brandData.total_celebrities}</td></tr>
-<tr><td style="${tdLabelStyle}">7-Day Velocity</td><td style="${tdValueStyle}">${brandData.velocity_7d} new creatives</td></tr>
-<tr><td style="${tdLabelStyle}">Campaign Duration</td><td style="${tdValueStyle}">${longevityDays} days</td></tr>
-<tr><td style="${tdLabelStyle}">First Detected</td><td style="${tdValueStyle}">${brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
-<tr><td style="${tdLabelStyle}">Last Active</td><td style="${tdValueStyle}">${brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'Unknown'}</td></tr>
-</tbody>
-</table>
+<!-- RIGHT SIDEBAR -->
+<div style="flex:1;min-width:280px;max-width:380px">
+<div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:20px">
 
-${(brandData.geo_list || []).length > 0 ? `<h3 style="color:#f59e0b;font-size:17px;margin:24px 0 12px">Geographic Targeting Breakdown</h3>
-<table style="${tableStyle}">
-<thead><tr><th style="${thStyle}">Region</th><th style="${thStyle}">Countries</th></tr></thead>
-<tbody>
-${(() => {
-  const geos = brandData.geo_list || []
-  const regions = { 'Europe': [], 'Asia': [], 'Americas': [], 'Africa': [], 'Oceania': [], 'Other': [] }
-  const regionMap = { 'GB': 'Europe', 'DE': 'Europe', 'FR': 'Europe', 'IT': 'Europe', 'ES': 'Europe', 'NL': 'Europe', 'PL': 'Europe', 'SE': 'Europe', 'AT': 'Europe', 'CH': 'Europe', 'BE': 'Europe', 'CZ': 'Europe', 'DK': 'Europe', 'FI': 'Europe', 'NO': 'Europe', 'IE': 'Europe', 'PT': 'Europe', 'RO': 'Europe', 'HU': 'Europe', 'GR': 'Europe', 'SK': 'Europe', 'BG': 'Europe', 'HR': 'Europe', 'SI': 'Europe', 'LT': 'Europe', 'LV': 'Europe', 'EE': 'Europe', 'US': 'Americas', 'CA': 'Americas', 'BR': 'Americas', 'MX': 'Americas', 'AR': 'Americas', 'CO': 'Americas', 'CL': 'Americas', 'PE': 'Americas', 'IN': 'Asia', 'JP': 'Asia', 'KR': 'Asia', 'SG': 'Asia', 'MY': 'Asia', 'TH': 'Asia', 'PH': 'Asia', 'ID': 'Asia', 'VN': 'Asia', 'TW': 'Asia', 'HK': 'Asia', 'AU': 'Oceania', 'NZ': 'Oceania', 'ZA': 'Africa', 'NG': 'Africa', 'KE': 'Africa', 'EG': 'Africa' }
-  geos.forEach(g => { const r = regionMap[g] || 'Other'; regions[r].push(g) })
-  return Object.entries(regions).filter(([,v]) => v.length > 0).map(([region, countries]) =>
-    `<tr><td style="${tdLabelStyle}"><strong>${region}</strong></td><td style="${tdValueStyle}">${countries.join(', ')} (${countries.length})</td></tr>`
-  ).join('\n')
-})()}
-</tbody>
-</table>` : ''}
+<!-- THREAT SCORE -->
+<div style="background:rgba(15,23,42,0.8);border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+<div style="padding:20px;border-bottom:1px solid #1e293b">
+<p style="margin:0 0 8px;font-size:15px;font-weight:700;color:#f8fafc;display:flex;align-items:center;gap:6px">⚠️ Threat Score</p>
+<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+<span style="font-size:52px;font-weight:900;color:#ef4444">${brandData.scam_score || 0}</span>
+<span style="font-size:18px;font-weight:700;color:#64748b">/ 100</span>
+</div>
+<div style="width:100%;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-bottom:8px">
+<div style="width:${Math.min(100, brandData.scam_score || 0)}%;height:100%;background:#dc2626;border-radius:4px"></div>
+</div>
+<p style="margin:0;font-size:13px;font-weight:600;color:#f87171">${riskLabel}</p>
+</div>
 
-${notForYouHtml ? `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">When This Review May Not Apply</h2>\n${notForYouHtml}` : ''}
+<!-- THREAT INTELLIGENCE TABLE -->
+<div style="padding:0">
+<p style="margin:0;padding:12px 16px 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Threat Intelligence</p>
+<div style="border-top:1px solid #1e293b">
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Ad Creatives</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${(brandData.total_creatives || 0).toLocaleString()}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Countries</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_geos || 0}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_celebrities || 0}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.velocity_7d || 0} new</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Campaign Duration</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${longevityDays} days</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px"><span style="color:#94a3b8;font-size:12px">Status</span><span style="color:${isStillActive ? '#f87171' : '#94a3b8'};font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px">${isStillActive ? '<span style="width:6px;height:6px;border-radius:50%;background:#ef4444;display:inline-block"></span>Active Scam' : 'Inactive'}</span></div>
+</div>
+</div>
 
-${sourcesHtml}
+<!-- GEOGRAPHIC TARGETING -->
+${geoRegions ? `
+<div style="padding:0;border-top:1px solid #1e293b">
+<p style="margin:0;padding:12px 16px 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Geographic Targeting</p>
+${geoRegions}
+</div>` : ''}
 
-${disclaimerHtml}`
+<!-- REGULATORY STATUS -->
+<div style="padding:16px;border-top:1px solid #1e293b">
+<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Regulatory Status</p>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">FCA: None</span></div>
+<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">SEC: None</span></div>
+<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">ASIC: None</span></div>
+<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">CySEC: None</span></div>
+</div>
+</div>
+</div>
+
+<!-- FINAL VERDICT -->
+<div style="background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.4);border-radius:12px;padding:20px">
+<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+<span style="font-size:16px">⛔</span>
+<span style="color:#f87171;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px">Final Verdict</span>
+</div>
+<p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
+<p style="margin:0 0 12px;color:#f87171;font-weight:700;font-size:14px">Do not deposit any money.</p>
+<div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
+<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${(brandData.total_creatives || 0).toLocaleString()} ad creatives across ${brandData.total_geos || 0} countries.</p>
+</div>
+</div>
+
+<!-- SOURCES -->
+${(reviewContent.sources || []).length > 0 ? `
+<div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:12px;padding:16px">
+<p style="margin:0 0 12px;font-size:13px;font-weight:700;color:#cbd5e1">Sources &amp; References</p>
+${(reviewContent.sources || []).map(s => `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#94a3b8;padding:6px 0;border-bottom:1px solid rgba(30,41,59,0.3)"><span style="color:#475569;flex-shrink:0">🔗</span><a href="${escHtml(s.url)}" rel="nofollow noopener" target="_blank" style="color:#94a3b8;text-decoration:none;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(s.title)}</a><span style="color:#475569;font-size:11px;flex-shrink:0">${escHtml(s.type || '')}</span></div>`).join('\n')}
+</div>` : ''}
+
+</div>
+</div>
+
+</div>
+
+<!-- CTA -->
+<div style="position:relative;margin:48px 0;background:linear-gradient(135deg,rgba(15,23,42,0.8),rgba(30,41,59,0.4));border:1px solid #1e293b;border-radius:16px;padding:48px 32px;text-align:center;overflow:hidden">
+<div style="position:absolute;top:0;left:0;width:100%;height:3px;background:linear-gradient(90deg,#dc2626,#f97316,#f59e0b)"></div>
+<div style="font-size:40px;margin-bottom:12px;opacity:0.8">⚠️</div>
+<h2 style="margin:0 0 12px;font-size:26px;font-weight:700;color:#f8fafc">Were You Targeted by ${escHtml(brandData.name)}?</h2>
+<p style="margin:0 0 24px;color:#94a3b8;font-size:15px;max-width:600px;display:inline-block;line-height:1.6">Your report helps warn others and builds the evidence trail against this operation. If you've lost money, act quickly — chargebacks are time-sensitive.</p>
+<p style="margin:0;font-size:11px;color:#64748b;max-width:520px;display:inline-block">⚠️ Beware of "recovery agents" who contact you promising to retrieve your money for an upfront fee. These are often secondary scams targeting victims of ${escHtml(brandData.name)} and similar frauds.</p>
+</div>
+
+<!-- NOT FOR YOU -->
+${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
+
+<!-- DISCLAIMER -->
+<div style="background:rgba(15,23,42,0.4);border:1px solid #1e293b;border-radius:12px;padding:24px;margin-bottom:16px">
+<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#94a3b8">Important Disclaimer</p>
+<p style="margin:0;font-size:12px;color:#64748b;line-height:1.8">${escHtml(reviewContent.disclaimer || 'This review is provided for informational and educational purposes only. It does not constitute financial, legal, or investment advice. Crypto Killer is an independent scam intelligence platform. If you believe you have been defrauded, contact your local financial authority and law enforcement.')}</p>
+</div>
+
+</div>`
 
     // Clean any residual markdown formatting leaked by Claude
     fullArticle = cleanMarkdown(fullArticle)
@@ -835,10 +1067,10 @@ ${disclaimerHtml}`
     // Calculate word count
     const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(w => w).length
 
-    // Replace word count placeholders in the author byline
+    // Replace word count placeholders (global — appears in hero byline + author byline)
     fullArticle = fullArticle
-      .replace('{{WORD_COUNT}}', wordCount.toString())
-      .replace('{{READ_TIME}}', Math.ceil(wordCount / 250).toString())
+      .replace(/\{\{WORD_COUNT\}\}/g, wordCount.toString())
+      .replace(/\{\{READ_TIME\}\}/g, Math.ceil(wordCount / 250).toString())
 
     // ─── COMPUTE SLUG (needed by schema below and DB save) ───
     const baseSlug = brandData.slug || brandData.name
