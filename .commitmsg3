@@ -1,0 +1,4 @@
+fix: update Gemini model names to current API versions
+
+gemini-2.0-flash → gemini-2.5-flash (2.0 returns 404, deprecated June 2026)
+gemini-2.5-pro-preview-06-05 → gemini-2.5-pro (stable release)

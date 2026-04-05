@@ -1,0 +1,4 @@
+fix: update Claude model strings to current versions
+
+claude-opus-4-0-20250514 → claude-opus-4-6
+claude-sonnet-4-20250514 → claude-sonnet-4-6

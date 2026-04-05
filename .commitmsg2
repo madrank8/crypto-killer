@@ -1,0 +1,9 @@
+fix: resolve Gemini search grounding + jsonMode conflict causing source research failures
+
+Google's Generative Language API does not support responseMimeType: 'application/json'
+when search grounding tools are enabled — they are mutually exclusive. Now skips jsonMode
+when searchGrounding is active (JSON is parsed from text response via extractJSON).
+
+Also fixes incorrect source_research_model attribution: previously used contentResult
+(Claude Opus) fallback status to determine source model, which always reported
+'gemini-flash' even when Gemini failed. Now tracks actual model used per-phase.
