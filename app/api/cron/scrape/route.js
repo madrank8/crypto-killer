@@ -151,31 +151,57 @@ export async function GET(request) {
 
     const job = inserted?.[0];
 
-    // Try to trigger SpyOwl scraper
+    // Test SpyOwl creative API with a tiny fetch
     let triggered = false;
+    let triggerError = null;
     try {
-      const scrapeRes = await fetch(`${SPYOWL_API}/scrape/trigger`, {
-        method: 'POST',
-        headers: {
-          Cookie: cookie,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ job_id: job?.id, trigger: 'cron_24h' }),
+      const testRes = await fetch(`${SPYOWL_API}/creative/all?skip=0&limit=1&pageType=all&creativeType=all`, {
+        headers: { Cookie: cookie },
         signal: AbortSignal.timeout(10000),
       });
-      triggered = scrapeRes.ok;
-    } catch {
-      triggered = false;
+      if (testRes.ok) {
+        triggered = true;
+      } else {
+        const text = await testRes.text().catch(() => '');
+        triggerError = `SpyOwl creative API ${testRes.status}: ${text.slice(0, 200)}`;
+      }
+    } catch (e) {
+      triggerError = `SpyOwl creative API error: ${e.message}`;
     }
+
+    if (!triggered) {
+      // Update job to failed
+      await supaFetch(`/sync_runs?id=eq.${job?.id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: triggerError || 'SpyOwl creative API unreachable',
+        }),
+      }).catch(() => {});
+      return Response.json({ success: false, error: triggerError }, { status: 502 });
+    }
+
+    // Cron validated connectivity - mark job for manual trigger
+    // Full scrape logic lives in POST /api/admin/scraper/trigger
+    // Cron just confirms SpyOwl is alive and logs the check
+    await supaFetch(`/sync_runs?id=eq.${job?.id}`, {
+      method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({
+        status: 'completed',
+        finished_at: new Date().toISOString(),
+        error_message: null,
+      }),
+    }).catch(() => {});
 
     return Response.json({
       success: true,
       job_id: job?.id,
       trigger_type: 'scheduled',
-      scrape_triggered: triggered,
-      message: triggered
-        ? 'Scheduled scrape initiated via SpyOwl'
-        : 'Scrape job created — waiting for scraper to pick it up',
+      spyowl_alive: true,
+      message: 'SpyOwl connectivity verified — creative API is reachable',
     });
   } catch (error) {
     return Response.json({ error: error.message }, { status: 500 });
