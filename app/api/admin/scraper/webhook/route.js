@@ -43,6 +43,7 @@ export async function POST(request) {
     if (typeof new_brands === 'number') update.new_brands = new_brands;
     if (typeof total_api === 'number') update.total_api = total_api;
     if (error_message) update.error_message = error_message;
+    if (body.progress && typeof body.progress === 'object') update.progress = body.progress;
     if (status === 'completed' || status === 'failed') {
       update.finished_at = new Date().toISOString();
     }

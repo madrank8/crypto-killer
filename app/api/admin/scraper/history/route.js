@@ -64,7 +64,7 @@ export async function GET(request) {
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
     const { data: runs, total } = await supaFetch(
-      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,new_brands,total_api,error_message,source&order=started_at.desc&limit=${limit}&offset=${offset}`
+      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,new_brands,total_api,error_message,source,progress&order=started_at.desc&limit=${limit}&offset=${offset}`
     );
 
     // Check if there's currently a running job

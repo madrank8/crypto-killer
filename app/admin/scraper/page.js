@@ -1,7 +1,7 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import Link from 'next/link';
 
 /* ─── Reusable Cards ─── */
@@ -187,6 +187,197 @@ function RecentlyDiscovered({ brands }) {
    SCRAPE CONTROL PANEL
    ═══════════════════════════════════════════════════════════════ */
 
+/* --- Live Elapsed Timer --- */
+function LiveTimer({ startTime }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!startTime) return;
+    const start = new Date(startTime).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startTime]);
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+  const pad = n => String(n).padStart(2, '0');
+  return (
+    <span className="font-mono text-xl tabular-nums">
+      {h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`}
+    </span>
+  );
+}
+
+/* --- Scrape Pipeline Phases --- */
+const SCRAPE_PHASES = [
+  { id: 'initializing', label: 'Init', icon: '\u2699' },
+  { id: 'connecting', label: 'Connect', icon: '\uD83D\uDD17' },
+  { id: 'authenticating', label: 'Auth', icon: '\uD83D\uDD11' },
+  { id: 'scanning', label: 'Scan', icon: '\uD83D\uDCE1' },
+  { id: 'ingesting', label: 'Ingest', icon: '\uD83D\uDCE5' },
+  { id: 'processing', label: 'Process', icon: '\u26A1' },
+  { id: 'finalizing', label: 'Done', icon: '\u2713' },
+];
+
+function formatStepTime(startTime, stepTime) {
+  if (!startTime || !stepTime) return '';
+  const diff = Math.floor((new Date(stepTime) - new Date(startTime)) / 1000);
+  if (diff < 0) return '00:00';
+  const m = Math.floor(diff / 60);
+  const s = diff % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/* --- Active Job Live Status Panel --- */
+function ActiveJobPanel({ job, avgDuration }) {
+  const progress = job.progress || {
+    phase: job.status === 'pending' ? 'initializing' : 'scanning',
+    steps: [], percent: 0, message: '',
+  };
+  const currentPhaseIdx = Math.max(0, SCRAPE_PHASES.findIndex(p => p.id === progress.phase));
+  const phasePct = progress.percent || Math.round(((currentPhaseIdx + 0.5) / SCRAPE_PHASES.length) * 100);
+
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!job.started_at) return;
+    const start = new Date(job.started_at).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [job.started_at]);
+  const eta = avgDuration && avgDuration > 0 && elapsed < avgDuration * 1.5
+    ? Math.max(0, Math.round(avgDuration - elapsed))
+    : null;
+
+  return (
+    <div className="bg-gradient-to-br from-blue-500/[0.07] via-blue-500/[0.03] to-transparent border border-blue-500/20 rounded-xl overflow-hidden mb-3">
+      {/* Header: status message + live timer */}
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative shrink-0">
+            <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse" />
+            <div className="absolute inset-0 w-3 h-3 bg-blue-400 rounded-full animate-ping opacity-20" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm text-blue-200 font-semibold truncate">
+              {progress.message || (job.status === 'pending' ? 'Queued \u2014 waiting to start' : 'Scrape in progress')}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-0.5">
+              {job.trigger_type === 'scheduled' ? 'Scheduled (cron)' : 'Manual trigger'} \u2022 Job {job.id?.slice(0, 8)}
+            </div>
+          </div>
+        </div>
+        <div className="text-right shrink-0 ml-4">
+          <LiveTimer startTime={job.started_at} />
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider">elapsed</div>
+        </div>
+      </div>
+
+      {/* Phase timeline */}
+      <div className="px-5 pb-3">
+        <div className="flex items-center">
+          {SCRAPE_PHASES.map((phase, i) => {
+            const isDone = i < currentPhaseIdx;
+            const isActive = i === currentPhaseIdx;
+            return (
+              <Fragment key={phase.id}>
+                {i > 0 && (
+                  <div className={`flex-1 h-px transition-colors duration-500 ${isDone ? 'bg-blue-400/60' : 'bg-gray-700/60'}`} />
+                )}
+                <div
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-300 ${
+                    isDone ? 'bg-blue-500/10 text-blue-400'
+                    : isActive ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-400/40 shadow-sm shadow-blue-500/10'
+                    : 'text-gray-600'
+                  }`}
+                  title={phase.label}
+                >
+                  <span className="text-xs">{isDone ? '\u2713' : isActive ? phase.icon : '\u25CB'}</span>
+                  <span className="hidden md:inline">{phase.label}</span>
+                </div>
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="px-5 pb-3">
+        <div className="relative h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${Math.max(phasePct, 3)}%` }}
+          />
+          <div
+            className="absolute inset-y-0 left-0 bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full animate-pulse"
+            style={{ width: `${Math.max(phasePct, 3)}%` }}
+          />
+        </div>
+        <div className="flex justify-between mt-1">
+          <span className="text-[10px] text-gray-600">{phasePct}%</span>
+          {eta !== null && eta > 0 && (
+            <span className="text-[10px] text-gray-600">
+              ETA ~{eta >= 60 ? `${Math.ceil(eta / 60)}m` : `${eta}s`}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Live metric counters */}
+      <div className="px-5 pb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Brands</div>
+            <div className="text-lg font-bold tabular-nums text-green-400">{(job.new_brands || 0).toLocaleString()}</div>
+          </div>
+          <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Creatives</div>
+            <div className="text-lg font-bold tabular-nums text-blue-400">{(job.new_creatives || 0).toLocaleString()}</div>
+          </div>
+          <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Synced</div>
+            <div className="text-lg font-bold tabular-nums text-gray-300">{(job.creatives_synced || 0).toLocaleString()}</div>
+          </div>
+          <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">API Calls</div>
+            <div className="text-lg font-bold tabular-nums text-amber-400">{(job.total_api || 0).toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Step log */}
+      {progress.steps && progress.steps.length > 0 && (
+        <div className="border-t border-gray-800/40 px-5 py-3">
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">Activity Log</div>
+          <div className="space-y-1.5 max-h-36 overflow-y-auto">
+            {progress.steps.map((step, i) => (
+              <div key={step.id || i} className="flex items-center gap-2.5 text-xs">
+                <span className={`shrink-0 w-3 text-center ${
+                  step.status === 'done' ? 'text-green-400' :
+                  step.status === 'active' ? 'text-blue-400 animate-pulse' :
+                  step.status === 'failed' ? 'text-red-400' : 'text-gray-600'
+                }`}>
+                  {step.status === 'done' ? '\u2713' : step.status === 'active' ? '\u25CF' : step.status === 'failed' ? '\u2717' : '\u25CB'}
+                </span>
+                <span className="text-gray-600 font-mono w-10 shrink-0 tabular-nums">
+                  {formatStepTime(job.started_at, step.ts)}
+                </span>
+                <span className={
+                  step.status === 'active' ? 'text-blue-300' :
+                  step.status === 'failed' ? 'text-red-400' : 'text-gray-400'
+                }>{step.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function ScrapeControl({ token, spyowlConnected }) {
   const [history, setHistory] = useState(null);
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -211,7 +402,7 @@ function ScrapeControl({ token, spyowlConnected }) {
   // Poll for active job updates
   useEffect(() => {
     if (!history?.has_active) return;
-    const interval = setInterval(fetchHistory, 8000);
+    const interval = setInterval(fetchHistory, 3000);
     return () => clearInterval(interval);
   }, [history?.has_active, fetchHistory]);
 
@@ -359,25 +550,8 @@ function ScrapeControl({ token, spyowlConnected }) {
           </div>
         )}
 
-        {/* Active job progress */}
-        {activeJob && (
-          <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-4 py-3 mb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-blue-400 rounded-full animate-pulse" />
-                <span className="text-sm text-blue-300 font-medium">
-                  Scrape {activeJob.status === 'pending' ? 'queued' : 'in progress'}
-                </span>
-                <span className="text-xs text-gray-500">
-                  Started {activeJob.started_at ? timeAgo(activeJob.started_at) : '—'}
-                </span>
-              </div>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 capitalize">
-                {activeJob.trigger_type || 'manual'}
-              </span>
-            </div>
-          </div>
-        )}
+        {/* Active job live status panel */}
+        {activeJob && <ActiveJobPanel job={activeJob} avgDuration={history?.summary?.avg_duration_seconds} />}
 
         {/* Last scrape summary (when no active job) */}
         {!activeJob && hasRuns && !showHistory && (

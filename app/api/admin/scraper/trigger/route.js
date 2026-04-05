@@ -85,19 +85,26 @@ export async function POST(request) {
     }
 
     // Create the scrape job
+    const now = new Date().toISOString();
     const jobData = {
       status: 'pending',
       trigger_type: 'manual',
       geo_filter: geoFilter,
-      started_at: new Date().toISOString(),
+      started_at: now,
       creatives_synced: 0,
       brands_updated: 0,
       new_creatives: 0,
       new_brands: 0,
       total_api: 0,
+      progress: {
+        phase: 'initializing',
+        percent: 5,
+        message: 'Creating scrape job...',
+        steps: [{ id: 'init', label: 'Job created', status: 'done', ts: now }],
+      },
     };
 
-    const inserted = await supaFetch('/sync_runs?select=id,status,started_at,trigger_type,geo_filter', {
+    const inserted = await supaFetch('/sync_runs?select=id,status,started_at,trigger_type,geo_filter,progress', {
       method: 'POST',
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(jobData),
@@ -123,11 +130,17 @@ export async function POST(request) {
 
     if (!spyowlReachable) {
       // Update job to failed
+      const failSteps = [
+            ...(job.progress?.steps || []),
+            { id: 'cookie', label: cookie ? 'Cookie found' : 'No cookie', status: cookie ? 'done' : 'failed', ts: new Date().toISOString() },
+            { id: 'fail', label: cookie ? 'SpyOwl API unreachable' : 'Missing cookie', status: 'failed', ts: new Date().toISOString() },
+          ];
       await supaFetch(`/sync_runs?id=eq.${job.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
           status: 'failed',
           finished_at: new Date().toISOString(),
+          progress: { phase: 'failed', percent: 100, message: cookie ? 'SpyOwl unreachable' : 'No cookie configured', steps: failSteps },
           error_message: cookie
             ? 'SpyOwl API unreachable or cookie expired'
             : 'No SpyOwl cookie configured',
@@ -142,10 +155,20 @@ export async function POST(request) {
       }, { status: 503 });
     }
 
-    // Mark as running
+    // Mark as running with progress update
+    const runningProgress = {
+      phase: 'authenticating',
+      percent: 25,
+      message: 'SpyOwl authenticated — starting scrape...',
+      steps: [
+        ...(job.progress?.steps || []),
+        { id: 'cookie', label: 'Cookie validated', status: 'done', ts: new Date().toISOString() },
+        { id: 'auth', label: 'SpyOwl authenticated', status: 'done', ts: new Date().toISOString() },
+      ],
+    };
     await supaFetch(`/sync_runs?id=eq.${job.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: 'running' }),
+      body: JSON.stringify({ status: 'running', progress: runningProgress }),
     });
 
     // Kick off the actual scrape via SpyOwl API
@@ -172,6 +195,21 @@ export async function POST(request) {
     } catch {
       scrapeStarted = false;
     }
+
+    // Update progress with trigger result
+    const triggerProgress = {
+      phase: scrapeStarted ? 'scanning' : 'connecting',
+      percent: scrapeStarted ? 35 : 30,
+      message: scrapeStarted ? 'SpyOwl scrape triggered — scanning campaigns...' : 'Waiting for scraper to pick up job...',
+      steps: [
+        ...runningProgress.steps,
+        { id: 'trigger', label: scrapeStarted ? 'Scrape triggered via SpyOwl' : 'Waiting for scraper pickup', status: scrapeStarted ? 'done' : 'active', ts: new Date().toISOString() },
+      ],
+    };
+    await supaFetch(`/sync_runs?id=eq.${job.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ progress: triggerProgress }),
+    }).catch(() => {});
 
     return Response.json({
       success: true,
