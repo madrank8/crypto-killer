@@ -343,6 +343,7 @@ export async function POST(request) {
           const sourceModel = availableModelsInfo.google ? 'gemini-flash' : 'claude-haiku'
 
           let sourceLedger = []
+          let sourceResearchActualModel = 'default_templates'  // Track what actually produced sources
           try {
             const srcPrompt = sourceResearcherPrompt(brandData.name, currentDate)
             const srcResult = await callModel(sourceModel, srcPrompt.system, srcPrompt.user, {
@@ -352,6 +353,9 @@ export async function POST(request) {
 
             const srcData = extractJSON(srcResult.text)
             sourceLedger = (srcData.sources || []).filter(s => s.url && s.title)
+            sourceResearchActualModel = srcResult.usedFallback
+              ? `${srcResult.resolvedModel} (fallback from ${srcResult.fallbackFrom})`
+              : srcResult.label || sourceModel
 
             send({
               step: 'sources_done',
@@ -361,6 +365,7 @@ export async function POST(request) {
           } catch (srcError) {
             // Source research failure is non-fatal — use default source templates
             console.error('Source research failed:', srcError.message)
+            sourceResearchActualModel = `default_templates (${sourceModel} failed: ${srcError.message.slice(0, 100)})`
             sourceLedger = [
               { title: 'FCA ScamSmart Warning List', url: 'https://www.fca.org.uk/scamsmart/warning-list', type: 'regulatory', verified: false, extract: 'FCA register of unauthorized firms and individuals.' },
               { title: 'SEC EDGAR Company Search', url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany', type: 'regulatory', verified: false, extract: 'SEC database for registered investment entities.' },              { title: 'IC3 Internet Crime Complaint Center', url: 'https://www.ic3.gov/', type: 'government', verified: false, extract: 'FBI portal for reporting internet-enabled crime.' },
@@ -1047,7 +1052,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         data_source: 'SpyOwl Ad Surveillance',        evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
         pipeline_version: 'multi-agent-v1.0',
-        source_research_model: contentResult.usedFallback ? contentResult.resolvedModel : 'gemini-flash',
+        source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
         audit_model: auditReport ? 'gpt-4o' : null,
@@ -1120,7 +1125,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               audit_grade: auditReport?.grade || 'skipped',
               audit_score: auditReport?.overall_score || null,
               models_used: {
-                sources: contentResult.usedFallback ? contentResult.resolvedModel : 'gemini-flash',
+                sources: sourceResearchActualModel,
                 content: contentResult.resolvedModel || 'claude-opus',
                 audit: auditReport ? 'gpt-4o' : 'skipped',
               },
