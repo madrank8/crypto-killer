@@ -951,11 +951,11 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
           // Runs 7 audit passes: anti-slop, E-E-A-T, source alignment, AI extractability,
           // factual accuracy, tone & voice, schema-content parity
           // ═══════════════════════════════════════════════════════════════
-          send({ step: 'audit', progress: 85, message: 'Phase 5/5: Quality audit via GPT-4o...' })
+          send({ step: 'audit', progress: 85, message: 'Phase 5/5: Quality audit...' })
 
           let auditReport = null
+          let auditActualModel = null
           try {
-            const auditModel = availableModelsInfo.openai ? 'gpt-4o' : 'claude-sonnet'
             const auditPromptData = qualityAuditorPrompt()
             // Build schema preview for parity check (schema built below, so we build a temp one)
             const tempSchema = buildReviewSchema({
@@ -974,11 +974,31 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               tempSchema
             )
 
-            const auditResult = await callModel(auditModel, auditPromptData.system, auditUserMsg, {
-              jsonMode: true,
-            })
+            // Try GPT-4o first (fresh perspective), fall back to Claude Sonnet on any failure
+            const auditModels = availableModelsInfo.openai
+              ? ['gpt-4o', 'claude-sonnet']
+              : ['claude-sonnet']
+
+            let auditResult = null
+            for (const modelKey of auditModels) {
+              try {
+                auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
+                  jsonMode: true,
+                })
+                break // Success — stop trying
+              } catch (modelErr) {
+                console.error(`Audit model ${modelKey} failed:`, modelErr.message)
+                if (modelKey === auditModels[auditModels.length - 1]) {
+                  throw modelErr // Last model failed — rethrow
+                }
+                send({ step: 'audit_retry', progress: 86, message: `${modelKey} unavailable, retrying with fallback...` })
+              }
+            }
 
             auditReport = extractJSON(auditResult.text)
+            auditActualModel = auditResult.usedFallback
+              ? `${auditResult.resolvedModel} (fallback from ${auditResult.fallbackFrom})`
+              : auditResult.label || auditResult.resolvedModel
 
             const auditGrade = auditReport.grade || '?'
             const auditScore = auditReport.overall_score || 0
@@ -991,6 +1011,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
             })          } catch (auditError) {
             // Audit failure is non-fatal — log and continue
             console.error('Quality audit failed:', auditError.message)
+            auditActualModel = `failed (${auditError.message.slice(0, 100)})`
             send({ step: 'audit_skip', progress: 88, message: `Quality audit skipped: ${auditError.message}` })
           }
 
@@ -1055,7 +1076,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
-        audit_model: auditReport ? 'gpt-4o' : null,
+        audit_model: auditActualModel || null,
         audit_score: auditReport?.overall_score || null,
         audit_grade: auditReport?.grade || null,
         audit_critical_fixes: auditReport?.critical_fixes || [],
@@ -1127,7 +1148,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               models_used: {
                 sources: sourceResearchActualModel,
                 content: contentResult.resolvedModel || 'claude-opus',
-                audit: auditReport ? 'gpt-4o' : 'skipped',
+                audit: auditActualModel || 'skipped',
               },
             },
           })
