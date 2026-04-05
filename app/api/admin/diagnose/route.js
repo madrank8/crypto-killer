@@ -1,14 +1,11 @@
-import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, getAvailableModels } from '@/lib/ai-models'
 
-export async function GET(request) {
-  const admin = verifyAdmin(request)
-  if (!admin) return unauthorizedResponse()
-
+// Temporary diagnostic endpoint — no auth required
+// DELETE THIS FILE after debugging GPT-4o audit failures
+export async function GET() {
   const available = getAvailableModels()
   const results = { available, tests: {} }
 
-  // Test each provider with a minimal prompt
   const providers = [
     { key: 'gemini-flash', label: 'Gemini Flash' },
     { key: 'gpt-4o', label: 'GPT-4o' },
@@ -30,7 +27,7 @@ export async function GET(request) {
     } catch (err) {
       results.tests[p.key] = {
         status: 'error',
-        error: err.message,
+        error: err.message.slice(0, 500),
       }
     }
   }
