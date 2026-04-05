@@ -21,8 +21,12 @@ async function supaFetch(path, options = {}) {
     throw new Error(`Supabase ${res.status}: ${text}`);
   }
   if (options.method === 'HEAD') return null;
-  if (options.method === 'PATCH' && options.headers?.Prefer === 'return=minimal') return null;
-  return res.json();
+  // If Prefer header includes return=minimal, body is empty — skip JSON parse
+  const prefer = options.headers?.Prefer || '';
+  if (prefer.includes('return=minimal')) return null;
+  const text = await res.text();
+  if (!text) return null;
+  return JSON.parse(text);
 }
 
 // ─── Update job progress in Supabase ───
@@ -130,11 +134,6 @@ async function upsertCreatives(creatives) {
 
 // ─── Rebuild brand aggregates from creatives ───
 async function rebuildBrands(jobId) {
-  // Get distinct normalized_offer groups with aggregated stats
-  // We do this via raw SQL through Supabase RPC or by fetching creatives
-  // For now, fetch all distinct offers and their counts
-  
-  // Count brands updated
   let brandsUpdated = 0;
   let newBrands = 0;
   const batchSize = 1000;
@@ -345,7 +344,7 @@ export async function POST(request) {
     await updateProgress(job.id, {
       phase: 'authenticating',
       percent: 10,
-      message: 'SpyOwl authenticated — starting scrape...',
+      message: 'SpyOwl authenticated \u2014 starting scrape...',
       steps: [
         ...(job.progress?.steps || []),
         { id: 'cookie', label: 'Cookie validated', status: 'done', ts: new Date().toISOString() },
@@ -359,6 +358,7 @@ export async function POST(request) {
     let totalSynced = 0;
     let hasMore = true;
     let spyowlTotal = 0;
+    let consecutiveErrors = 0;
 
     console.log(`[scraper] Starting scrape for job ${job.id}`);
 
@@ -376,6 +376,7 @@ export async function POST(request) {
         totalFetched += creatives.length;
         totalSynced += creatives.length;
         skip += BATCH_SIZE;
+        consecutiveErrors = 0; // reset on success
 
         // Update progress
         const pct = Math.min(10 + Math.round((totalFetched / Math.min(spyowlTotal, MAX_CREATIVES)) * 60), 70);
@@ -384,7 +385,7 @@ export async function POST(request) {
           percent: pct,
           message: `Fetched ${totalFetched.toLocaleString()} of ${spyowlTotal.toLocaleString()} creatives...`,
           steps: [
-            ...(job.progress?.steps || []).filter(s => s.id !== 'scan'),
+            { id: 'init', label: 'Job created', status: 'done', ts: now },
             { id: 'cookie', label: 'Cookie validated', status: 'done', ts: new Date().toISOString() },
             { id: 'auth', label: 'SpyOwl authenticated', status: 'done', ts: new Date().toISOString() },
             { id: 'scan', label: `${totalFetched.toLocaleString()} creatives fetched`, status: 'active', ts: new Date().toISOString() },
@@ -394,10 +395,13 @@ export async function POST(request) {
         console.log(`[scraper] Batch ${skip / BATCH_SIZE}: ${creatives.length} creatives (total: ${totalFetched})`);
 
       } catch (e) {
+        consecutiveErrors++;
         console.error(`[scraper] Batch error at skip=${skip}:`, e.message);
-        // Continue with next batch rather than failing entire job
         skip += BATCH_SIZE;
-        if (skip > totalFetched + BATCH_SIZE * 3) break; // too many consecutive failures
+        if (consecutiveErrors >= 3) {
+          console.error(`[scraper] 3 consecutive failures, aborting`);
+          break;
+        }
       }
     }
 
