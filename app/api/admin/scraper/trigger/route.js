@@ -2,6 +2,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 
 const SPYOWL_API = 'https://api.spyowl.icu';
+const STALE_JOB_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
 async function supaFetch(path, options = {}) {
   const headers = {
@@ -19,7 +20,31 @@ async function supaFetch(path, options = {}) {
     throw new Error(`Supabase ${res.status}: ${text}`);
   }
   if (options.method === 'HEAD') return null;
+  if (options.method === 'PATCH' && options.headers?.Prefer === 'return=minimal') return null;
   return res.json();
+}
+
+/**
+ * Auto-fail jobs stuck for over 1 hour before checking for conflicts
+ */
+async function cleanupStaleJobs() {
+  const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS).toISOString();
+  try {
+    await supaFetch(
+      `/sync_runs?status=in.("pending","running")&started_at=lt.${cutoff}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: 'Auto-failed: job exceeded 1-hour timeout',
+        }),
+      }
+    );
+  } catch (e) {
+    console.error('Stale job cleanup failed:', e.message);
+  }
 }
 
 async function getSpyOwlCookie() {
@@ -41,6 +66,9 @@ async function getSpyOwlCookie() {
 export async function POST(request) {
   try {
     verifyAdmin(request);
+
+    // Auto-fail stale jobs before checking for conflicts
+    await cleanupStaleJobs();
 
     const body = await request.json().catch(() => ({}));
     const geoFilter = body.geo_filter || null;

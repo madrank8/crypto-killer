@@ -1,16 +1,19 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 
-async function supaFetch(path) {
+const STALE_JOB_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+
+async function supaFetch(path, options = {}) {
   const headers = {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
     apikey: SUPABASE_ANON_KEY,
-    Prefer: 'count=exact',
+    Prefer: options.prefer || 'count=exact',
   };
   const url = `${SUPABASE_URL}/rest/v1${path}`;
-  const res = await fetch(url, { method: 'GET', headers });
+  const res = await fetch(url, { method: options.method || 'GET', headers, body: options.body });
   if (!res.ok) throw new Error(`Supabase ${res.status}`);
+  if (options.method === 'PATCH') return { data: null, total: null };
   const data = await res.json();
   const range = res.headers.get('content-range');
   let total = null;
@@ -22,12 +25,39 @@ async function supaFetch(path) {
 }
 
 /**
+ * Auto-fail jobs stuck in running/pending for over 1 hour.
+ * This prevents a single orphaned job from blocking all future scrapes.
+ */
+async function cleanupStaleJobs() {
+  const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS).toISOString();
+  try {
+    await supaFetch(
+      `/sync_runs?status=in.("pending","running")&started_at=lt.${cutoff}`,
+      {
+        method: 'PATCH',
+        prefer: 'return=minimal',
+        body: JSON.stringify({
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: 'Auto-failed: job exceeded 1-hour timeout (SpyOwl never responded)',
+        }),
+      }
+    );
+  } catch (e) {
+    console.error('Stale job cleanup failed:', e.message);
+  }
+}
+
+/**
  * GET /api/admin/scraper/history
  * Returns recent scrape runs with stats
  */
 export async function GET(request) {
   try {
     verifyAdmin(request);
+
+    // Auto-cleanup stale jobs before returning history
+    await cleanupStaleJobs();
 
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '25'), 100);
@@ -38,18 +68,12 @@ export async function GET(request) {
     );
 
     // Check if there's currently a running job
-    const activeJobs = (runs || []).filter(
-      r => r.status === 'running' || r.status === 'pending'
-    );
+    const activeJobs = (runs || []).filter(r => r.status === 'running' || r.status === 'pending');
 
     // Calculate summary stats
     const completedRuns = (runs || []).filter(r => r.status === 'completed');
-    const totalCreativesSynced = completedRuns.reduce(
-      (sum, r) => sum + (r.creatives_synced || 0), 0
-    );
-    const totalBrandsUpdated = completedRuns.reduce(
-      (sum, r) => sum + (r.brands_updated || 0), 0
-    );
+    const totalCreativesSynced = completedRuns.reduce((sum, r) => sum + (r.creatives_synced || 0), 0);
+    const totalBrandsUpdated = completedRuns.reduce((sum, r) => sum + (r.brands_updated || 0), 0);
     const avgDuration = completedRuns.length > 0
       ? Math.round(completedRuns.reduce((sum, r) => {
           if (r.started_at && r.finished_at) {
@@ -73,6 +97,44 @@ export async function GET(request) {
         avg_duration_seconds: avgDuration,
       },
     });
+  } catch (error) {
+    if (error.message.includes('Unauthorized')) {
+      return unauthorizedResponse();
+    }
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/admin/scraper/history
+ * Cancel the currently active scrape job
+ * Body (optional): { job_id: "uuid" }
+ */
+export async function DELETE(request) {
+  try {
+    verifyAdmin(request);
+
+    const body = await request.json().catch(() => ({}));
+    const jobId = body.job_id;
+
+    let path;
+    if (jobId) {
+      path = `/sync_runs?id=eq.${jobId}&status=in.("pending","running")`;
+    } else {
+      path = `/sync_runs?status=in.("pending","running")`;
+    }
+
+    await supaFetch(path, {
+      method: 'PATCH',
+      prefer: 'return=minimal',
+      body: JSON.stringify({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: 'Manually cancelled by admin',
+      }),
+    });
+
+    return Response.json({ success: true, message: 'Scrape job cancelled' });
   } catch (error) {
     if (error.message.includes('Unauthorized')) {
       return unauthorizedResponse();

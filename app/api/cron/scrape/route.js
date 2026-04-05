@@ -1,6 +1,7 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
 
 const SPYOWL_API = 'https://api.spyowl.icu';
+const STALE_JOB_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
 async function supaFetch(path, options = {}) {
   const headers = {
@@ -16,6 +17,26 @@ async function supaFetch(path, options = {}) {
   if (!res.ok) throw new Error(`Supabase ${res.status}`);
   if (options.method === 'HEAD' || options.method === 'PATCH') return null;
   return res.json();
+}
+
+async function cleanupStaleJobs() {
+  const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS).toISOString();
+  try {
+    await supaFetch(
+      `/sync_runs?status=in.("pending","running")&started_at=lt.${cutoff}`,
+      {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: 'Auto-failed: job exceeded 1-hour timeout',
+        }),
+      }
+    );
+  } catch (e) {
+    console.error('Cron stale job cleanup failed:', e.message);
+  }
 }
 
 async function getSpyOwlCookie() {
@@ -46,6 +67,9 @@ export async function GET(request) {
         return Response.json({ error: 'Unauthorized' }, { status: 401 });
       }
     }
+
+    // Auto-fail stale jobs before checking for conflicts
+    await cleanupStaleJobs();
 
     // Check if there's already a running/pending scrape
     const pending = await supaFetch(
