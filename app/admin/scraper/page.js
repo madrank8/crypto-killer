@@ -211,13 +211,13 @@ function LiveTimer({ startTime }) {
 
 /* --- Scrape Pipeline Phases --- */
 const SCRAPE_PHASES = [
-  { id: 'initializing', label: 'Init', icon: '\u2699' },
-  { id: 'connecting', label: 'Connect', icon: '\uD83D\uDD17' },
-  { id: 'authenticating', label: 'Auth', icon: '\uD83D\uDD11' },
-  { id: 'scanning', label: 'Scan', icon: '\uD83D\uDCE1' },
-  { id: 'ingesting', label: 'Ingest', icon: '\uD83D\uDCE5' },
-  { id: 'processing', label: 'Process', icon: '\u26A1' },
-  { id: 'finalizing', label: 'Done', icon: '\u2713' },
+  { id: 'initializing', label: 'Init', icon: '⚙' },
+  { id: 'connecting', label: 'Connect', icon: '🔗' },
+  { id: 'authenticating', label: 'Auth', icon: '🔑' },
+  { id: 'scanning', label: 'Scan', icon: '📡' },
+  { id: 'ingesting', label: 'Ingest', icon: '📥' },
+  { id: 'processing', label: 'Process', icon: '⚡' },
+  { id: 'finalizing', label: 'Done', icon: '✓' },
 ];
 
 function formatStepTime(startTime, stepTime) {
@@ -262,10 +262,10 @@ function ActiveJobPanel({ job, avgDuration }) {
           </div>
           <div className="min-w-0">
             <div className="text-sm text-blue-200 font-semibold truncate">
-              {progress.message || (job.status === 'pending' ? 'Queued \u2014 waiting to start' : 'Scrape in progress')}
+              {progress.message || (job.status === 'pending' ? 'Queued — waiting to start' : 'Scrape in progress')}
             </div>
             <div className="text-[11px] text-gray-500 mt-0.5">
-              {job.trigger_type === 'scheduled' ? 'Scheduled (cron)' : 'Manual trigger'} \u2022 Job {job.id?.slice(0, 8)}
+              {job.trigger_type === 'scheduled' ? 'Scheduled (cron)' : 'Manual trigger'} • Job {job.id?.slice(0, 8)}
             </div>
           </div>
         </div>
@@ -294,7 +294,7 @@ function ActiveJobPanel({ job, avgDuration }) {
                   }`}
                   title={phase.label}
                 >
-                  <span className="text-xs">{isDone ? '\u2713' : isActive ? phase.icon : '\u25CB'}</span>
+                  <span className="text-xs">{isDone ? '✓' : isActive ? phase.icon : '○'}</span>
                   <span className="hidden md:inline">{phase.label}</span>
                 </div>
               </Fragment>
@@ -359,7 +359,7 @@ function ActiveJobPanel({ job, avgDuration }) {
                   step.status === 'active' ? 'text-blue-400 animate-pulse' :
                   step.status === 'failed' ? 'text-red-400' : 'text-gray-600'
                 }`}>
-                  {step.status === 'done' ? '\u2713' : step.status === 'active' ? '\u25CF' : step.status === 'failed' ? '\u2717' : '\u25CB'}
+                  {step.status === 'done' ? '✓' : step.status === 'active' ? '●' : step.status === 'failed' ? '✗' : '○'}
                 </span>
                 <span className="text-gray-600 font-mono w-10 shrink-0 tabular-nums">
                   {formatStepTime(job.started_at, step.ts)}
@@ -418,7 +418,8 @@ function ScrapeControl({ token, spyowlConnected }) {
         },
         body: JSON.stringify({}),
       });
-      const data = await res.json();
+      let data;
+      try { data = await res.json(); } catch { data = res.ok ? { success: true, message: 'Scrape initiated' } : { error: `HTTP ${res.status}` }; }
       setTriggerResult(data);
       fetchHistory();
     } catch (e) {

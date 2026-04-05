@@ -137,6 +137,7 @@ export async function POST(request) {
           ];
       await supaFetch(`/sync_runs?id=eq.${job.id}`, {
         method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
         body: JSON.stringify({
           status: 'failed',
           finished_at: new Date().toISOString(),
@@ -168,6 +169,7 @@ export async function POST(request) {
     };
     await supaFetch(`/sync_runs?id=eq.${job.id}`, {
       method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
       body: JSON.stringify({ status: 'running', progress: runningProgress }),
     });
 
@@ -208,6 +210,7 @@ export async function POST(request) {
     };
     await supaFetch(`/sync_runs?id=eq.${job.id}`, {
       method: 'PATCH',
+      headers: { Prefer: 'return=minimal' },
       body: JSON.stringify({ progress: triggerProgress }),
     }).catch(() => {});
 
