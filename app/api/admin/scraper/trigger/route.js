@@ -175,6 +175,8 @@ export async function POST(request) {
 
     // Kick off the actual scrape via SpyOwl API
     let scrapeStarted = false;
+    let scrapeError = null;
+    let scrapeResponseBody = null;
     try {
       const scrapePayload = {};
       if (geoFilter) scrapePayload.geos = geoFilter.split(',').map(g => g.trim());
@@ -189,23 +191,59 @@ export async function POST(request) {
         signal: AbortSignal.timeout(10000),
       });
 
+      scrapeResponseBody = await scrapeRes.text().catch(() => '');
+      console.log(`[scraper] SpyOwl /scrape/trigger responded ${scrapeRes.status}: ${scrapeResponseBody.slice(0, 500)}`);
+
       if (scrapeRes.ok) {
         scrapeStarted = true;
       } else {
         scrapeStarted = false;
+        scrapeError = `SpyOwl ${scrapeRes.status}: ${scrapeResponseBody.slice(0, 200)}`;
       }
-    } catch {
+    } catch (e) {
       scrapeStarted = false;
+      scrapeError = `Trigger fetch failed: ${e.message}`;
+      console.error('[scraper] SpyOwl trigger error:', e.message);
     }
 
-    // Update progress with trigger result
+    // If trigger failed, fail the job immediately instead of leaving it stuck
+    if (!scrapeStarted) {
+      const failProgress = {
+        phase: 'failed',
+        percent: 100,
+        message: scrapeError || 'SpyOwl trigger failed',
+        steps: [
+          ...runningProgress.steps,
+          { id: 'trigger', label: scrapeError || 'Trigger failed', status: 'failed', ts: new Date().toISOString() },
+        ],
+      };
+      await supaFetch(`/sync_runs?id=eq.${job.id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({
+          status: 'failed',
+          finished_at: new Date().toISOString(),
+          error_message: scrapeError || 'SpyOwl trigger failed',
+          progress: failProgress,
+        }),
+      }).catch(() => {});
+
+      return Response.json({
+        success: false,
+        job_id: job.id,
+        error: scrapeError || 'SpyOwl trigger failed',
+        spyowl_response: scrapeResponseBody?.slice(0, 300) || null,
+      }, { status: 502 });
+    }
+
+    // Update progress — trigger succeeded
     const triggerProgress = {
-      phase: scrapeStarted ? 'scanning' : 'connecting',
-      percent: scrapeStarted ? 35 : 30,
-      message: scrapeStarted ? 'SpyOwl scrape triggered — scanning campaigns...' : 'Waiting for scraper to pick up job...',
+      phase: 'scanning',
+      percent: 35,
+      message: 'SpyOwl scrape triggered — scanning campaigns...',
       steps: [
         ...runningProgress.steps,
-        { id: 'trigger', label: scrapeStarted ? 'Scrape triggered via SpyOwl' : 'Waiting for scraper pickup', status: scrapeStarted ? 'done' : 'active', ts: new Date().toISOString() },
+        { id: 'trigger', label: 'Scrape triggered via SpyOwl', status: 'done', ts: new Date().toISOString() },
       ],
     };
     await supaFetch(`/sync_runs?id=eq.${job.id}`, {
@@ -221,10 +259,8 @@ export async function POST(request) {
       trigger_type: 'manual',
       geo_filter: geoFilter,
       spyowl_connected: true,
-      scrape_triggered: scrapeStarted,
-      message: scrapeStarted
-        ? 'Scrape initiated via SpyOwl API'
-        : 'Scrape job created — waiting for scraper to pick it up',
+      scrape_triggered: true,
+      message: 'Scrape initiated via SpyOwl API',
     });
   } catch (error) {
     if (error.message.includes('Unauthorized')) {
