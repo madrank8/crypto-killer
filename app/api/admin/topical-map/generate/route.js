@@ -33,6 +33,15 @@ function ensureUniqueSlug(base, usedSlugs) {
   return out
 }
 
+function compactPrompt(promptText) {
+  return `${promptText}
+
+RELIABILITY OVERRIDE:
+- Output must be valid, complete JSON only (no markdown).
+- Keep output compact and bounded: exactly 4 pillars, max 4 clusters per pillar, max 4 supporting items per cluster.
+- Use short descriptions (1 sentence each).`
+}
+
 /**
  * POST /api/admin/topical-map/generate
  * SSE: init → researching → generating → saving → done
@@ -126,15 +135,49 @@ export async function POST(request) {
             keywordResearchJson,
           })
 
-          const mapResult = await callModel('claude-opus', genPrompt.system, genPrompt.user, {
-            maxTokens: 8192,
-          })
+          const availableModels = getAvailableModels()
+          let mapData = null
+          let mapResult = null
+          let mapModelUsed = 'claude-opus'
 
-          let mapData
-          try {
-            mapData = extractJSON(mapResult.text)
-          } catch (e) {
-            throw new Error(`Failed to parse topical map JSON: ${e.message}`)
+          const attempts = [
+            { model: 'claude-opus', user: genPrompt.user, jsonMode: false, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: compactPrompt(genPrompt.user), jsonMode: false, label: 'sonnet-compact-retry' },
+            ...(availableModels.openai
+              ? [{ model: 'gpt-4o', user: compactPrompt(genPrompt.user), jsonMode: true, label: 'gpt-json-fallback' }]
+              : []),
+          ]
+
+          let lastParseErr = null
+          for (let i = 0; i < attempts.length; i++) {
+            const attempt = attempts[i]
+            if (i > 0) {
+              send({
+                step: 'generating',
+                progress: 42 + i * 6,
+                message: `Retrying map generation (${attempt.label})...`,
+              })
+            }
+
+            try {
+              const res = await callModel(attempt.model, genPrompt.system, attempt.user, {
+                maxTokens: 8192,
+                ...(attempt.jsonMode ? { jsonMode: true } : {}),
+              })
+              const parsed = extractJSON(res.text)
+              mapData = parsed
+              mapResult = res
+              mapModelUsed = res.resolvedModel || attempt.model
+              lastParseErr = null
+              break
+            } catch (e) {
+              lastParseErr = e
+              console.error(`Topical map parse/generation attempt failed [${attempt.label}]:`, e.message)
+            }
+          }
+
+          if (!mapData || !mapResult) {
+            throw new Error(`Failed to parse topical map JSON: ${lastParseErr?.message || 'unknown parse error'}`)
           }
 
           const pillars = mapData?.pillars
@@ -155,7 +198,7 @@ export async function POST(request) {
                 generated_by: 'phase-1-topical-map',
                 models: {
                   research: researchModel,
-                  structure: mapResult.resolvedModel || 'claude-opus',
+                  structure: mapModelUsed,
                 },
               },
             }),
