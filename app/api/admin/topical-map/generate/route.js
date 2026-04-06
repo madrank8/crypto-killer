@@ -117,11 +117,22 @@ export async function POST(request) {
 
           let keywordResearchJson = {}
           try {
+            send({
+              step: 'researching',
+              progress: 20,
+              message: 'Running keyword research (timeout: 45s)...',
+            })
             const kwResult = await callModel(researchModel, kwPrompt.system, kwPrompt.user, {
               searchGrounding: researchModel.startsWith('gemini'),
               maxTokens: 4096,
+              timeoutMs: 45000,
             })
             keywordResearchJson = extractJSON(kwResult.text)
+            send({
+              step: 'researching',
+              progress: 28,
+              message: 'Keyword research complete.',
+            })
           } catch (e) {
             console.error('Keyword research failed:', e.message)
             keywordResearchJson = { market_notes: ['Keyword research skipped or failed — generating from ICP + brands only.'] }
@@ -170,6 +181,7 @@ export async function POST(request) {
               const res = await callModel(attempt.model, genPrompt.system, attempt.user, {
                 maxTokens: 8192,
                 ...(attempt.jsonMode ? { jsonMode: true } : {}),
+                timeoutMs: 80000,
               })
               const parsed = extractJSON(res.text)
               mapData = parsed
