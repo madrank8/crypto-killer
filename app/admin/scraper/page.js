@@ -209,15 +209,13 @@ function LiveTimer({ startTime }) {
   );
 }
 
-/* --- Scrape Pipeline Phases --- */
+/* --- Scrape Pipeline Phases (matches lib/scraper.js progress phases) --- */
 const SCRAPE_PHASES = [
   { id: 'initializing', label: 'Init', icon: '⚙' },
-  { id: 'connecting', label: 'Connect', icon: '🔗' },
   { id: 'authenticating', label: 'Auth', icon: '🔑' },
-  { id: 'scanning', label: 'Scan', icon: '📡' },
-  { id: 'ingesting', label: 'Ingest', icon: '📥' },
-  { id: 'processing', label: 'Process', icon: '⚡' },
-  { id: 'finalizing', label: 'Done', icon: '✓' },
+  { id: 'scanning', label: 'Scraping', icon: '📡' },
+  { id: 'processing', label: 'Brands', icon: '⚡' },
+  { id: 'done', label: 'Done', icon: '✓' },
 ];
 
 function formatStepTime(startTime, stepTime) {
@@ -235,8 +233,18 @@ function ActiveJobPanel({ job, avgDuration }) {
     phase: job.status === 'pending' ? 'initializing' : 'scanning',
     steps: [], percent: 0, message: '',
   };
-  const currentPhaseIdx = Math.max(0, SCRAPE_PHASES.findIndex(p => p.id === progress.phase));
+  const isFailed = progress.phase === 'failed' || job.status === 'failed';
+  const isDone = progress.phase === 'done' || job.status === 'completed';
+  const hasWarning = isDone && job.error_message;
+  const currentPhaseIdx = isFailed
+    ? SCRAPE_PHASES.length - 1
+    : Math.max(0, SCRAPE_PHASES.findIndex(p => p.id === progress.phase));
   const phasePct = progress.percent || Math.round(((currentPhaseIdx + 0.5) / SCRAPE_PHASES.length) * 100);
+
+  // Extract live counts from progress message (e.g., "Fetched 18,500 of 50,000 creatives...")
+  const liveMatch = (progress.message || '').match(/(\d[\d,]*)\s+of\s+(\d[\d,]*)/);
+  const liveFetched = liveMatch ? liveMatch[1] : null;
+  const liveTotal = liveMatch ? liveMatch[2] : null;
 
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -252,18 +260,36 @@ function ActiveJobPanel({ job, avgDuration }) {
     : null;
 
   return (
-    <div className="bg-gradient-to-br from-blue-500/[0.07] via-blue-500/[0.03] to-transparent border border-blue-500/20 rounded-xl overflow-hidden mb-3">
+    <div className={`border rounded-xl overflow-hidden mb-3 ${
+      isFailed ? 'bg-gradient-to-br from-red-500/[0.07] via-red-500/[0.03] to-transparent border-red-500/20'
+      : hasWarning ? 'bg-gradient-to-br from-amber-500/[0.07] via-amber-500/[0.03] to-transparent border-amber-500/20'
+      : isDone ? 'bg-gradient-to-br from-green-500/[0.07] via-green-500/[0.03] to-transparent border-green-500/20'
+      : 'bg-gradient-to-br from-blue-500/[0.07] via-blue-500/[0.03] to-transparent border-blue-500/20'
+    }`}>
       {/* Header: status message + live timer */}
       <div className="px-5 pt-4 pb-3 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative shrink-0">
-            <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse" />
-            <div className="absolute inset-0 w-3 h-3 bg-blue-400 rounded-full animate-ping opacity-20" />
+            {isFailed ? (
+              <div className="w-3 h-3 bg-red-500 rounded-full" />
+            ) : isDone ? (
+              <div className={`w-3 h-3 rounded-full ${hasWarning ? 'bg-amber-400' : 'bg-green-400'}`} />
+            ) : (
+              <>
+                <div className="w-3 h-3 bg-blue-400 rounded-full animate-pulse" />
+                <div className="absolute inset-0 w-3 h-3 bg-blue-400 rounded-full animate-ping opacity-20" />
+              </>
+            )}
           </div>
           <div className="min-w-0">
-            <div className="text-sm text-blue-200 font-semibold truncate">
+            <div className={`text-sm font-semibold truncate ${
+              isFailed ? 'text-red-300' : hasWarning ? 'text-amber-200' : isDone ? 'text-green-200' : 'text-blue-200'
+            }`}>
               {progress.message || (job.status === 'pending' ? 'Queued — waiting to start' : 'Scrape in progress')}
             </div>
+            {job.error_message && (
+              <div className="text-[11px] text-amber-400/80 mt-0.5 truncate">{job.error_message}</div>
+            )}
             <div className="text-[11px] text-gray-500 mt-0.5">
               {job.trigger_type === 'scheduled' ? 'Scheduled (cron)' : 'Manual trigger'} • Job {job.id?.slice(0, 8)}
             </div>
@@ -271,7 +297,7 @@ function ActiveJobPanel({ job, avgDuration }) {
         </div>
         <div className="text-right shrink-0 ml-4">
           <LiveTimer startTime={job.started_at} />
-          <div className="text-[10px] text-gray-500 uppercase tracking-wider">elapsed</div>
+          <div className="text-[10px] text-gray-500 uppercase tracking-wider">{isDone || isFailed ? 'duration' : 'elapsed'}</div>
         </div>
       </div>
 
@@ -279,22 +305,36 @@ function ActiveJobPanel({ job, avgDuration }) {
       <div className="px-5 pb-3">
         <div className="flex items-center">
           {SCRAPE_PHASES.map((phase, i) => {
-            const isDone = i < currentPhaseIdx;
-            const isActive = i === currentPhaseIdx;
+            const phaseIsDone = i < currentPhaseIdx || (isDone && i <= currentPhaseIdx);
+            const phaseIsActive = i === currentPhaseIdx && !isDone && !isFailed;
+            const phaseIsFailed = i === currentPhaseIdx && isFailed;
+            const phaseHasWarning = phaseIsDone && hasWarning && i === currentPhaseIdx;
             return (
               <Fragment key={phase.id}>
                 {i > 0 && (
-                  <div className={`flex-1 h-px transition-colors duration-500 ${isDone ? 'bg-blue-400/60' : 'bg-gray-700/60'}`} />
+                  <div className={`flex-1 h-px transition-colors duration-500 ${
+                    phaseIsDone || (isDone && i <= currentPhaseIdx) ? (hasWarning ? 'bg-amber-400/60' : isFailed ? 'bg-red-400/60' : 'bg-green-400/60')
+                    : phaseIsActive ? 'bg-blue-400/60'
+                    : 'bg-gray-700/60'
+                  }`} />
                 )}
                 <div
                   className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all duration-300 ${
-                    isDone ? 'bg-blue-500/10 text-blue-400'
-                    : isActive ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-400/40 shadow-sm shadow-blue-500/10'
+                    phaseIsFailed ? 'bg-red-500/20 text-red-400 ring-1 ring-red-400/40'
+                    : phaseHasWarning ? 'bg-amber-500/10 text-amber-400'
+                    : phaseIsDone ? 'bg-green-500/10 text-green-400'
+                    : phaseIsActive ? 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-400/40 shadow-sm shadow-blue-500/10'
                     : 'text-gray-600'
                   }`}
                   title={phase.label}
                 >
-                  <span className="text-xs">{isDone ? '✓' : isActive ? phase.icon : '○'}</span>
+                  <span className="text-xs">{
+                    phaseIsFailed ? '✗'
+                    : phaseHasWarning ? '!'
+                    : phaseIsDone ? '✓'
+                    : phaseIsActive ? phase.icon
+                    : '○'
+                  }</span>
                   <span className="hidden md:inline">{phase.label}</span>
                 </div>
               </Fragment>
@@ -305,44 +345,65 @@ function ActiveJobPanel({ job, avgDuration }) {
 
       {/* Progress bar */}
       <div className="px-5 pb-3">
-        <div className="relative h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div className="relative h-2 bg-gray-800 rounded-full overflow-hidden">
           <div
-            className="absolute inset-y-0 left-0 bg-gradient-to-r from-blue-600 to-blue-400 rounded-full transition-all duration-700 ease-out"
+            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out ${
+              isFailed ? 'bg-gradient-to-r from-red-700 to-red-500'
+              : hasWarning ? 'bg-gradient-to-r from-amber-600 to-amber-400'
+              : isDone ? 'bg-gradient-to-r from-green-600 to-green-400'
+              : 'bg-gradient-to-r from-blue-600 to-blue-400'
+            }`}
             style={{ width: `${Math.max(phasePct, 3)}%` }}
           />
-          <div
-            className="absolute inset-y-0 left-0 bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full animate-pulse"
-            style={{ width: `${Math.max(phasePct, 3)}%` }}
-          />
-        </div>
-        <div className="flex justify-between mt-1">
-          <span className="text-[10px] text-gray-600">{phasePct}%</span>
-          {eta !== null && eta > 0 && (
-            <span className="text-[10px] text-gray-600">
-              ETA ~{eta >= 60 ? `${Math.ceil(eta / 60)}m` : `${eta}s`}
-            </span>
+          {!isDone && !isFailed && (
+            <div
+              className="absolute inset-y-0 left-0 bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full animate-pulse"
+              style={{ width: `${Math.max(phasePct, 3)}%` }}
+            />
           )}
+        </div>
+        <div className="flex justify-between mt-1.5">
+          <span className={`text-[11px] font-medium ${
+            isFailed ? 'text-red-400' : hasWarning ? 'text-amber-400' : isDone ? 'text-green-400' : 'text-blue-400'
+          }`}>
+            {phasePct}%{liveFetched && !isDone && !isFailed ? ` — ${liveFetched} creatives` : ''}
+          </span>
+          <span className="text-[11px] text-gray-500">
+            {isDone ? (hasWarning ? 'Completed with warnings' : 'Completed successfully')
+            : isFailed ? (progress.message || 'Scrape failed')
+            : eta !== null && eta > 0
+              ? `ETA ~${eta >= 60 ? `${Math.ceil(eta / 60)}m` : `${eta}s`}`
+              : liveTotal ? `of ${liveTotal}` : ''}
+          </span>
         </div>
       </div>
 
-      {/* Live metric counters */}
+      {/* Live metric counters — show progress data during scrape, final data when done */}
       <div className="px-5 pb-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Brands</div>
-            <div className="text-lg font-bold tabular-nums text-green-400">{(job.new_brands || 0).toLocaleString()}</div>
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Fetched</div>
+            <div className="text-lg font-bold tabular-nums text-blue-400">
+              {liveFetched || (job.creatives_synced || 0).toLocaleString()}
+            </div>
           </div>
           <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Creatives</div>
-            <div className="text-lg font-bold tabular-nums text-blue-400">{(job.new_creatives || 0).toLocaleString()}</div>
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">SpyOwl Total</div>
+            <div className="text-lg font-bold tabular-nums text-gray-300">
+              {liveTotal || (job.total_api || 0).toLocaleString()}
+            </div>
           </div>
           <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
             <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Synced</div>
-            <div className="text-lg font-bold tabular-nums text-gray-300">{(job.creatives_synced || 0).toLocaleString()}</div>
+            <div className="text-lg font-bold tabular-nums text-green-400">
+              {(job.creatives_synced || 0).toLocaleString()}
+            </div>
           </div>
           <div className="bg-gray-800/40 rounded-lg px-3 py-2.5 border border-gray-700/30">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">API Calls</div>
-            <div className="text-lg font-bold tabular-nums text-amber-400">{(job.total_api || 0).toLocaleString()}</div>
+            <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Brands</div>
+            <div className="text-lg font-bold tabular-nums text-amber-400">
+              {(job.brands_updated || 0).toLocaleString()}
+            </div>
           </div>
         </div>
       </div>
@@ -357,15 +418,17 @@ function ActiveJobPanel({ job, avgDuration }) {
                 <span className={`shrink-0 w-3 text-center ${
                   step.status === 'done' ? 'text-green-400' :
                   step.status === 'active' ? 'text-blue-400 animate-pulse' :
+                  step.status === 'warning' ? 'text-amber-400' :
                   step.status === 'failed' ? 'text-red-400' : 'text-gray-600'
                 }`}>
-                  {step.status === 'done' ? '✓' : step.status === 'active' ? '●' : step.status === 'failed' ? '✗' : '○'}
+                  {step.status === 'done' ? '✓' : step.status === 'active' ? '●' : step.status === 'warning' ? '!' : step.status === 'failed' ? '✗' : '○'}
                 </span>
                 <span className="text-gray-600 font-mono w-10 shrink-0 tabular-nums">
                   {formatStepTime(job.started_at, step.ts)}
                 </span>
                 <span className={
                   step.status === 'active' ? 'text-blue-300' :
+                  step.status === 'warning' ? 'text-amber-300' :
                   step.status === 'failed' ? 'text-red-400' : 'text-gray-400'
                 }>{step.label}</span>
               </div>
