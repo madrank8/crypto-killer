@@ -47,7 +47,7 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&select=title,meta_description,slug,scam_score`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=title,meta_description,slug,scam_score`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -121,7 +121,7 @@ function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
 export default async function ReviewPage({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at`
     )
 
     if (!reviews || reviews.length === 0) {

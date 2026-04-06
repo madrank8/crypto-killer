@@ -19,15 +19,32 @@ export default function ScamsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 20
 
-  // Fetch scams
+  // Fetch scams + published review slugs
   useEffect(() => {
     const fetchScams = async () => {
       try {
         setLoading(true)
-        const res = await supabaseRequest(
-          '/scam_brands?select=id,slug,name,scam_score,total_geos,total_creatives,velocity_trend,status,first_seen_at,last_seen_at'
-        )
-        setScams(res || [])
+        const [brandsRes, reviewsRes] = await Promise.all([
+          supabaseRequest(
+            '/scam_brands?select=id,slug,name,scam_score,total_geos,total_creatives,velocity_trend,status,first_seen_at,last_seen_at'
+          ),
+          supabaseRequest(
+            '/reviews?select=brand_id,slug,status&status=eq.published'
+          ),
+        ])
+        // Build a map of brand_id -> published review slug
+        const reviewMap = {}
+        if (Array.isArray(reviewsRes)) {
+          reviewsRes.forEach((r) => {
+            reviewMap[r.brand_id] = r.slug
+          })
+        }
+        // Enrich brands with review slug
+        const enriched = (brandsRes || []).map((b) => ({
+          ...b,
+          review_slug: reviewMap[b.id] || null,
+        }))
+        setScams(enriched)
         setError(null)
       } catch (err) {
         console.error('Error fetching scams:', err)
@@ -242,9 +259,13 @@ export default function ScamsPage() {
                     </span>
                   </td>
                   <td className="text-center">
-                    <Link href={`/review/${scam.slug}`} className="text-red-500 hover:text-red-400">
-                      View
-                    </Link>
+                    {scam.review_slug ? (
+                      <Link href={`/review/${scam.review_slug}`} className="text-red-500 hover:text-red-400">
+                        View Review
+                      </Link>
+                    ) : (
+                      <span className="text-gray-600 text-sm">No review</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -268,6 +268,7 @@ export default function ReviewEditor({ params }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
@@ -330,6 +331,7 @@ export default function ReviewEditor({ params }) {
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
+    setSaveError('');
     try {
       const res = await fetch(`/api/admin/reviews/${id}`, {
         method: 'PATCH',
@@ -353,11 +355,13 @@ export default function ReviewEditor({ params }) {
         setSaved(true);
         setTimeout(() => setSaved(false), 2000);
       } else {
-        alert('Error saving');
+        setSaveError('Failed to save. Try again.');
+        setTimeout(() => setSaveError(''), 4000);
       }
     } catch (err) {
       console.error('Save error:', err);
-      alert('Error saving');
+      setSaveError('Save failed: ' + (err.message || 'network error'));
+      setTimeout(() => setSaveError(''), 4000);
     } finally {
       setSaving(false);
     }
@@ -393,9 +397,15 @@ export default function ReviewEditor({ params }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'unpublish' }),
       });
-      if (res.ok) setReview((r) => ({ ...r, status: 'draft' }));
+      if (res.ok) {
+        setReview((r) => ({ ...r, status: 'draft' }));
+      } else {
+        setPublishError('Failed to unpublish');
+        setTimeout(() => setPublishError(''), 4000);
+      }
     } catch (err) {
-      alert('Error unpublishing');
+      setPublishError('Unpublish failed: ' + (err.message || 'network error'));
+      setTimeout(() => setPublishError(''), 4000);
     }
   };
 
@@ -603,9 +613,9 @@ export default function ReviewEditor({ params }) {
         />
       )}
 
-      {publishError && (
+      {(publishError || saveError) && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
-          {publishError}
+          {publishError || saveError}
         </div>
       )}
 

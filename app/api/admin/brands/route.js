@@ -47,17 +47,31 @@ export async function GET(request) {
       )
     }
 
-    // Fetch all reviews to check which brands have them
-    const allReviews = await supabaseRequest('/reviews?select=id,brand_id,status')
+    // Fetch ALL reviews with pagination (Supabase caps at 1000 per request)
+    const allReviews = []
+    let reviewOffset = 0
+    const reviewPageSize = 1000
+    while (true) {
+      const batch = await supabaseRequest(
+        `/reviews?select=id,brand_id,status&limit=${reviewPageSize}&offset=${reviewOffset}`
+      )
+      if (!Array.isArray(batch) || batch.length === 0) break
+      allReviews.push(...batch)
+      if (batch.length < reviewPageSize) break
+      reviewOffset += reviewPageSize
+    }
 
-    // Build review lookup map
+    // Build review lookup map (prefer published over draft if multiple exist)
     const reviewMap = {}
-    if (Array.isArray(allReviews)) {
+    if (allReviews.length > 0) {
       allReviews.forEach((review) => {
-        reviewMap[review.brand_id] = {
-          has_review: true,
-          review_id: review.id,
-          review_status: review.status,
+        const existing = reviewMap[review.brand_id]
+        if (!existing || (review.status === 'published' && existing.review_status !== 'published')) {
+          reviewMap[review.brand_id] = {
+            has_review: true,
+            review_id: review.id,
+            review_status: review.status,
+          }
         }
       })
     }
