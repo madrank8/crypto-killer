@@ -3,11 +3,11 @@
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
-import Image from '@tiptap/extension-image';
+import ImageExt from '@tiptap/extension-image';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 
 /* ─── Toolbar Button ─── */
 function TBtn({ label, isActive, onClick, disabled }) {
@@ -33,82 +33,78 @@ function Divider() {
   return <span className="w-px h-6 bg-gray-600 mx-0.5" />;
 }
 
-/* ─── Toolbar ─── */
-function MenuBar({ editor }) {
-  if (!editor) return null;
-
-  const setLink = useCallback(() => {
-    const prev = editor.getAttributes('link').href;
-    const url = prompt('URL:', prev || 'https://');
-    if (url === null) return;
-    if (url === '') {
-      editor.chain().focus().extendMarkRange('link').unsetLink().run();
-    } else {
-      editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
-    }
-  }, [editor]);
-
-  const addImage = useCallback(() => {
-    const url = prompt('Image URL:');
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
-    }
-  }, [editor]);
-
+/* ─── HTML Preview Pane ───
+   Renders the full article HTML with dangerouslySetInnerHTML so visuals
+   (charts, diagrams, DALL-E images) display exactly as they do on the public page.
+*/
+function HtmlPreview({ html }) {
   return (
-    <div className="flex flex-wrap items-center gap-0.5 p-2 bg-dark-surface border-b border-gray-700">
-      {/* Text formatting */}
-      <TBtn label="B" isActive={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
-      <TBtn label="I" isActive={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
-      <TBtn label="U" isActive={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
-      <TBtn label="S" isActive={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
-      <TBtn label="Code" isActive={editor.isActive('code')} onClick={() => editor.chain().focus().toggleCode().run()} />
+    <div
+      className="min-h-[500px] p-6 prose prose-invert prose-slate max-w-none text-gray-200
+        [&_figure]:my-6 [&_figure]:text-center
+        [&_figcaption]:text-slate-400 [&_figcaption]:text-sm [&_figcaption]:mt-2
+        [&_img]:rounded-xl [&_img]:border [&_img]:border-slate-700 [&_img]:mx-auto [&_img]:max-w-full
+        [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-white [&_h1]:mt-10 [&_h1]:mb-4
+        [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-10 [&_h2]:mb-4
+        [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:text-white [&_h3]:mt-8 [&_h3]:mb-3
+        [&_p]:mb-4 [&_p]:text-slate-300 [&_p]:leading-relaxed
+        [&_a]:text-brand-green [&_a]:underline
+        [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-4
+        [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:mb-4
+        [&_li]:mb-1 [&_li]:text-slate-300
+        [&_blockquote]:border-l-4 [&_blockquote]:border-indigo-500 [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-slate-400"
+      dangerouslySetInnerHTML={{ __html: html || '<p class="text-gray-600 italic">No content yet — generate or write your article above.</p>' }}
+    />
+  );
+}
 
-      <Divider />
+/* ─── Source Code Editor ─── */
+function SourceEditor({ html, onChange }) {
+  return (
+    <textarea
+      value={html}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full min-h-[500px] p-4 bg-dark-bg border-0 font-mono text-sm text-gray-200 focus:outline-none resize-y"
+      spellCheck={false}
+    />
+  );
+}
 
-      {/* Headings */}
-      <TBtn label="H1" isActive={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} />
-      <TBtn label="H2" isActive={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
-      <TBtn label="H3" isActive={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} />
-      <TBtn label="¶" isActive={editor.isActive('paragraph')} onClick={() => editor.chain().focus().setParagraph().run()} />
-
-      <Divider />
-
-      {/* Lists */}
-      <TBtn label="• List" isActive={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
-      <TBtn label="1. List" isActive={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
-
-      <Divider />
-
-      {/* Alignment */}
-      <TBtn label="←" isActive={editor.isActive({ textAlign: 'left' })} onClick={() => editor.chain().focus().setTextAlign('left').run()} />
-      <TBtn label="↔" isActive={editor.isActive({ textAlign: 'center' })} onClick={() => editor.chain().focus().setTextAlign('center').run()} />
-      <TBtn label="→" isActive={editor.isActive({ textAlign: 'right' })} onClick={() => editor.chain().focus().setTextAlign('right').run()} />
-
-      <Divider />
-
-      {/* Block elements */}
-      <TBtn label="Quote" isActive={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
-      <TBtn label="Code ▣" isActive={editor.isActive('codeBlock')} onClick={() => editor.chain().focus().toggleCodeBlock().run()} />
-      <TBtn label="─ HR" onClick={() => editor.chain().focus().setHorizontalRule().run()} />
-
-      <Divider />
-
-      {/* Links & media */}
-      <TBtn label="🔗 Link" isActive={editor.isActive('link')} onClick={setLink} />
-      <TBtn label="🖼 Image" onClick={addImage} />
-
-      <Divider />
-
-      {/* Undo / Redo */}
-      <TBtn label="↩" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} />
-      <TBtn label="↪" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} />
+/* ─── View Mode Toggle ─── */
+function ViewToggle({ mode, setMode, hasVisuals }) {
+  const modes = [
+    { key: 'edit', label: 'Edit' },
+    { key: 'preview', label: 'Preview', highlight: hasVisuals },
+    { key: 'source', label: 'HTML' },
+  ];
+  return (
+    <div className="flex gap-0.5 p-1 bg-gray-800 rounded-lg">
+      {modes.map((m) => (
+        <button
+          key={m.key}
+          type="button"
+          onClick={() => setMode(m.key)}
+          className={`px-3 py-1 text-xs font-medium rounded-md transition relative ${
+            mode === m.key
+              ? 'bg-gray-600 text-white shadow-sm'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          {m.label}
+          {m.highlight && mode !== m.key && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+          )}
+        </button>
+      ))}
     </div>
   );
 }
 
 /* ─── Main Component ─── */
-export default function TipTapEditor({ content, onChange, placeholder }) {
+export default function TipTapEditor({ content, onChange, placeholder, showViewToggle = true }) {
+  const hasVisuals = content && typeof content === 'string' && content.includes('ck-visual');
+  const [viewMode, setViewMode] = useState(hasVisuals ? 'preview' : 'edit');
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -119,8 +115,9 @@ export default function TipTapEditor({ content, onChange, placeholder }) {
         autolink: true,
         HTMLAttributes: { class: 'text-brand-green underline' },
       }),
-      Image.configure({
+      ImageExt.configure({
         HTMLAttributes: { class: 'max-w-full rounded my-3' },
+        allowBase64: true,
       }),
       Placeholder.configure({
         placeholder: placeholder || 'Start writing your review...',
@@ -137,7 +134,9 @@ export default function TipTapEditor({ content, onChange, placeholder }) {
       },
     },
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      if (viewMode === 'edit') {
+        onChange(editor.getHTML());
+      }
     },
   });
 
@@ -145,17 +144,70 @@ export default function TipTapEditor({ content, onChange, placeholder }) {
   useEffect(() => {
     if (editor && content !== undefined) {
       const currentHTML = editor.getHTML();
-      // Only update if content genuinely changed from outside
       if (content !== currentHTML && content !== '') {
         editor.commands.setContent(content, false);
+        // If the new content has visuals, auto-switch to preview
+        if (content.includes('ck-visual') && viewMode === 'edit') {
+          setViewMode('preview');
+        }
       }
     }
   }, [content, editor]);
 
   return (
     <div className="border border-gray-700 rounded-lg overflow-hidden bg-dark-bg">
-      <MenuBar editor={editor} />
-      <EditorContent editor={editor} />
+      {/* Header with toolbar + toggle */}
+      <div className="flex items-center justify-between p-2 bg-dark-surface border-b border-gray-700 gap-2">
+        {viewMode === 'edit' && editor ? (
+          <div className="flex flex-wrap items-center gap-0.5 flex-1 min-w-0">
+            <TBtn label="B" isActive={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()} />
+            <TBtn label="I" isActive={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()} />
+            <TBtn label="U" isActive={editor.isActive('underline')} onClick={() => editor.chain().focus().toggleUnderline().run()} />
+            <TBtn label="S" isActive={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()} />
+            <Divider />
+            <TBtn label="H2" isActive={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} />
+            <TBtn label="H3" isActive={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} />
+            <Divider />
+            <TBtn label="• List" isActive={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()} />
+            <TBtn label="1. List" isActive={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
+            <Divider />
+            <TBtn label="Quote" isActive={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
+            <TBtn label="🔗" isActive={editor.isActive('link')} onClick={() => {
+              const prev = editor.getAttributes('link').href;
+              const url = prompt('URL:', prev || 'https://');
+              if (url === null) return;
+              if (url === '') editor.chain().focus().extendMarkRange('link').unsetLink().run();
+              else editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+            }} />
+            <TBtn label="🖼" onClick={() => {
+              const url = prompt('Image URL:');
+              if (url) editor.chain().focus().setImage({ src: url }).run();
+            }} />
+            <Divider />
+            <TBtn label="↩" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} />
+            <TBtn label="↪" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} />
+          </div>
+        ) : (
+          <div className="flex-1 min-w-0">
+            <span className="text-xs text-gray-500 px-1">
+              {viewMode === 'preview'
+                ? (hasVisuals ? '👁 Preview — charts, diagrams, and images rendered below' : '👁 Rendered preview')
+                : '< > Raw HTML source — edit directly'}
+            </span>
+          </div>
+        )}
+
+        {showViewToggle && (
+          <div className="flex-shrink-0">
+            <ViewToggle mode={viewMode} setMode={setViewMode} hasVisuals={hasVisuals} />
+          </div>
+        )}
+      </div>
+
+      {/* Content area */}
+      {viewMode === 'edit' && <EditorContent editor={editor} />}
+      {viewMode === 'preview' && <HtmlPreview html={content} />}
+      {viewMode === 'source' && <SourceEditor html={content} onChange={onChange} />}
     </div>
   );
 }

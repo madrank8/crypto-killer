@@ -224,16 +224,7 @@ function EditableList({ items, onItemChange, onItemRemove, onAddItem, itemType }
 }
 
 /* ─── Source Code Editor ─── */
-function SourceEditor({ html, onChange }) {
-  return (
-    <textarea
-      value={html}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full min-h-[500px] p-4 bg-dark-bg border border-gray-700 rounded-lg font-mono text-sm text-gray-200 focus:outline-none focus:border-red-500 transition"
-      spellCheck={false}
-    />
-  );
-}
+/* SourceEditor removed — now handled by TipTapEditor's built-in HTML mode */
 
 /* ─── Parse evidence images from full_article HTML ─── */
 function parseEvidenceImages(html) {
@@ -285,7 +276,7 @@ export default function ReviewEditor({ params }) {
   const [faqs, setFaqs] = useState([]);
   const [verdict, setVerdict] = useState('');
 
-  const [viewMode, setViewMode] = useState('visual');
+  // viewMode now handled inside TipTapEditor (Edit/Preview/HTML toggle)
   const [activeTab, setActiveTab] = useState('article');
   const [editorKey, setEditorKey] = useState(0);
 
@@ -649,41 +640,17 @@ export default function ReviewEditor({ params }) {
               </button>
             ))}
 
-            {/* Visual / HTML toggle */}
-            {activeTab === 'article' && (
-              <div className="ml-auto flex gap-1">
-                <button
-                  onClick={() => setViewMode('visual')}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition ${
-                    viewMode === 'visual' ? 'bg-white/10 text-white' : 'text-gray-600 hover:text-gray-400'
-                  }`}
-                >
-                  Visual
-                </button>
-                <button
-                  onClick={() => setViewMode('source')}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition ${
-                    viewMode === 'source' ? 'bg-white/10 text-white' : 'text-gray-600 hover:text-gray-400'
-                  }`}
-                >
-                  HTML
-                </button>
-              </div>
-            )}
+            {/* View toggle now built into TipTapEditor */}
           </div>
 
           {/* Tab Content */}
           {activeTab === 'article' && (
-            viewMode === 'visual' ? (
               <TipTapEditor
                 key={editorKey}
                 content={fullArticle}
                 onChange={setFullArticle}
                 placeholder="Start writing your review... Use AI Generate to auto-fill from brand intelligence."
               />
-            ) : (
-              <SourceEditor html={fullArticle} onChange={setFullArticle} />
-            )
           )}
 
           {activeTab === 'redflags' && (
