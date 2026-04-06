@@ -38,6 +38,21 @@ function groupChildrenByParent(topics) {
   return m;
 }
 
+function buildDescendantCountMap(byParent) {
+  const memo = new Map();
+  const visit = (id) => {
+    if (memo.has(id)) return memo.get(id);
+    const children = byParent.get(id) || [];
+    let total = children.length;
+    for (const child of children) {
+      total += visit(child.id);
+    }
+    memo.set(id, total);
+    return total;
+  };
+  return { count: visit };
+}
+
 function TypeBadge({ contentType }) {
   const cls = typeColors[contentType] || typeColors.educational;
   return (
@@ -133,10 +148,11 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
   );
 }
 
-function TopicTree({ topic, byParent, token, onPatch, editingId, setEditingId }) {
+function TopicTree({ topic, byParent, token, onPatch, onDelete, editingId, setEditingId, descendantCountById }) {
   const children = byParent.get(topic.id) || [];
   const isLeaf = children.length === 0;
   const editing = editingId === topic.id;
+  const descendants = descendantCountById.get(topic.id) || 0;
 
   const inner = (
     <div className="flex flex-wrap items-start gap-2 py-2 pl-1">
@@ -166,6 +182,20 @@ function TopicTree({ topic, byParent, token, onPatch, editingId, setEditingId })
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L7.5 21H3v-4.5L14.732 3.732z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="text-red-500/80 hover:text-red-400 p-1"
+          title={descendants > 0 ? `Delete (has ${descendants} subtopics)` : 'Delete topic'}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete(topic, descendants);
+          }}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
           </svg>
         </button>
         {topic.content_type === 'brand_review' ? (
@@ -232,8 +262,10 @@ function TopicTree({ topic, byParent, token, onPatch, editingId, setEditingId })
             byParent={byParent}
             token={token}
             onPatch={onPatch}
+            onDelete={onDelete}
             editingId={editingId}
             setEditingId={setEditingId}
+            descendantCountById={descendantCountById}
           />
         ))}
       </div>
@@ -307,6 +339,14 @@ export default function TopicalMapPage() {
 
   const byParent = useMemo(() => groupChildrenByParent(topics), [topics]);
   const roots = byParent.get('root') || [];
+  const descendantCountById = useMemo(() => {
+    const helper = buildDescendantCountMap(byParent);
+    const m = new Map();
+    for (const t of topics) {
+      m.set(t.id, helper.count(t.id));
+    }
+    return m;
+  }, [byParent, topics]);
 
   const statusCounts = useMemo(() => {
     const c = { planned: 0, in_progress: 0, draft: 0, review: 0, published: 0 };
@@ -398,6 +438,36 @@ export default function TopicalMapPage() {
     }
   };
 
+  const deleteTopic = async (topic, descendants = 0) => {
+    if (!token || !topic?.id) return;
+    const hasChildren = descendants > 0;
+    const shouldDelete = window.confirm(
+      hasChildren
+        ? `"${topic.title}" has ${descendants} subtopic(s).\n\nOK = delete topic + all subtopics\nCancel = abort`
+        : `Delete "${topic.title}"?`
+    );
+    if (!shouldDelete) return;
+
+    try {
+      const res = await fetch(
+        `/api/admin/topical-map/topics/${topic.id}?cascade=${hasChildren ? 'true' : 'false'}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Delete failed');
+      }
+      if (editingId === topic.id) setEditingId(null);
+      await loadTopics();
+      await loadMaps();
+    } catch (e) {
+      alert(`Delete failed: ${e.message}`);
+    }
+  };
+
   if (!token) {
     return <div className="text-gray-500 text-sm">Loading…</div>;
   }
@@ -473,8 +543,10 @@ export default function TopicalMapPage() {
               byParent={byParent}
               token={token}
               onPatch={loadTopics}
+              onDelete={deleteTopic}
               editingId={editingId}
               setEditingId={setEditingId}
+              descendantCountById={descendantCountById}
             />
           ))}
         </div>
