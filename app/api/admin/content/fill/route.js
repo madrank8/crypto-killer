@@ -3,7 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { processVisuals, processVisualsSections } from '@/lib/visual-generator'
+import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
 
 export const maxDuration = 300
 
@@ -20,9 +20,8 @@ function sectionsToHtml(sections = []) {
   return (sections || [])
     .map((s) => {
       const body = String(s.body || '')
-      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text
+      // If body contains HTML block elements (figure, div, img), render as-is
       if (/<(figure|div|img)\b/i.test(body)) {
-        // Split on double newlines, wrap plain text paragraphs in <p>, pass HTML through
         const blocks = body.split(/\n{2,}/)
         const rendered = blocks.map(block => {
           if (/<(figure|div|img)\b/i.test(block)) return block
@@ -40,7 +39,6 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
   const keyword = topic?.target_keyword || topicTitle
   const parentTitle = parentTopic?.title
 
-  // Use the approved outline sections, fill body from description + key_points
   const filledSections = (sections || []).map((s) => ({
     heading: s.heading,
     body: [
@@ -129,10 +127,8 @@ export async function POST(request) {
 
           const sourceLedger = content.sources || []
 
-          // Build an enhanced topic object that includes the approved outline
           const enhancedTopic = {
             ...topic,
-            // Pass outline context so the writer knows what sections to produce
             approved_outline: sections.map((s) => ({
               heading: s.heading,
               description: s.description || '',
@@ -144,7 +140,6 @@ export async function POST(request) {
 
           send({ step: 'writing', progress: 25, message: 'Writing full article with Claude Opus...' })
 
-          // Use the existing writer prompt, augmented with outline structure
           const writerPrompt = topicalArticleWriterPrompt({
             topic: enhancedTopic,
             parentTopic,
@@ -152,7 +147,6 @@ export async function POST(request) {
             icpData,
           })
 
-          // Augment the user prompt with the approved outline
           const outlineBlock = sections
             .map((s, i) => {
               const kp = (s.key_points || []).map((p) => `  - ${p}`).join('\n')
@@ -212,14 +206,10 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           }
 
           // ── Phase 4: Visual Generation ──
-          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] placeholders
-          // and replace with actual rendered visuals
-
           send({ step: 'visuals', progress: 68, message: 'Generating visual assets...' })
 
           let visualMeta = []
           try {
-            // Process visuals in sections (where placeholders live)
             const sectionResult = await processVisualsSections(
               Array.isArray(article.sections) ? article.sections : sections,
               {
@@ -281,7 +271,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           const articleSections = Array.isArray(article.sections) ? article.sections : sections
           const articleFaq = Array.isArray(article.faq) ? article.faq : content.faq || []
-          const fullArticle = sectionsToHtml(articleSections)
+          const fullArticle = stripVerifyTags(sectionsToHtml(articleSections))
           const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
           await supaFetch(`/content?id=eq.${contentId}`, {

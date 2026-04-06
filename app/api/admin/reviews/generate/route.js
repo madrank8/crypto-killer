@@ -4,7 +4,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
-import { processVisuals } from '@/lib/visual-generator'
+import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -979,6 +979,9 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
             console.error('Visual generation phase failed:', vizErr.message)
             send({ step: 'visuals_error', progress: 84, message: 'Visual generation failed — continuing without visuals' })
           }
+
+          // Strip {{VERIFY:}}, {{RESEARCH NEEDED:}}, {{SOURCE NEEDED:}} tags from final HTML
+          fullArticle = stripVerifyTags(fullArticle)
 
           // ═══════════════════════════════════════════════════════════════
           // PHASE 5: QUALITY AUDIT (GPT-4o for fresh perspective, or Claude fallback)
