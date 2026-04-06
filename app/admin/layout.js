@@ -37,6 +37,16 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  topicalMap: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h7M4 10v8M20 10v2a2 2 0 01-2 2h-5l-3 3v-3H6a2 2 0 01-2-2v-2z" />
+    </svg>
+  ),
+  workPlan: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+    </svg>
+  ),
 };
 
 const navItems = [
@@ -44,6 +54,8 @@ const navItems = [
   { href: '/admin/scraper', label: 'Scraper', icon: icons.scraper },
   { href: '/admin/brands', label: 'Funnels', icon: icons.funnels },
   { href: '/admin/reviews', label: 'Reviews', icon: icons.reviews },
+  { href: '/admin/topical-map', label: 'Topical Map', icon: icons.topicalMap },
+  { href: '/admin/work-plan', label: 'Work Plan', icon: icons.workPlan },
   { href: '/admin/settings', label: 'Settings', icon: icons.settings },
 ];
 function NavLink({ href, label, icon, isActive }) {
