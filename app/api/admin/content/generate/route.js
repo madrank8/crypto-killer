@@ -82,6 +82,83 @@ Return 4-8 sources.`,
   }
 }
 
+function buildDeterministicArticle(topic, parentTopic, sourceLedger) {
+  const topicTitle = topic?.title || 'Crypto Scam Guide'
+  const keyword = topic?.target_keyword || topicTitle
+  const parentTitle = parentTopic?.title
+  const parentLine = parentTitle ? `This topic sits under "${parentTitle}".` : ''
+
+  return {
+    title: `${topicTitle}: Safety Guide`,
+    headline: `${topicTitle} — How to Verify Claims and Avoid Losses`,
+    meta_description: `Practical safety guide for ${keyword}. Learn red flags, verification steps, and what to do if targeted.`,
+    summary:
+      `This guide explains how ${keyword} scams typically operate, how to verify claims before sending money, and what steps to take if you were targeted.`,
+    sections: [
+      {
+        heading: `What ${keyword} usually looks like`,
+        body:
+          `${keyword} scams often combine urgency, social proof, and technical jargon to pressure a fast decision. Common patterns include guaranteed return claims, celebrity or authority impersonation, and direct messages that push users off-platform. ${parentLine}`.trim(),
+      },
+      {
+        heading: 'Core red flags to check first',
+        body:
+          'Start with objective checks: registration claims, domain age, support contact quality, and withdrawal terms. If the offer promises fixed returns, requires immediate deposits, or avoids transparent legal/company details, treat it as high risk.',
+      },
+      {
+        heading: 'Verification workflow before depositing',
+        body:
+          'Use a simple sequence: verify legal entity details, confirm regulator records where relevant, inspect domain/WHOIS history, review independent complaint patterns, and test support responses with concrete questions. If multiple checks fail, stop immediately.',
+      },
+      {
+        heading: 'What to do if you already sent funds',
+        body:
+          'Preserve evidence (wallet addresses, transaction IDs, chats, screenshots), notify your payment provider/bank quickly, and report to official channels. Avoid anyone asking for an upfront recovery fee; follow documented reporting paths first.',
+      },
+      {
+        heading: 'Prevention habits for future decisions',
+        body:
+          'Use cooling-off time, independent verification, and strict risk limits. Never rely on social media proof alone. Keep a checklist and require all checks to pass before any transfer. When uncertain, default to not sending funds.',
+      },
+    ],
+    faq: [
+      {
+        question: `Is ${keyword} always a scam?`,
+        answer:
+          'Not every mention of a keyword is automatically fraudulent, but any offer with pressure tactics, guaranteed returns, or unclear legal identity should be treated as high risk until fully verified.',
+      },
+      {
+        question: 'What is the first thing I should verify?',
+        answer:
+          'Verify legal entity and regulatory claims first, then validate domain history and withdrawal terms. If these are vague, inconsistent, or missing, do not deposit.',
+      },
+      {
+        question: 'Can I recover funds after being scammed?',
+        answer:
+          'Recovery depends on payment method and speed of reporting. Collect evidence immediately, contact your provider, and file official reports. Avoid third parties demanding upfront recovery payments.',
+      },
+      {
+        question: 'How should families help a victim?',
+        answer:
+          'Focus on evidence capture, fast reporting, and emotional support. Avoid blame. Help the victim document timelines and freeze further payments while official complaints are filed.',
+      },
+    ],
+    sources: sourceLedger || [],
+    internal_links: [
+      {
+        anchor_text: 'how crypto scam funnels work',
+        target_topic: 'scam mechanics',
+        context: 'Use this when explaining persuasion stages and conversion tactics.',
+      },
+      {
+        anchor_text: 'crypto scam recovery checklist',
+        target_topic: 'recovery',
+        context: 'Use this in post-loss action sections.',
+      },
+    ],
+  }
+}
+
 export async function POST(request) {
   try {
     verifyAdmin(request)
@@ -149,25 +226,49 @@ export async function POST(request) {
             icpData,
           })
 
-          const writeResult = await callModel('claude-opus', writerPrompt.system, writerPrompt.user, {
-            maxTokens: 8192,
-            timeoutMs: 90000,
-          })
-
           let article = null
-          try {
-            article = extractJSON(writeResult.text)
-          } catch {
-            // compact fallback retry
-            const retryResult = await callModel('claude-sonnet', writerPrompt.system, `${writerPrompt.user}\n\nReturn compact JSON.`, {
-              maxTokens: 8192,
-              timeoutMs: 90000,
-            })
-            article = extractJSON(retryResult.text)
+          let writerModelUsed = 'deterministic-fallback'
+
+          const available = getAvailableModels()
+          const writeAttempts = [
+            { model: 'claude-opus', user: writerPrompt.user, timeoutMs: 60000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${writerPrompt.user}\n\nReturn compact JSON only.`, timeoutMs: 45000, label: 'sonnet-compact' },
+            ...(available.google
+              ? [{ model: 'gemini-pro', user: `${writerPrompt.user}\n\nReturn compact JSON only.`, timeoutMs: 45000, jsonMode: true, label: 'gemini-fallback' }]
+              : []),
+          ]
+
+          for (let i = 0; i < writeAttempts.length; i++) {
+            const attempt = writeAttempts[i]
+            if (i > 0) {
+              send({
+                step: 'writing',
+                progress: 52 + i * 6,
+                message: `Retrying writer (${attempt.label})...`,
+              })
+            }
+            try {
+              const res = await callModel(attempt.model, writerPrompt.system, attempt.user, {
+                maxTokens: 8192,
+                timeoutMs: attempt.timeoutMs,
+                ...(attempt.jsonMode ? { jsonMode: true } : {}),
+              })
+              article = extractJSON(res.text)
+              writerModelUsed = res.resolvedModel || attempt.model
+              break
+            } catch (e) {
+              console.error(`Writer attempt failed [${attempt.label}]:`, e.message)
+            }
           }
 
           if (!article || !article.title) {
-            throw new Error('Writer did not return valid article JSON')
+            send({
+              step: 'writing',
+              progress: 70,
+              message: 'AI writer timed out, using deterministic fallback draft...',
+            })
+            article = buildDeterministicArticle(topic, parentTopic, sourceLedger)
+            writerModelUsed = 'deterministic-fallback'
           }
 
           send({ step: 'audit', progress: 72, message: 'Running quality audit...' })
@@ -225,7 +326,7 @@ export async function POST(request) {
               sources: article.sources || sourceLedger,
               word_count: wordCount,
               status: 'draft',
-              ai_model: writeResult.resolvedModel || 'claude-opus',
+              ai_model: writerModelUsed,
               ai_audit: audit,
               updated_at: new Date().toISOString(),
             }),
