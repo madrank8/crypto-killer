@@ -462,18 +462,19 @@ function ScrapeControl({ token, spyowlConnected }) {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // Poll for active job updates
+  // Poll for active job updates — also poll while triggering so we see the job appear
   useEffect(() => {
-    if (!history?.has_active) return;
+    if (!history?.has_active && !triggering) return;
     const interval = setInterval(fetchHistory, 3000);
     return () => clearInterval(interval);
-  }, [history?.has_active, fetchHistory]);
+  }, [history?.has_active, triggering, fetchHistory]);
 
   const handleTrigger = async () => {
     setTriggering(true);
     setTriggerResult(null);
     try {
-      const res = await fetch('/api/admin/scraper/trigger', {
+      // Fire the trigger — don't block the UI waiting for the full scrape to finish
+      const triggerPromise = fetch('/api/admin/scraper/trigger', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -481,8 +482,15 @@ function ScrapeControl({ token, spyowlConnected }) {
         },
         body: JSON.stringify({}),
       });
+
+      // Start polling immediately so ActiveJobPanel appears within seconds
+      setTimeout(fetchHistory, 1500);
+      setTimeout(fetchHistory, 3000);
+
+      // Wait for trigger to eventually return (could be 60+ seconds)
+      const res = await triggerPromise;
       let data;
-      try { data = await res.json(); } catch { data = res.ok ? { success: true, message: 'Scrape initiated' } : { error: `HTTP ${res.status}` }; }
+      try { data = await res.json(); } catch { data = res.ok ? { success: true, message: 'Scrape completed' } : { error: `HTTP ${res.status}` }; }
       setTriggerResult(data);
       fetchHistory();
     } catch (e) {
@@ -514,6 +522,14 @@ function ScrapeControl({ token, spyowlConnected }) {
 
   const activeJob = history?.active_job;
   const hasRuns = history?.runs?.length > 0;
+
+  // Show the most recent completed/failed job as a "just finished" panel for context
+  const justFinished = !activeJob && hasRuns && history.runs[0]
+    && (history.runs[0].status === 'completed' || history.runs[0].status === 'failed')
+    && history.runs[0].finished_at
+    && (Date.now() - new Date(history.runs[0].finished_at).getTime() < 120000) // within last 2 min
+    ? history.runs[0]
+    : null;
 
   const statusColors = {
     pending: 'text-yellow-400 bg-yellow-500/10',
@@ -616,6 +632,9 @@ function ScrapeControl({ token, spyowlConnected }) {
 
         {/* Active job live status panel */}
         {activeJob && <ActiveJobPanel job={activeJob} avgDuration={history?.summary?.avg_duration_seconds} />}
+
+        {/* Just-finished job panel (shows for 2 min after completion) */}
+        {!activeJob && justFinished && <ActiveJobPanel job={justFinished} avgDuration={history?.summary?.avg_duration_seconds} />}
 
         {/* Last scrape summary (when no active job) */}
         {!activeJob && hasRuns && !showHistory && (
