@@ -3,6 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
+import { processVisuals, processVisualsSections } from '@/lib/visual-generator'
 
 export const maxDuration = 300
 
@@ -17,7 +18,20 @@ export const maxDuration = 300
 
 function sectionsToHtml(sections = []) {
   return (sections || [])
-    .map((s) => `<h2>${s.heading || 'Section'}</h2><p>${String(s.body || '').replace(/\n+/g, '<br/>')}</p>`)
+    .map((s) => {
+      const body = String(s.body || '')
+      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text
+      if (/<(figure|div|img)\b/i.test(body)) {
+        // Split on double newlines, wrap plain text paragraphs in <p>, pass HTML through
+        const blocks = body.split(/\n{2,}/)
+        const rendered = blocks.map(block => {
+          if (/<(figure|div|img)\b/i.test(block)) return block
+          return `<p>${block.replace(/\n/g, '<br/>')}</p>`
+        }).join('\n')
+        return `<h2>${s.heading || 'Section'}</h2>\n${rendered}`
+      }
+      return `<h2>${s.heading || 'Section'}</h2><p>${body.replace(/\n+/g, '<br/>')}</p>`
+    })
     .join('\n\n')
 }
 
@@ -55,10 +69,6 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
       { anchor_text: 'how crypto scam funnels work', target_topic: 'scam mechanics', context: 'Explaining persuasion stages.' },
       { anchor_text: 'crypto scam recovery checklist', target_topic: 'recovery', context: 'Post-loss action sections.' },
     ],
-    not_for_you: `This guide may not apply if you are using a regulated, licensed exchange with verified withdrawal history. It also does not cover disputes with legitimate platforms over fees or service quality — only suspected fraud.`,
-    verify_tags_count: 0,
-    reddit_test_passed: false,
-    information_gain_summary: 'Deterministic fallback — no unique information gain analysis available.',
   }
 }
 
@@ -169,8 +179,8 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           const available = getAvailableModels()
           const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 120000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 75000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 90000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, label: 'sonnet-compact' },
             ...(available.google
               ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
@@ -201,8 +211,43 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             writerModelUsed = 'deterministic-fallback'
           }
 
+          // ── Phase 4: Visual Generation ──
+          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] placeholders
+          // and replace with actual rendered visuals
+
+          send({ step: 'visuals', progress: 68, message: 'Generating visual assets...' })
+
+          let visualMeta = []
+          try {
+            // Process visuals in sections (where placeholders live)
+            const sectionResult = await processVisualsSections(
+              Array.isArray(article.sections) ? article.sections : sections,
+              {
+                contentId: contentId,
+                contentType: 'content',
+                aiHelpers: { callModel, extractJSON },
+                onProgress: (step, pct, msg) => send({ step, progress: pct, message: msg }),
+              }
+            )
+
+            if (sectionResult.stats.total > 0) {
+              article.sections = sectionResult.sections
+              visualMeta = sectionResult.allVisuals
+              send({
+                step: 'visuals',
+                progress: 82,
+                message: `Visual generation complete: ${sectionResult.stats.succeeded}/${sectionResult.stats.total} visuals rendered`,
+              })
+            } else {
+              send({ step: 'visuals', progress: 82, message: 'No visual placeholders found — skipping' })
+            }
+          } catch (vizErr) {
+            console.error('Visual generation phase failed:', vizErr.message)
+            send({ step: 'visuals', progress: 82, message: 'Visual generation failed — continuing without visuals' })
+          }
+
           // Quality audit
-          send({ step: 'audit', progress: 70, message: 'Running quality audit...' })
+          send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 
           let audit = null
           try {
@@ -255,10 +300,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               word_count: wordCount,
               ai_model: writerModelUsed,
               ai_audit: audit,
-              not_for_you: article.not_for_you || content.not_for_you || null,
-              verify_tags_count: article.verify_tags_count || 0,
-              reddit_test_passed: article.reddit_test_passed || false,
-              information_gain_summary: article.information_gain_summary || null,
+              visual_meta: visualMeta.length > 0 ? visualMeta : null,
               updated_at: new Date().toISOString(),
             }),
           })

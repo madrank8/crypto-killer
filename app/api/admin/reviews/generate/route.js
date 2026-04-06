@@ -4,6 +4,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
+import { processVisuals } from '@/lib/visual-generator'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -947,6 +948,39 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       : []
 
           // ═══════════════════════════════════════════════════════════════
+          // PHASE 4.5: VISUAL GENERATION
+          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] from fullArticle
+          // and replace with actual rendered visuals (charts, diagrams, AI images)
+          // ═══════════════════════════════════════════════════════════════
+
+          send({ step: 'visuals', progress: 80, message: 'Phase 4.5/5: Generating visual assets...' })
+
+          let visualMeta = []
+          try {
+            const vizResult = await processVisuals(fullArticle, {
+              contentId: brand_id,
+              contentType: 'review',
+              aiHelpers: { callModel, extractJSON },
+              onProgress: (step, pct, msg) => send({ step, progress: pct, message: msg }),
+            })
+
+            if (vizResult.stats.total > 0) {
+              fullArticle = vizResult.html
+              visualMeta = vizResult.visuals
+              send({
+                step: 'visuals_done',
+                progress: 84,
+                message: `Visual generation: ${vizResult.stats.succeeded}/${vizResult.stats.total} visuals rendered`,
+              })
+            } else {
+              send({ step: 'visuals_skip', progress: 84, message: 'No visual placeholders found — skipping' })
+            }
+          } catch (vizErr) {
+            console.error('Visual generation phase failed:', vizErr.message)
+            send({ step: 'visuals_error', progress: 84, message: 'Visual generation failed — continuing without visuals' })
+          }
+
+          // ═══════════════════════════════════════════════════════════════
           // PHASE 5: QUALITY AUDIT (GPT-4o for fresh perspective, or Claude fallback)
           // Runs 7 audit passes: anti-slop, E-E-A-T, source alignment, AI extractability,
           // factual accuracy, tone & voice, schema-content parity
@@ -1065,6 +1099,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
+      visual_meta: visualMeta.length > 0 ? visualMeta : null,
       verify_tags_count: reviewContent.verify_tags_count || 0,
       reddit_test_passed: reviewContent.reddit_test_passed || false,
       information_gain_summary: reviewContent.information_gain_summary || null,

@@ -22,8 +22,20 @@ function detectPhase(content) {
 
 function sectionsToHtml(sections = []) {
   return (sections || [])
-    .map((s) => `<h2>${s.heading || 'Section'}</h2><p>${(s.body || '').replace(/\n+/g, '<br/>')}</p>`)
-    .join('\n');
+    .map((s) => {
+      const body = String(s.body || '')
+      // If body contains HTML block elements (figure, div, img), render as-is
+      if (/<(figure|div|img)\b/i.test(body)) {
+        const blocks = body.split(/\n{2,}/)
+        const rendered = blocks.map(block => {
+          if (/<(figure|div|img)\b/i.test(block)) return block
+          return `<p>${block.replace(/\n/g, '<br/>')}</p>`
+        }).join('\n')
+        return `<h2>${s.heading || 'Section'}</h2>\n${rendered}`
+      }
+      return `<h2>${s.heading || 'Section'}</h2><p>${body.replace(/\n+/g, '<br/>')}</p>`
+    })
+    .join('\n\n')
 }
 
 /* -- SSE reader helper -- */

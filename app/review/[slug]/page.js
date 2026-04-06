@@ -325,6 +325,22 @@ export default async function ReviewPage({ params }) {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Main Content - Col Span 2 */}
               <div className="lg:col-span-2 space-y-10">
+                {/* Full Article (with embedded visuals) — takes priority if available */}
+                {review.full_article && review.full_article.includes('ck-visual') ? (
+                  <div>
+                    <SectionTitle icon={FileText}>Investigation Report</SectionTitle>
+                    <div
+                      className="prose prose-invert prose-slate max-w-none text-slate-300 leading-relaxed
+                        [&_figure]:my-6 [&_figure]:text-center
+                        [&_figcaption]:text-slate-400 [&_figcaption]:text-sm [&_figcaption]:mt-2
+                        [&_img]:rounded-xl [&_img]:border [&_img]:border-slate-800 [&_img]:mx-auto
+                        [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-10 [&_h2]:mb-4
+                        [&_p]:mb-4 [&_p]:text-slate-300"
+                      dangerouslySetInnerHTML={{ __html: review.full_article }}
+                    />
+                  </div>
+                ) : (
+                  <>
                 {/* Investigation Summary */}
                 {review.summary && (
                   <div>
@@ -424,6 +440,8 @@ export default async function ReviewPage({ params }) {
                       ))}
                     </div>
                   </div>
+                )}
+                  </>
                 )}
               </div>
 
