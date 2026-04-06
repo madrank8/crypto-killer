@@ -1,4 +1,13 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
+import { timingSafeEqual } from 'crypto';
+
+function safeCompare(a, b) {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 /**
  * POST /api/admin/scraper/webhook
@@ -14,7 +23,7 @@ export async function POST(request) {
       process.env.SCRAPER_SECRET,
     ].filter(Boolean);
 
-    if (!token || !validTokens.includes(token)) {
+    if (!token || !validTokens.some(t => safeCompare(token, t))) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

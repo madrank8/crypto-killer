@@ -4,5 +4,13 @@
       "path": "/api/cron/scrape",
       "schedule": "0 0 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/cron/scrape/route.js": {
+      "maxDuration": 60
+    },
+    "app/api/admin/scraper/trigger/route.js": {
+      "maxDuration": 60
+    }
+  }
 }

@@ -1,209 +1,212 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
+import { supaFetch } from '@/lib/supabase';
+import {
+  cleanupStaleJobs,
+  getSpyOwlCookie,
+  validateSpyOwl,
+  getActiveJob,
+  createJob,
+  failJob,
+  runScrapeLoop,
+} from '@/lib/scraper';
 
-const SPYOWL_API = 'https://api.spyowl.icu';
-const STALE_JOB_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
-
-async function supaFetch(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    apikey: SUPABASE_ANON_KEY,
-    ...(options.headers || {}),
-  };
-  const url = `${SUPABASE_URL}/rest/v1${path}`;
-  const res = await fetch(url, {
-    method: options.method || 'GET', headers, body: options.body,
-  });
-  if (!res.ok) throw new Error(`Supabase ${res.status}`);
-  if (options.method === 'HEAD' || options.method === 'PATCH') return null;
-  return res.json();
-}
-
-async function cleanupStaleJobs() {
-  const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS).toISOString();
-  try {
-    await supaFetch(
-      `/sync_runs?status=in.("pending","running")&started_at=lt.${cutoff}`,
-      {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          status: 'failed',
-          finished_at: new Date().toISOString(),
-          error_message: 'Auto-failed: job exceeded 1-hour timeout',
-        }),
-      }
-    );
-  } catch (e) {
-    console.error('Cron stale job cleanup failed:', e.message);
-  }
-}
-
-async function getSpyOwlCookie() {
-  try {
-    const rows = await supaFetch('/settings?key=eq.spyowl_cookie&select=value');
-    const token = rows?.[0]?.value?.trim() || '';
-    if (!token) return '';
-    return token.includes('=') ? token : `__Secure-spyowl.session_token=${token}`;
-  } catch {
-    return '';
-  }
-}
+const BATCHES_PER_CHUNK = 3; // Process 3 batches per invocation (~1500 creatives)
+const MAX_CHAINS = 200; // Safety limit to prevent infinite loops
 
 /**
  * GET /api/cron/scrape
  * Vercel Cron Job — runs every 24 hours at midnight UTC
- * Secured by CRON_SECRET env var
+ *
+ * Self-chaining: processes BATCHES_PER_CHUNK batches, then calls itself
+ * with ?resume=SKIP&job=JOB_ID&chain=N to continue in a new invocation.
+ * This keeps each function call within Vercel's timeout limits.
  */
 export async function GET(request) {
   try {
-    // Verify cron authorization
-    const authHeader = request.headers.get('Authorization') || '';
+    // ─── AUTH (required, never optional) ───
     const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      console.error('[cron] CRON_SECRET not configured');
+      return Response.json({ error: 'Server misconfigured: CRON_SECRET not set' }, { status: 500 });
+    }
 
-    if (cronSecret) {
-      const token = authHeader.replace('Bearer ', '').trim();
-      if (token !== cronSecret) {
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    const authHeader = request.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (token !== cronSecret) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // ─── Parse continuation params ───
+    const url = new URL(request.url);
+    const resumeSkip = parseInt(url.searchParams.get('resume') || '0', 10);
+    const existingJobId = url.searchParams.get('job') || null;
+    const chainCount = parseInt(url.searchParams.get('chain') || '0', 10);
+    const isResume = resumeSkip > 0 && existingJobId;
+
+    // Safety: prevent infinite chain loops
+    if (chainCount >= MAX_CHAINS) {
+      console.error(`[cron] Max chain limit (${MAX_CHAINS}) reached, aborting`);
+      if (existingJobId) {
+        await supaFetch(`/sync_runs?id=eq.${existingJobId}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            status: 'failed',
+            finished_at: new Date().toISOString(),
+            error_message: `Aborted: exceeded max chain limit of ${MAX_CHAINS} invocations`,
+          }),
+        }).catch(() => {});
+      }
+      return Response.json({ error: 'Max chain limit reached' }, { status: 500 });
+    }
+
+    // ─── SETUP (only on first invocation) ───
+    let jobId = existingJobId;
+    let cookie;
+
+    if (!isResume) {
+      await cleanupStaleJobs();
+
+      // Check for existing running job
+      const active = await getActiveJob();
+      if (active) {
+        return Response.json({
+          skipped: true,
+          reason: 'Scrape already in progress',
+          existing_job: active,
+        });
+      }
+
+      // Validate SpyOwl
+      cookie = await getSpyOwlCookie();
+      const spyowlOk = await validateSpyOwl(cookie);
+
+      if (!spyowlOk) {
+        // Log a failed job so it shows in history
+        const failedJob = await createJob('scheduled');
+        const msg = cookie ? 'SpyOwl API unreachable or cookie expired' : 'No SpyOwl cookie configured';
+        await failJob(failedJob.id, msg);
+        return Response.json({ success: false, error: msg }, { status: 503 });
+      }
+
+      // Create the job
+      const job = await createJob('scheduled');
+      jobId = job.id;
+    } else {
+      // Resuming — get cookie for continued scraping
+      cookie = await getSpyOwlCookie();
+      if (!cookie) {
+        await failJob(jobId, 'Cookie expired mid-scrape');
+        return Response.json({ success: false, error: 'Cookie expired mid-scrape' }, { status: 503 });
       }
     }
 
-    // Auto-fail stale jobs before checking for conflicts
-    await cleanupStaleJobs();
-
-    // Check if there's already a running/pending scrape
-    const pending = await supaFetch(
-      '/sync_runs?status=in.("pending","running")&select=id,status,started_at&limit=1'
-    );
-    if (pending && pending.length > 0) {
-      return Response.json({
-        skipped: true,
-        reason: 'Scrape already in progress',
-        existing_job: pending[0],
-      });
-    }
-
-    // Check SpyOwl connectivity
-    const cookie = await getSpyOwlCookie();
-    if (!cookie) {
-      await supaFetch('/sync_runs', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          status: 'failed',
-          trigger_type: 'scheduled',
-          started_at: new Date().toISOString(),
-          finished_at: new Date().toISOString(),
-          error_message: 'No SpyOwl cookie configured',
-        }),
-      });
-      return Response.json(
-        { success: false, error: 'No SpyOwl cookie configured' },
-        { status: 503 }
-      );
-    }
-
-    // Verify SpyOwl is reachable
-    let spyowlOk = false;
-    try {
-      const res = await fetch(`${SPYOWL_API}/user/me`, {
-        headers: { Cookie: cookie },
-        signal: AbortSignal.timeout(5000),
-      });
-      spyowlOk = res.ok;
-    } catch {
-      spyowlOk = false;
-    }
-
-    if (!spyowlOk) {
-      await supaFetch('/sync_runs', {
-        method: 'POST',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          status: 'failed',
-          trigger_type: 'scheduled',
-          started_at: new Date().toISOString(),
-          finished_at: new Date().toISOString(),
-          error_message: 'SpyOwl API unreachable or cookie expired',
-        }),
-      });
-      return Response.json(
-        { success: false, error: 'SpyOwl unreachable' },
-        { status: 503 }
-      );
-    }
-
-    // Create the scrape job
-    const inserted = await supaFetch('/sync_runs?select=id', {
-      method: 'POST',
-      headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({
-        status: 'running',
-        trigger_type: 'scheduled',
-        started_at: new Date().toISOString(),
-        creatives_synced: 0,
-        brands_updated: 0,
-        new_creatives: 0,
-        new_brands: 0,
-        total_api: 0,
-      }),
+    // ─── RUN SCRAPE CHUNK ───
+    const result = await runScrapeLoop({
+      jobId,
+      cookie,
+      startSkip: resumeSkip,
+      maxBatches: BATCHES_PER_CHUNK,
+      skipBrandRebuild: true, // We handle brand rebuild after all chunks
     });
 
-    const job = inserted?.[0];
+    // ─── CONTINUE OR FINALIZE ───
+    if (result.hasMore && !result.abortedEarly) {
+      // More data to fetch — chain to next invocation
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : 'http://localhost:3000';
 
-    // Test SpyOwl creative API with a tiny fetch
-    let triggered = false;
-    let triggerError = null;
-    try {
-      const testRes = await fetch(`${SPYOWL_API}/creative/all?skip=0&limit=1&pageType=all&creativeType=all`, {
-        headers: { Cookie: cookie },
-        signal: AbortSignal.timeout(10000),
+      const nextUrl = `${siteUrl}/api/cron/scrape?resume=${result.nextSkip}&job=${jobId}&chain=${chainCount + 1}`;
+
+      // Fire-and-forget: trigger next chunk
+      fetch(nextUrl, {
+        headers: { Authorization: `Bearer ${cronSecret}` },
+        signal: AbortSignal.timeout(5000),
+      }).catch(e => {
+        console.error('[cron] Failed to chain next chunk:', e.message);
       });
-      if (testRes.ok) {
-        triggered = true;
-      } else {
-        const text = await testRes.text().catch(() => '');
-        triggerError = `SpyOwl creative API ${testRes.status}: ${text.slice(0, 200)}`;
-      }
+
+      return Response.json({
+        continuing: true,
+        job_id: jobId,
+        chain: chainCount + 1,
+        skip: result.nextSkip,
+        fetched_this_chunk: result.totalFetched,
+      });
+    }
+
+    // All data fetched (or aborted) — rebuild brands and finalize
+    // runScrapeLoop already finalized the job when hasMore=false and skipBrandRebuild=false
+    // But we set skipBrandRebuild=true, so we need to rebuild + finalize here
+
+    const { rebuildBrands } = await import('@/lib/scraper');
+    let brandsUpdated = 0;
+    let brandError = null;
+
+    try {
+      const brandResult = await rebuildBrands();
+      brandsUpdated = brandResult?.brands_updated || 0;
+      console.log(`[cron] Brands rebuilt: ${brandsUpdated}`);
     } catch (e) {
-      triggerError = `SpyOwl creative API error: ${e.message}`;
+      brandError = e.message;
+      console.error('[cron] Brand rebuild failed:', e.message);
     }
 
-    if (!triggered) {
-      // Update job to failed
-      await supaFetch(`/sync_runs?id=eq.${job?.id}`, {
-        method: 'PATCH',
-        headers: { Prefer: 'return=minimal' },
-        body: JSON.stringify({
-          status: 'failed',
-          finished_at: new Date().toISOString(),
-          error_message: triggerError || 'SpyOwl creative API unreachable',
-        }),
-      }).catch(() => {});
-      return Response.json({ success: false, error: triggerError }, { status: 502 });
+    // Finalize the job
+    const globalTotal = result.nextSkip; // total creatives processed across all chunks
+    const finishedAt = new Date().toISOString();
+
+    let finalStatus = 'completed';
+    let errorMessage = null;
+
+    if (globalTotal === 0) {
+      finalStatus = 'failed';
+      errorMessage = 'No creatives fetched';
+    } else if (result.abortedEarly || brandError) {
+      const parts = [];
+      if (result.abortedEarly) parts.push('Aborted after consecutive batch failures');
+      if (brandError) parts.push(`Brand rebuild failed: ${brandError}`);
+      errorMessage = parts.join('. ');
     }
 
-    // Cron validated connectivity - mark job for manual trigger
-    // Full scrape logic lives in POST /api/admin/scraper/trigger
-    // Cron just confirms SpyOwl is alive and logs the check
-    await supaFetch(`/sync_runs?id=eq.${job?.id}`, {
+    await supaFetch(`/sync_runs?id=eq.${jobId}`, {
       method: 'PATCH',
       headers: { Prefer: 'return=minimal' },
       body: JSON.stringify({
-        status: 'completed',
-        finished_at: new Date().toISOString(),
-        error_message: null,
+        status: finalStatus,
+        finished_at: finishedAt,
+        creatives_synced: globalTotal,
+        brands_updated: brandsUpdated,
+        new_creatives: globalTotal,
+        total_api: result.spyowlTotal,
+        error_message: errorMessage,
+        progress: {
+          phase: 'done',
+          percent: 100,
+          message: errorMessage
+            ? `Done with warnings: ${globalTotal.toLocaleString()} creatives`
+            : `Done! ${globalTotal.toLocaleString()} creatives, ${brandsUpdated.toLocaleString()} brands`,
+          steps: [
+            { id: 'init', label: 'Cron triggered', status: 'done', ts: new Date().toISOString() },
+            { id: 'scan', label: `${globalTotal.toLocaleString()} creatives synced`, status: result.abortedEarly ? 'warning' : 'done', ts: new Date().toISOString() },
+            { id: 'brands', label: brandError ? 'Brand rebuild failed' : `${brandsUpdated.toLocaleString()} brands updated`, status: brandError ? 'warning' : 'done', ts: new Date().toISOString() },
+            { id: 'done', label: errorMessage ? 'Completed with warnings' : 'Scrape complete', status: errorMessage ? 'warning' : 'done', ts: finishedAt },
+          ],
+        },
       }),
-    }).catch(() => {});
+    }).catch(e => console.error('[cron] finalize failed:', e.message));
 
     return Response.json({
       success: true,
-      job_id: job?.id,
+      job_id: jobId,
       trigger_type: 'scheduled',
-      spyowl_alive: true,
-      message: 'SpyOwl connectivity verified — creative API is reachable',
+      creatives_fetched: globalTotal,
+      brands_updated: brandsUpdated,
+      chains_used: chainCount + 1,
+      error_message: errorMessage,
     });
   } catch (error) {
+    console.error('[cron] Fatal error:', error.message);
     return Response.json({ error: error.message }, { status: 500 });
   }
 }

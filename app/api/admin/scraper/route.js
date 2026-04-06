@@ -1,53 +1,18 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase'
+import { supaFetch, fetchAllRows } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-
-const SPYOWL_API = 'https://api.spyowl.icu'
-
-async function supaFetch(path, { head = false, count = false } = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    apikey: SUPABASE_ANON_KEY,
-  }
-  if (count) headers['Prefer'] = 'count=exact'
-  const url = `${SUPABASE_URL}/rest/v1${path}`
-  const res = await fetch(url, { method: head ? 'HEAD' : 'GET', headers })
-  if (!res.ok) throw new Error(`Supabase ${res.status}`)
-  let totalCount = null
-  const range = res.headers.get('content-range')
-  if (range) {
-    const m = range.match(/\/(\d+)$/)
-    if (m) totalCount = parseInt(m[1], 10)
-  }
-  if (head) return { data: null, count: totalCount }
-  const data = await res.json()
-  return { data, count: totalCount }
-}
-
-async function fetchAllRows(basePath, selectFields, pageSize = 1000) {
-  const allRows = [];
-  let offset = 0;
-  while (true) {
-    const sep = basePath.includes('?') ? '&' : '?';
-    const { data } = await supaFetch(`${basePath}${sep}select=${selectFields}&limit=${pageSize}&offset=${offset}`);
-    if (!data || data.length === 0) break;
-    allRows.push(...data);
-    if (data.length < pageSize) break;
-    offset += pageSize;
-  }
-  return allRows;
-}
+import { SPYOWL_API, getSpyOwlCookie } from '@/lib/scraper'
 
 async function getSpyOwlStatus() {
   try {
-    const { data: settings } = await supaFetch('/settings?key=eq.spyowl_cookie&select=value,updated_at');
-    const cookie = settings?.[0]?.value || '';
+    // Get cookie + age info from settings
+    const settings = await supaFetch('/settings?key=eq.spyowl_cookie&select=value,updated_at');
+    const cookieValue = settings?.[0]?.value || '';
     const updatedAt = settings?.[0]?.updated_at || null;
-    if (!cookie) return { connected: false, cookie_age_hours: null, updated_at: null };
+    if (!cookieValue) return { connected: false, cookie_age_hours: null, updated_at: null };
 
-    const cookieHeader = cookie.includes('=') ? cookie : `__Secure-spyowl.session_token=${cookie}`;
+    const cookie = await getSpyOwlCookie();
     const res = await fetch(`${SPYOWL_API}/user/me`, {
-      headers: { Cookie: cookieHeader },
+      headers: { Cookie: cookie },
       signal: AbortSignal.timeout(5000),
     });
     const ageMs = updatedAt ? Date.now() - new Date(updatedAt).getTime() : null;
@@ -73,16 +38,16 @@ export async function GET(request) {
       recentBrands,
       creatives,
     ] = await Promise.all([
-      supaFetch('/scam_brands?select=id', { head: true, count: true }),
-      supaFetch('/creatives?select=id', { head: true, count: true }),
+      supaFetch('/scam_brands?select=id', { method: 'HEAD', headers: { Prefer: 'count=exact' } }),
+      supaFetch('/creatives?select=id', { method: 'HEAD', headers: { Prefer: 'count=exact' } }),
       getSpyOwlStatus(),
       fetchAllRows('/scam_brands', 'id,name,slug,velocity_7d,velocity_trend,total_creatives,total_geos,total_celebrities,scam_score,first_seen_at,last_seen_at,created_at'),
       supaFetch('/scam_brands?select=id,name,slug,total_creatives,velocity_7d,scam_score,created_at&order=created_at.desc&limit=20'),
       supaFetch('/creatives?select=id,created_at&order=created_at.desc&limit=1'),
     ]);
 
-    const totalBrands = brandsCount.count || brands.length;
-    const totalCreatives = creativesCount.count || 0;
+    const totalBrands = brandsCount?.count || brands.length;
+    const totalCreatives = creativesCount?.count || 0;
 
     const now = new Date();
     const oneDayAgo = new Date(now - 86400000);
@@ -107,7 +72,7 @@ export async function GET(request) {
     const brandsWithCelebs = brands.filter(b => b.total_celebrities > 0).length;
     const totalCelebMentions = brands.reduce((sum, b) => sum + (b.total_celebrities || 0), 0);
 
-    const lastCreativeAt = creatives.data?.[0]?.created_at || null;
+    const lastCreativeAt = creatives?.[0]?.created_at || null;
     const staleBrands = brands.filter(b => {
       if (!b.last_seen_at) return false;
       return new Date(b.last_seen_at) < sevenDaysAgo && b.velocity_trend !== 'dead';
@@ -148,7 +113,7 @@ export async function GET(request) {
         total_celebrities: b.total_celebrities,
       }));
 
-    const recentlyDiscovered = (recentBrands.data || []).map(b => ({
+    const recentlyDiscovered = (recentBrands || []).map(b => ({
       id: b.id,
       name: b.name,
       slug: b.slug,

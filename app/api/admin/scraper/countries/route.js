@@ -1,32 +1,5 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
+import { fetchAllRows } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
-
-async function supaFetch(path) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    apikey: SUPABASE_ANON_KEY,
-  };
-  const url = `${SUPABASE_URL}/rest/v1${path}`;
-  const res = await fetch(url, { method: 'GET', headers });
-  if (!res.ok) throw new Error(`Supabase ${res.status}`);
-  return res.json();
-}
-
-async function fetchAllBrands(pageSize = 1000) {
-  const allRows = [];
-  let offset = 0;
-  while (true) {
-    const data = await supaFetch(
-      `/scam_brands?select=id,name,slug,geo_list,celebrity_list,language_list,velocity_7d,velocity_trend,scam_score,total_creatives,total_geos,total_celebrities,first_seen_at,last_seen_at,created_at&limit=${pageSize}&offset=${offset}`
-    );
-    if (!Array.isArray(data) || data.length === 0) break;
-    allRows.push(...data);
-    if (data.length < pageSize) break;
-    offset += pageSize;
-  }
-  return allRows;
-}
 
 const COUNTRY_NAMES = {
   AF:'Afghanistan',AL:'Albania',DZ:'Algeria',AD:'Andorra',AO:'Angola',AR:'Argentina',AM:'Armenia',AU:'Australia',
@@ -62,7 +35,10 @@ function getCountryFlag(code) {
 export async function GET(request) {
   try {
     verifyAdmin(request);
-    const brands = await fetchAllBrands();
+    const brands = await fetchAllRows(
+      '/scam_brands',
+      'id,name,slug,geo_list,celebrity_list,language_list,velocity_7d,velocity_trend,scam_score,total_creatives,total_geos,total_celebrities,first_seen_at,last_seen_at,created_at'
+    );
     const countryMap = {};
 
     for (const brand of brands) {

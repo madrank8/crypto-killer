@@ -1,52 +1,6 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
+import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
-
-const STALE_JOB_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
-
-async function supaFetch(path, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    apikey: SUPABASE_ANON_KEY,
-    Prefer: options.prefer || 'count=exact',
-  };
-  const url = `${SUPABASE_URL}/rest/v1${path}`;
-  const res = await fetch(url, { method: options.method || 'GET', headers, body: options.body });
-  if (!res.ok) throw new Error(`Supabase ${res.status}`);
-  if (options.method === 'PATCH') return { data: null, total: null };
-  const data = await res.json();
-  const range = res.headers.get('content-range');
-  let total = null;
-  if (range) {
-    const m = range.match(/\/(\d+)$/);
-    if (m) total = parseInt(m[1], 10);
-  }
-  return { data, total };
-}
-
-/**
- * Auto-fail jobs stuck in running/pending for over 1 hour.
- * This prevents a single orphaned job from blocking all future scrapes.
- */
-async function cleanupStaleJobs() {
-  const cutoff = new Date(Date.now() - STALE_JOB_THRESHOLD_MS).toISOString();
-  try {
-    await supaFetch(
-      `/sync_runs?status=in.("pending","running")&started_at=lt.${cutoff}`,
-      {
-        method: 'PATCH',
-        prefer: 'return=minimal',
-        body: JSON.stringify({
-          status: 'failed',
-          finished_at: new Date().toISOString(),
-          error_message: 'Auto-failed: job exceeded 1-hour timeout (SpyOwl never responded)',
-        }),
-      }
-    );
-  } catch (e) {
-    console.error('Stale job cleanup failed:', e.message);
-  }
-}
+import { cleanupStaleJobs } from '@/lib/scraper';
 
 /**
  * GET /api/admin/scraper/history
@@ -63,15 +17,19 @@ export async function GET(request) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '25'), 100);
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
-    const { data: runs, total } = await supaFetch(
-      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,new_brands,total_api,error_message,source,progress&order=started_at.desc&limit=${limit}&offset=${offset}`
+    const result = await supaFetch(
+      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,new_brands,total_api,error_message,source,progress&order=started_at.desc&limit=${limit}&offset=${offset}`,
+      { headers: { Prefer: 'count=exact' } }
     );
 
+    const runs = result?.data || result || [];
+    const total = result?.count || runs.length;
+
     // Check if there's currently a running job
-    const activeJobs = (runs || []).filter(r => r.status === 'running' || r.status === 'pending');
+    const activeJobs = runs.filter(r => r.status === 'running' || r.status === 'pending');
 
     // Calculate summary stats
-    const completedRuns = (runs || []).filter(r => r.status === 'completed');
+    const completedRuns = runs.filter(r => r.status === 'completed');
     const totalCreativesSynced = completedRuns.reduce((sum, r) => sum + (r.creatives_synced || 0), 0);
     const totalBrandsUpdated = completedRuns.reduce((sum, r) => sum + (r.brands_updated || 0), 0);
     const avgDuration = completedRuns.length > 0
@@ -84,8 +42,8 @@ export async function GET(request) {
       : 0;
 
     return Response.json({
-      runs: runs || [],
-      total: total || 0,
+      runs,
+      total,
       has_active: activeJobs.length > 0,
       active_job: activeJobs[0] || null,
       summary: {
@@ -126,7 +84,7 @@ export async function DELETE(request) {
 
     await supaFetch(path, {
       method: 'PATCH',
-      prefer: 'return=minimal',
+      headers: { Prefer: 'return=minimal' },
       body: JSON.stringify({
         status: 'failed',
         finished_at: new Date().toISOString(),
