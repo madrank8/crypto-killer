@@ -33,6 +33,52 @@ function ensureUniqueSlug(base, usedSlugs) {
   return out
 }
 
+async function createTopicWithUniqueSlug({
+  row,
+  slugBase,
+  usedSlugs,
+  selectId = false,
+}) {
+  const base = slugify(slugBase || row.title || 'topic')
+  let attempt = 0
+  let lastError = null
+
+  while (attempt < 30) {
+    const candidate = attempt === 0 ? base : `${base}-${attempt + 1}`
+    if (usedSlugs.has(candidate)) {
+      attempt += 1
+      continue
+    }
+
+    try {
+      const payload = { ...row, slug: candidate }
+      const inserted = await supaFetch(selectId ? '/topics?select=id' : '/topics', {
+        method: 'POST',
+        headers: { Prefer: selectId ? 'return=representation' : 'return=minimal' },
+        body: JSON.stringify(payload),
+      })
+      usedSlugs.add(candidate)
+      if (selectId) {
+        const item = Array.isArray(inserted) ? inserted[0] : inserted
+        return item?.id || null
+      }
+      return null
+    } catch (e) {
+      lastError = e
+      const msg = String(e?.message || '')
+      if (msg.includes('23505') && msg.includes('topics_slug_key')) {
+        attempt += 1
+        continue
+      }
+      throw e
+    }
+  }
+
+  throw new Error(
+    `Unable to allocate unique topic slug for "${row.title || base}": ${lastError?.message || 'unknown error'}`
+  )
+}
+
 function compactPrompt(promptText) {
   return `${promptText}
 
@@ -501,18 +547,16 @@ export async function POST(request) {
               keyword_difficulty: pillar.keyword_difficulty,
               business_value: pBiz,
             })
-            const pSlug = ensureUniqueSlug(pillar.title, usedSlugs)
-
-            const pillarRow = await supaFetch('/topics?select=id', {
-              method: 'POST',
-              headers: { Prefer: 'return=representation' },
-              body: JSON.stringify({
+            const pillarId = await createTopicWithUniqueSlug({
+              slugBase: pillar.title,
+              usedSlugs,
+              selectId: true,
+              row: {
                 map_id: mapId,
                 parent_id: null,
                 topic_type: 'pillar',
                 content_type: pillar.content_type || 'pillar_page',
                 title: pillar.title,
-                slug: pSlug,
                 description: pillar.description || null,
                 target_keyword: pillar.target_keyword || null,
                 secondary_keywords: pillar.secondary_keywords || [],
@@ -526,9 +570,8 @@ export async function POST(request) {
                 sort_order: pi,
                 notes: null,
                 updated_at: nowIso,
-              }),
+              },
             })
-            const pillarId = (Array.isArray(pillarRow) ? pillarRow[0] : pillarRow).id
             topicCount += 1
 
             const clusters = Array.isArray(pillar.clusters) ? pillar.clusters : []
@@ -540,18 +583,16 @@ export async function POST(request) {
                 keyword_difficulty: cluster.keyword_difficulty,
                 business_value: cBiz,
               })
-              const cSlug = ensureUniqueSlug(cluster.title, usedSlugs)
-
-              const clusterRow = await supaFetch('/topics?select=id', {
-                method: 'POST',
-                headers: { Prefer: 'return=representation' },
-                body: JSON.stringify({
+              const clusterId = await createTopicWithUniqueSlug({
+                slugBase: cluster.title,
+                usedSlugs,
+                selectId: true,
+                row: {
                   map_id: mapId,
                   parent_id: pillarId,
                   topic_type: 'cluster',
                   content_type: cluster.content_type || 'educational',
                   title: cluster.title,
-                  slug: cSlug,
                   description: cluster.description || null,
                   target_keyword: cluster.target_keyword || null,
                   secondary_keywords: cluster.secondary_keywords || [],
@@ -565,9 +606,8 @@ export async function POST(request) {
                   sort_order: ci,
                   notes: null,
                   updated_at: nowIso,
-                }),
+                },
               })
-              const clusterId = (Array.isArray(clusterRow) ? clusterRow[0] : clusterRow).id
               topicCount += 1
 
               const supporting = Array.isArray(cluster.supporting) ? cluster.supporting : []
@@ -599,18 +639,16 @@ export async function POST(request) {
                   }
                 }
 
-                const sSlug = ensureUniqueSlug(slugBase, usedSlugs)
-
-                await supaFetch('/topics', {
-                  method: 'POST',
-                  headers: { Prefer: 'return=minimal' },
-                  body: JSON.stringify({
+                await createTopicWithUniqueSlug({
+                  slugBase,
+                  usedSlugs,
+                  selectId: false,
+                  row: {
                     map_id: mapId,
                     parent_id: clusterId,
                     topic_type: nType,
                     content_type: node.content_type || 'educational',
                     title: node.title,
-                    slug: sSlug,
                     description: node.description || null,
                     target_keyword: node.target_keyword || null,
                     secondary_keywords: node.secondary_keywords || [],
@@ -626,7 +664,7 @@ export async function POST(request) {
                     sort_order: si,
                     notes: null,
                     updated_at: nowIso,
-                  }),
+                  },
                 })
                 topicCount += 1
               }
