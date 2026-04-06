@@ -102,7 +102,7 @@ export async function POST(request) {
 
           send({ step: 'researching', progress: 15, message: 'Keyword research (Gemini + search)...' })
 
-          const researchModel = getAvailableModels().google ? 'gemini-flash' : 'claude-haiku'
+          const researchModel = getAvailableModels().google ? 'gemini-pro' : 'claude-haiku'
           const kwPrompt = topicalMapKeywordResearchPrompt({
             nicheDescription,
             icpSummary,
@@ -143,8 +143,8 @@ export async function POST(request) {
           const attempts = [
             { model: 'claude-opus', user: genPrompt.user, jsonMode: false, label: 'opus-primary' },
             { model: 'claude-sonnet', user: compactPrompt(genPrompt.user), jsonMode: false, label: 'sonnet-compact-retry' },
-            ...(availableModels.openai
-              ? [{ model: 'gpt-4o', user: compactPrompt(genPrompt.user), jsonMode: true, label: 'gpt-json-fallback' }]
+            ...(availableModels.google
+              ? [{ model: 'gemini-pro', user: compactPrompt(genPrompt.user), jsonMode: true, label: 'gemini-json-fallback' }]
               : []),
           ]
 
