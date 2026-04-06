@@ -162,7 +162,7 @@ function AdminAuthGate({ children }) {
     );
   }
   // Check if we're on a review editor page
-  const isEditorPage = pathname.startsWith('/admin/review/');
+  const isEditorPage = pathname.startsWith('/admin/review/') || pathname.startsWith('/admin/content/');
 
   return (
     <div className="min-h-screen bg-dark-bg flex">

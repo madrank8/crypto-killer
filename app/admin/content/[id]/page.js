@@ -373,7 +373,10 @@ export default function ContentEditorPage({ params }) {
       const res = await fetch(`/api/admin/content/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setError('Failed to reload content. Try refreshing the page.');
+        return;
+      }
       const data = await res.json();
       setContent(data);
       setTopic(data.topic || null);
@@ -384,8 +387,9 @@ export default function ContentEditorPage({ params }) {
       setFaq(Array.isArray(data.faq) ? data.faq : []);
       setFullArticle(data.full_article || '');
       setForcePhase(null);
-    } catch {
-      /* silent */
+      setError('');
+    } catch (e) {
+      setError('Reload failed: ' + (e.message || 'network error'));
     }
   };
 
@@ -588,6 +592,7 @@ export default function ContentEditorPage({ params }) {
         </div>
         <div className="flex items-center gap-2">
           {phase === 'article' && (
+            <>
             <button
               type="button"
               onClick={() => setForcePhase('outline')}
@@ -595,6 +600,14 @@ export default function ContentEditorPage({ params }) {
             >
               \u2190 Back to Outline
             </button>
+            <button
+              type="button"
+              onClick={generateArticle}
+              className="text-xs px-3 py-2 rounded-lg border border-amber-500/30 text-amber-300 hover:text-white hover:border-amber-400/60"
+            >
+              Regenerate Article
+            </button>
+            </>
           )}
           {phase === 'outline' && forcePhase === 'outline' && fullArticle && (
             <button
@@ -838,16 +851,30 @@ export default function ContentEditorPage({ params }) {
 
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4 space-y-2">
               <h3 className="text-xs uppercase tracking-wide text-gray-500">Quality</h3>
-              <p className="text-sm text-white">{wordCount.toLocaleString()} words</p>
-              <p className="text-xs text-gray-500">{faq.length} FAQ items</p>
-              <p className="text-xs text-gray-500">Slug: {content.slug}</p>
+              <div className="flex items-baseline justify-between">
+                <p className="text-sm text-white">{wordCount.toLocaleString()} words</p>
+                {content.ai_audit?.overall_score && (
+                  <span className={`text-sm font-semibold ${
+                    content.ai_audit.overall_score >= 80 ? 'text-green-400' :
+                    content.ai_audit.overall_score >= 60 ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    {content.ai_audit.overall_score}/100
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">{sections.length} sections \u00b7 {faq.length} FAQ items</p>
+              <p className="text-xs text-gray-500 font-mono truncate">{content.slug}</p>
               {content.ai_model && (
-                <p className="text-xs text-gray-500">Model: {content.ai_model}</p>
-              )}
-              {content.ai_audit?.overall_score && (
-                <p className="text-xs text-gray-500">Audit: {content.ai_audit.overall_score}/100</p>
+                <p className="text-xs text-gray-600">Model: {content.ai_model}</p>
               )}
             </div>
+
+            {content.summary && (
+              <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
+                <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Summary</h3>
+                <p className="text-xs text-gray-300 leading-relaxed">{content.summary}</p>
+              </div>
+            )}
 
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
               <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-2">Internal Links</h3>

@@ -328,6 +328,8 @@ export default function TopicalMapPage() {
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedKeyword, setSeedKeyword] = useState('');
   const [seedError, setSeedError] = useState('');
+  const [search, setSearch] = useState('');
+  const [toast, setToast] = useState(null);
 
   const loadMaps = useCallback(async () => {
     if (!token) return;
@@ -383,6 +385,23 @@ export default function TopicalMapPage() {
     return m;
   }, [byParent, topics]);
 
+  const filteredRoots = useMemo(() => {
+    if (!search.trim()) return roots;
+    const q = search.toLowerCase();
+    const matchesTopic = (t) =>
+      t.title?.toLowerCase().includes(q) ||
+      t.target_keyword?.toLowerCase().includes(q) ||
+      t.content_type?.toLowerCase().includes(q);
+    const matchesTree = (id) => {
+      const children = byParent.get(id) || [];
+      for (const ch of children) {
+        if (matchesTopic(ch) || matchesTree(ch.id)) return true;
+      }
+      return false;
+    };
+    return roots.filter((r) => matchesTopic(r) || matchesTree(r.id));
+  }, [roots, byParent, search]);
+
   const statusCounts = useMemo(() => {
     const c = { planned: 0, in_progress: 0, draft: 0, review: 0, published: 0 };
     for (const t of topics) {
@@ -390,6 +409,11 @@ export default function TopicalMapPage() {
     }
     return c;
   }, [topics]);
+
+  const showToast = (msg, type = 'error') => {
+    setToast({ msg, type });
+    if (type !== 'error') setTimeout(() => setToast(null), 3000);
+  };
 
   const handleMapChange = (id) => {
     setMapId(id);
@@ -496,7 +520,7 @@ export default function TopicalMapPage() {
       const data = await res.json();
       router.push(`/admin/content/${data.id}`);
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      showToast(e.message);
     } finally {
       setWritingId(null);
     }
@@ -528,7 +552,7 @@ export default function TopicalMapPage() {
       await loadTopics();
       await loadMaps();
     } catch (e) {
-      alert(`Delete failed: ${e.message}`);
+      showToast(`Delete failed: ${e.message}`);
     }
   };
 
@@ -590,17 +614,54 @@ export default function TopicalMapPage() {
         ))}
       </div>
 
-      {loading && <div className="text-gray-500 text-sm">Loading topics\u2026</div>}
-
-      {!loading && mapId && roots.length === 0 && (
-        <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-6">
-          No topics for this map yet. Generate a map to populate the tree.
+      {/* Search / filter */}
+      {mapId && topics.length > 0 && (
+        <div className="relative">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search topics, keywords, types\u2026"
+            className="search-input w-full pl-9 text-sm"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          {search && (
+            <button type="button" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs">
+              Clear
+            </button>
+          )}
         </div>
       )}
 
-      {!loading && mapId && roots.length > 0 && (
+      {loading && <div className="text-gray-500 text-sm">Loading topics\u2026</div>}
+
+      {!loading && mapId && roots.length === 0 && (
+        <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-6 text-center">
+          <p className="text-lg mb-1">{'\ud83c\udf31'}</p>
+          <p className="text-white font-medium mb-1">No topics yet</p>
+          <p>Click "Generate map" above to create a topical map from a seed keyword.</p>
+        </div>
+      )}
+
+      {!loading && !mapId && maps.length > 0 && (
+        <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-6 text-center">
+          <p className="text-lg mb-1">{'\ud83d\udccd'}</p>
+          <p className="text-white font-medium mb-1">Select a map</p>
+          <p>Choose an existing map from the dropdown, or generate a new one.</p>
+        </div>
+      )}
+
+      {!loading && mapId && filteredRoots.length === 0 && roots.length > 0 && (
+        <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-4">
+          No topics match "{search}". <button type="button" onClick={() => setSearch('')} className="text-red-400 hover:text-red-300 underline">Clear search</button>
+        </div>
+      )}
+
+      {!loading && mapId && filteredRoots.length > 0 && (
         <div className="space-y-2">
-          {roots.map((r) => (
+          {filteredRoots.map((r) => (
             <TopicTree
               key={r.id}
               topic={r}
@@ -645,6 +706,18 @@ export default function TopicalMapPage() {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-40 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg text-sm ${
+          toast.type === 'error'
+            ? 'bg-red-900/90 border-red-600/40 text-red-200'
+            : 'bg-green-900/90 border-green-600/40 text-green-200'
+        }`}>
+          <span>{toast.msg}</span>
+          <button type="button" onClick={() => setToast(null)} className="text-current opacity-60 hover:opacity-100">{'\u2715'}</button>
         </div>
       )}
 
