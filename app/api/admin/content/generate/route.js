@@ -27,9 +27,9 @@ async function ensureUniqueContentSlug(base) {
   return `${cleanBase}-${Date.now()}`
 }
 
-function sectionsToMarkdown(sections = []) {
+function sectionsToHtml(sections = []) {
   return (sections || [])
-    .map((s) => `## ${s.heading || 'Section'}\n\n${s.body || ''}`)
+    .map((s) => `<h2>${s.heading || 'Section'}</h2><p>${String(s.body || '').replace(/\n+/g, '<br/>')}</p>`)
     .join('\n\n')
 }
 
@@ -204,7 +204,7 @@ export async function POST(request) {
           const slug = await ensureUniqueContentSlug(article.slug || article.title || topic.title)
           const sections = Array.isArray(article.sections) ? article.sections : []
           const faq = Array.isArray(article.faq) ? article.faq : []
-          const fullArticle = sectionsToMarkdown(sections)
+          const fullArticle = sectionsToHtml(sections)
           const wordCount = fullArticle.split(/\s+/).filter(Boolean).length
 
           const inserted = await supaFetch('/content?select=id,slug', {

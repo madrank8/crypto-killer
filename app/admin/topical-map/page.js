@@ -217,18 +217,33 @@ function TopicTree({
             Generate review
           </Link>
         ) : (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onGenerateContent(topic);
-            }}
-            disabled={contentGeneratingId === topic.id}
-            className="text-xs px-2 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-50"
-          >
-            {contentGeneratingId === topic.id ? 'Generating…' : 'Generate content'}
-          </button>
+          <>
+            {topic.content_id ? (
+              <Link
+                href={`/admin/content/${topic.content_id}`}
+                className="text-xs px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/60"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Edit content
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onGenerateContent(topic);
+              }}
+              disabled={contentGeneratingId === topic.id}
+              className="text-xs px-2 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-50"
+            >
+              {contentGeneratingId === topic.id
+                ? 'Generating…'
+                : topic.content_id
+                  ? 'Regenerate'
+                  : 'Generate content'}
+            </button>
+          </>
         )}
       </div>
     </div>
