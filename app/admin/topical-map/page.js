@@ -258,6 +258,9 @@ export default function TopicalMapPage() {
   const [genMessage, setGenMessage] = useState('');
   const [genError, setGenError] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [seedOpen, setSeedOpen] = useState(false);
+  const [seedKeyword, setSeedKeyword] = useState('');
+  const [seedError, setSeedError] = useState('');
 
   const loadMaps = useCallback(async () => {
     if (!token) return;
@@ -322,20 +325,28 @@ export default function TopicalMapPage() {
     router.replace(`/admin/topical-map?${params.toString()}`);
   };
 
-  const runGenerate = async () => {
+  const runGenerate = async (topicKeyword) => {
     if (!token) return;
+    const keyword = String(topicKeyword || '').trim();
+    if (!keyword) {
+      setSeedError('Topic / keyword is required');
+      return;
+    }
+
     setGenerating(true);
     setGenOpen(true);
     setGenError(null);
     setGenProgress(2);
     setGenStep('init');
-    setGenMessage('Starting…');
+    setGenMessage(`Starting with seed topic: "${keyword}"…`);
+    setSeedOpen(false);
+    setSeedError('');
 
     try {
       const res = await fetch('/api/admin/topical-map/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ topic_keyword: keyword }),
       });
 
       if (!res.ok) {
@@ -402,7 +413,10 @@ export default function TopicalMapPage() {
         </div>
         <button
           type="button"
-          onClick={runGenerate}
+          onClick={() => {
+            setSeedError('');
+            setSeedOpen(true);
+          }}
           disabled={generating}
           className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition disabled:opacity-50"
         >
@@ -491,6 +505,51 @@ export default function TopicalMapPage() {
                 Close
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {seedOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg">Seed Topic</h3>
+            <p className="text-gray-500 text-sm mt-1">
+              Enter the topic/keyword to build this topical map around.
+            </p>
+
+            <input
+              type="text"
+              autoFocus
+              value={seedKeyword}
+              onChange={(e) => setSeedKeyword(e.target.value)}
+              placeholder="e.g. pig butchering scam"
+              className="search-input w-full mt-4"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') runGenerate(seedKeyword);
+              }}
+            />
+
+            {seedError && <p className="text-red-400 text-sm mt-2">{seedError}</p>}
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white"
+                onClick={() => runGenerate(seedKeyword)}
+              >
+                Generate
+              </button>
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
+                onClick={() => {
+                  setSeedOpen(false);
+                  setSeedError('');
+                }}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

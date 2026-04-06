@@ -45,7 +45,7 @@ RELIABILITY OVERRIDE:
 /**
  * POST /api/admin/topical-map/generate
  * SSE: init → researching → generating → saving → done
- * Body (optional): { name, description, niche }
+ * Body: { topic_keyword, name?, description?, niche? }
  */
 export async function POST(request) {
   try {
@@ -57,13 +57,20 @@ export async function POST(request) {
     } catch {
       body = {}
     }
-    const mapName = body.name || `Topical Map ${new Date().toISOString().slice(0, 10)}`
+    const topicKeyword = String(body.topic_keyword || '').trim()
+    if (!topicKeyword) {
+      return Response.json({ error: 'topic_keyword is required' }, { status: 400 })
+    }
+
+    const mapName =
+      body.name ||
+      `Topical Map: ${topicKeyword} (${new Date().toISOString().slice(0, 10)})`
     const mapDescription =
       body.description ||
-      'AI-generated topical map for crypto scam education and investigations.'
+      `AI-generated topical map for "${topicKeyword}" and related crypto scam investigations.`
     const nicheDescription =
       body.niche ||
-      'Cryptocurrency investment fraud: pig butchering, fake trading apps, celebrity deepfake ads, recovery, and prevention.'
+      `Primary seed topic: ${topicKeyword}. Build a topical authority map around this seed in the crypto scam domain (education, investigation, prevention, recovery, and comparisons).`
 
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
