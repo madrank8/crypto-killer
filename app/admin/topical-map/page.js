@@ -57,7 +57,7 @@ function TypeBadge({ contentType }) {
   const cls = typeColors[contentType] || typeColors.educational;
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${cls}`}>
-      {contentType?.replace(/_/g, ' ') || '—'}
+      {contentType?.replace(/_/g, ' ') || '\u2014'}
     </span>
   );
 }
@@ -66,7 +66,7 @@ function StatusBadge({ status }) {
   const cls = statusColors[status] || statusColors.planned;
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${cls}`}>
-      {status?.replace(/_/g, ' ') || '—'}
+      {status?.replace(/_/g, ' ') || '\u2014'}
     </span>
   );
 }
@@ -138,7 +138,7 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
       />
       <div className="flex gap-2">
         <button type="button" onClick={save} disabled={saving} className="btn btn-primary text-sm px-3 py-1.5">
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? 'Saving\u2026' : 'Save'}
         </button>
         <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-300">
           Cancel
@@ -154,8 +154,8 @@ function TopicTree({
   token,
   onPatch,
   onDelete,
-  onGenerateContent,
-  contentGeneratingId,
+  onWriteArticle,
+  writingId,
   editingId,
   setEditingId,
   descendantCountById,
@@ -224,25 +224,22 @@ function TopicTree({
                 className="text-xs px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/60"
                 onClick={(e) => e.stopPropagation()}
               >
-                Edit content
+                Edit article
               </Link>
-            ) : null}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onGenerateContent(topic);
-              }}
-              disabled={contentGeneratingId === topic.id}
-              className="text-xs px-2 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-50"
-            >
-              {contentGeneratingId === topic.id
-                ? 'Generating…'
-                : topic.content_id
-                  ? 'Regenerate'
-                  : 'Generate content'}
-            </button>
+            ) : (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onWriteArticle(topic);
+                }}
+                disabled={writingId === topic.id}
+                className="text-xs px-2 py-1 rounded-lg border border-green-500/30 text-green-300 hover:text-white hover:border-green-400/60 disabled:opacity-50"
+              >
+                {writingId === topic.id ? 'Opening\u2026' : 'Write article'}
+              </button>
+            )}
           </>
         )}
       </div>
@@ -272,7 +269,7 @@ function TopicTree({
     <details open className="border border-gray-800/60 rounded-xl bg-gray-900/40 mb-2">
       <summary className="cursor-pointer list-none px-3 py-2 rounded-xl hover:bg-white/[0.03]">
         <div className="flex flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
-          <span className="text-gray-500 text-xs mr-1">▸</span>
+          <span className="text-gray-500 text-xs mr-1">\u25b8</span>
           {inner}
         </div>
       </summary>
@@ -298,8 +295,8 @@ function TopicTree({
             token={token}
             onPatch={onPatch}
             onDelete={onDelete}
-            onGenerateContent={onGenerateContent}
-            contentGeneratingId={contentGeneratingId}
+            onWriteArticle={onWriteArticle}
+            writingId={writingId}
             editingId={editingId}
             setEditingId={setEditingId}
             descendantCountById={descendantCountById}
@@ -327,7 +324,7 @@ export default function TopicalMapPage() {
   const [genMessage, setGenMessage] = useState('');
   const [genError, setGenError] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [contentGeneratingId, setContentGeneratingId] = useState(null);
+  const [writingId, setWritingId] = useState(null);
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedKeyword, setSeedKeyword] = useState('');
   const [seedError, setSeedError] = useState('');
@@ -416,7 +413,7 @@ export default function TopicalMapPage() {
     setGenError(null);
     setGenProgress(2);
     setGenStep('init');
-    setGenMessage(`Starting with seed topic: "${keyword}"…`);
+    setGenMessage(`Starting with seed topic: "${keyword}"\u2026`);
     setSeedOpen(false);
     setSeedError('');
 
@@ -476,59 +473,32 @@ export default function TopicalMapPage() {
     }
   };
 
-  const generateContentForTopic = async (topic) => {
+  /**
+   * Write article: create blank content \u2192 redirect to editor
+   * Replaces the old generateContentForTopic SSE flow.
+   */
+  const writeArticle = async (topic) => {
     if (!token || !topic?.id) return;
-    setContentGeneratingId(topic.id);
-    setGenOpen(true);
-    setGenerating(true);
-    setGenError(null);
-    setGenProgress(5);
-    setGenStep('init');
-    setGenMessage(`Starting article generation for "${topic.title}"...`);
-
+    setWritingId(topic.id);
     try {
-      const res = await fetch('/api/admin/content/generate', {
+      const res = await fetch('/api/admin/content/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ topic_id: topic.id }),
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errData.error || `HTTP ${res.status}`);
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to create content');
       }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (typeof data.progress === 'number') setGenProgress(data.progress);
-            if (data.step) setGenStep(data.step);
-            if (data.message) setGenMessage(data.message);
-            if (data.error) setGenError(data.message || 'Generation failed');
-            if (data.result?.topic_id) {
-              await loadTopics();
-              await loadMaps();
-            }
-          } catch {
-            // ignore malformed lines
-          }
-        }
-      }
+      const data = await res.json();
+      router.push(`/admin/content/${data.id}`);
     } catch (e) {
-      setGenError(e.message);
-      setGenStep('error');
+      alert(`Error: ${e.message}`);
     } finally {
-      setGenerating(false);
-      setContentGeneratingId(null);
+      setWritingId(null);
     }
   };
 
@@ -563,7 +533,7 @@ export default function TopicalMapPage() {
   };
 
   if (!token) {
-    return <div className="text-gray-500 text-sm">Loading…</div>;
+    return <div className="text-gray-500 text-sm">Loading\u2026</div>;
   }
 
   return (
@@ -584,7 +554,7 @@ export default function TopicalMapPage() {
           disabled={generating}
           className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition disabled:opacity-50"
         >
-          {generating ? 'Generating…' : 'Generate map'}
+          {generating ? 'Generating\u2026' : 'Generate map'}
         </button>
       </div>
 
@@ -595,7 +565,7 @@ export default function TopicalMapPage() {
           value={mapId}
           onChange={(e) => handleMapChange(e.target.value)}
         >
-          <option value="">Select a map…</option>
+          <option value="">Select a map\u2026</option>
           {maps.map((m) => (
             <option key={m.id} value={m.id}>
               {m.name}
@@ -620,7 +590,7 @@ export default function TopicalMapPage() {
         ))}
       </div>
 
-      {loading && <div className="text-gray-500 text-sm">Loading topics…</div>}
+      {loading && <div className="text-gray-500 text-sm">Loading topics\u2026</div>}
 
       {!loading && mapId && roots.length === 0 && (
         <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-6">
@@ -638,8 +608,8 @@ export default function TopicalMapPage() {
               token={token}
               onPatch={loadTopics}
               onDelete={deleteTopic}
-              onGenerateContent={generateContentForTopic}
-              contentGeneratingId={contentGeneratingId}
+              onWriteArticle={writeArticle}
+              writingId={writingId}
               editingId={editingId}
               setEditingId={setEditingId}
               descendantCountById={descendantCountById}
@@ -648,6 +618,7 @@ export default function TopicalMapPage() {
         </div>
       )}
 
+      {/* Map generation progress modal */}
       {genOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
@@ -677,6 +648,7 @@ export default function TopicalMapPage() {
         </div>
       )}
 
+      {/* Seed keyword modal */}
       {seedOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
