@@ -821,7 +821,7 @@ export default function ContentEditorPage({ params }) {
             />
 
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-3">
-              <TipTapEditor value={fullArticle} onChange={setFullArticle} />
+              <TipTapEditor key={phase + '-' + (content?.id || '')} content={fullArticle} onChange={setFullArticle} />
             </div>
           </div>
 
