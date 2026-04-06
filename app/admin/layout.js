@@ -82,6 +82,11 @@ function AdminAuthGate({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
+  // Close mobile sidebar on navigation — must be before early returns (Rules of Hooks)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -162,11 +167,6 @@ function AdminAuthGate({ children }) {
       </div>
     );
   }
-  // Close mobile sidebar on navigation
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [pathname]);
-
   // Check if we're on a review editor page
   const isEditorPage = pathname.startsWith('/admin/review/') || pathname.startsWith('/admin/content/');
 
