@@ -169,8 +169,8 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           const available = getAvailableModels()
           const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 90000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 120000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 75000, label: 'sonnet-compact' },
             ...(available.google
               ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
