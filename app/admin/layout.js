@@ -1,7 +1,7 @@
 'use client';
 
 import { AdminProvider, useAdmin } from '@/lib/admin-context';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -79,6 +79,7 @@ function AdminAuthGate({ children }) {
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
 
   const handleLogin = async (e) => {
@@ -161,13 +162,43 @@ function AdminAuthGate({ children }) {
       </div>
     );
   }
+  // Close mobile sidebar on navigation
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
   // Check if we're on a review editor page
   const isEditorPage = pathname.startsWith('/admin/review/') || pathname.startsWith('/admin/content/');
 
   return (
     <div className="min-h-screen bg-dark-bg flex">
+      {/* Mobile Header */}
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-dark-bg/95 backdrop-blur border-b border-gray-800/60 px-4 py-3 flex items-center justify-between">
+        <Link href="/admin" className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-red-600/20 border border-red-600/30 flex items-center justify-center">
+            <span className="text-red-400 text-xs font-bold">CK</span>
+          </div>
+          <span className="text-white font-semibold text-sm">Crypto Killer</span>
+        </Link>
+        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-white/5 transition">
+          {sidebarOpen ? (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          ) : (
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+          )}
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setSidebarOpen(false)} />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-56 border-r border-gray-800/60 bg-dark-bg flex flex-col shrink-0 sticky top-0 h-screen">
+      <aside className={`w-56 border-r border-gray-800/60 bg-dark-bg flex flex-col shrink-0 sticky top-0 h-screen z-30
+        max-lg:fixed max-lg:top-0 max-lg:left-0 max-lg:bottom-0 max-lg:transition-transform max-lg:duration-200
+        ${sidebarOpen ? 'max-lg:translate-x-0' : 'max-lg:-translate-x-full'}
+      `}>
         {/* Logo */}
         <div className="px-5 py-5 border-b border-gray-800/60">
           <Link href="/admin" className="flex items-center gap-2.5">
@@ -213,7 +244,7 @@ function AdminAuthGate({ children }) {
 
       {/* Main Content */}
       <main className={`flex-1 min-w-0 ${isEditorPage ? '' : 'max-w-6xl'}`}>
-        <div className="px-8 py-6">
+        <div className="px-4 lg:px-8 py-6 pt-16 lg:pt-6">
           {children}
         </div>
       </main>

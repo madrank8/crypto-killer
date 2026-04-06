@@ -49,6 +49,12 @@ export default function BrandsPage() {
   );
 
   const [generatingId, setGeneratingId] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  const showToast = (msg, type = 'error') => {
+    setToast({ msg, type });
+    if (type !== 'error') setTimeout(() => setToast(null), 3000);
+  };
 
   const fetchBrands = useCallback(async (pageNum = 1, append = false) => {
     if (!token) return;
@@ -122,12 +128,12 @@ export default function BrandsPage() {
       if (genRes.ok) {
         router.push(`/admin/review/${review_id}`);
       } else {
-        alert('AI generation failed. Opening empty draft.');
+        showToast('AI generation failed. Opening empty draft.', 'warning');
         router.push(`/admin/review/${review_id}`);
       }
     } catch (err) {
       console.error('Generate error:', err);
-      alert('Error creating review');
+      showToast('Error creating review: ' + (err.message || 'unknown'));
     } finally {
       setGeneratingId(null);
     }
@@ -288,6 +294,20 @@ export default function BrandsPage() {
             className="text-sm text-gray-400 hover:text-white px-6 py-2 rounded-lg border border-gray-800 hover:border-gray-700 transition"
           >            {loading ? 'Loading...' : 'Load More'}
           </button>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-2">
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl max-w-sm ${
+            toast.type === 'error' ? 'bg-red-950/90 border-red-600/30 text-red-300' :
+            toast.type === 'warning' ? 'bg-amber-950/90 border-amber-600/30 text-amber-300' :
+            'bg-green-950/90 border-green-600/30 text-green-300'
+          }`}>
+            <span className="text-sm flex-1">{toast.msg}</span>
+            <button onClick={() => setToast(null)} className="text-current opacity-60 hover:opacity-100 text-lg leading-none shrink-0">&times;</button>
+          </div>
         </div>
       )}
     </div>

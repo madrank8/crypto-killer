@@ -44,7 +44,9 @@ export default function ReviewsPage() {
 
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
+  const [search, setSearch] = useState('');
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
@@ -62,8 +64,10 @@ export default function ReviewsPage() {
         const data = await res.json();
         setReviews(data.reviews || []);
         setStats(data.stats || { total: 0, drafts: 0, published: 0 });
+        setError('');
       } catch (err) {
         console.error('Error loading reviews:', err);
+        setError('Failed to load reviews: ' + (err.message || 'network error'));
       } finally {
         setLoading(false);
       }
@@ -72,10 +76,14 @@ export default function ReviewsPage() {
     load();
   }, [token]);
 
-  const filtered =
-    statusFilter === 'all'
-      ? reviews
-      : reviews.filter((r) => r.status === statusFilter);
+  const filtered = reviews.filter((r) => {
+    if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!(r.brand_name || '').toLowerCase().includes(q) && !(r.title || '').toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -94,8 +102,32 @@ export default function ReviewsPage() {
         </Link>
       </div>
 
-      {/* Status Tabs */}
-      <div className="flex items-center gap-1 bg-dark-card border border-gray-800 rounded-xl p-1 w-fit">
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-950/50 border border-red-600/30 rounded-xl px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+            <span className="text-red-300 text-sm">{error}</span>
+          </div>
+          <button onClick={() => window.location.reload()} className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-600/10 transition">Retry</button>
+        </div>
+      )}
+
+      {/* Search + Status Tabs */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[200px] max-w-sm relative">
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search reviews..." className="search-input w-full text-sm py-2 pl-9 pr-8" />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 bg-dark-card border border-gray-800 rounded-xl p-1 w-fit">
         <StatusTab
           label="All"
           count={stats?.total}
@@ -114,6 +146,7 @@ export default function ReviewsPage() {
           active={statusFilter === 'published'}
           onClick={() => setStatusFilter('published')}
         />
+      </div>
       </div>
 
       {/* Reviews List */}
