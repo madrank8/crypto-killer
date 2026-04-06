@@ -55,6 +55,10 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
       { anchor_text: 'how crypto scam funnels work', target_topic: 'scam mechanics', context: 'Explaining persuasion stages.' },
       { anchor_text: 'crypto scam recovery checklist', target_topic: 'recovery', context: 'Post-loss action sections.' },
     ],
+    not_for_you: `This guide may not apply if you are using a regulated, licensed exchange with verified withdrawal history. It also does not cover disputes with legitimate platforms over fees or service quality — only suspected fraud.`,
+    verify_tags_count: 0,
+    reddit_test_passed: false,
+    information_gain_summary: 'Deterministic fallback — no unique information gain analysis available.',
   }
 }
 
@@ -251,6 +255,10 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               word_count: wordCount,
               ai_model: writerModelUsed,
               ai_audit: audit,
+              not_for_you: article.not_for_you || content.not_for_you || null,
+              verify_tags_count: article.verify_tags_count || 0,
+              reddit_test_passed: article.reddit_test_passed || false,
+              information_gain_summary: article.information_gain_summary || null,
               updated_at: new Date().toISOString(),
             }),
           })

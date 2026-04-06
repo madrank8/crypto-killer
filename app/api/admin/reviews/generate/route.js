@@ -1065,6 +1065,10 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
+      verify_tags_count: reviewContent.verify_tags_count || 0,
+      reddit_test_passed: reviewContent.reddit_test_passed || false,
+      information_gain_summary: reviewContent.information_gain_summary || null,
+      internal_links: reviewContent.internal_links || [],
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,
