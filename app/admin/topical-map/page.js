@@ -148,7 +148,18 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
   );
 }
 
-function TopicTree({ topic, byParent, token, onPatch, onDelete, editingId, setEditingId, descendantCountById }) {
+function TopicTree({
+  topic,
+  byParent,
+  token,
+  onPatch,
+  onDelete,
+  onGenerateContent,
+  contentGeneratingId,
+  editingId,
+  setEditingId,
+  descendantCountById,
+}) {
   const children = byParent.get(topic.id) || [];
   const isLeaf = children.length === 0;
   const editing = editingId === topic.id;
@@ -206,9 +217,18 @@ function TopicTree({ topic, byParent, token, onPatch, onDelete, editingId, setEd
             Generate review
           </Link>
         ) : (
-          <span className="text-xs px-2 py-1 rounded-lg border border-gray-800 text-gray-600 cursor-not-allowed" title="Phase 3">
-            Generate content
-          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onGenerateContent(topic);
+            }}
+            disabled={contentGeneratingId === topic.id}
+            className="text-xs px-2 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 disabled:opacity-50"
+          >
+            {contentGeneratingId === topic.id ? 'Generating…' : 'Generate content'}
+          </button>
         )}
       </div>
     </div>
@@ -263,6 +283,8 @@ function TopicTree({ topic, byParent, token, onPatch, onDelete, editingId, setEd
             token={token}
             onPatch={onPatch}
             onDelete={onDelete}
+            onGenerateContent={onGenerateContent}
+            contentGeneratingId={contentGeneratingId}
             editingId={editingId}
             setEditingId={setEditingId}
             descendantCountById={descendantCountById}
@@ -290,6 +312,7 @@ export default function TopicalMapPage() {
   const [genMessage, setGenMessage] = useState('');
   const [genError, setGenError] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [contentGeneratingId, setContentGeneratingId] = useState(null);
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedKeyword, setSeedKeyword] = useState('');
   const [seedError, setSeedError] = useState('');
@@ -438,6 +461,62 @@ export default function TopicalMapPage() {
     }
   };
 
+  const generateContentForTopic = async (topic) => {
+    if (!token || !topic?.id) return;
+    setContentGeneratingId(topic.id);
+    setGenOpen(true);
+    setGenerating(true);
+    setGenError(null);
+    setGenProgress(5);
+    setGenStep('init');
+    setGenMessage(`Starting article generation for "${topic.title}"...`);
+
+    try {
+      const res = await fetch('/api/admin/content/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ topic_id: topic.id }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (typeof data.progress === 'number') setGenProgress(data.progress);
+            if (data.step) setGenStep(data.step);
+            if (data.message) setGenMessage(data.message);
+            if (data.error) setGenError(data.message || 'Generation failed');
+            if (data.result?.topic_id) {
+              await loadTopics();
+              await loadMaps();
+            }
+          } catch {
+            // ignore malformed lines
+          }
+        }
+      }
+    } catch (e) {
+      setGenError(e.message);
+      setGenStep('error');
+    } finally {
+      setGenerating(false);
+      setContentGeneratingId(null);
+    }
+  };
+
   const deleteTopic = async (topic, descendants = 0) => {
     if (!token || !topic?.id) return;
     const hasChildren = descendants > 0;
@@ -544,6 +623,8 @@ export default function TopicalMapPage() {
               token={token}
               onPatch={loadTopics}
               onDelete={deleteTopic}
+              onGenerateContent={generateContentForTopic}
+              contentGeneratingId={contentGeneratingId}
               editingId={editingId}
               setEditingId={setEditingId}
               descendantCountById={descendantCountById}
