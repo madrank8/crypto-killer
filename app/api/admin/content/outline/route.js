@@ -201,8 +201,8 @@ export async function POST(request) {
           const prompt = outlineGeneratorPrompt({ topic, parentTopic, sourceLedger })
 
           const attempts = [
-            { model: 'claude-sonnet', timeoutMs: 45000, label: 'sonnet-primary' },
-            { model: 'claude-haiku', timeoutMs: 30000, label: 'haiku-fallback' },
+            { model: 'claude-sonnet', timeoutMs: 90000, label: 'sonnet-primary' },
+            { model: 'claude-haiku', timeoutMs: 60000, label: 'haiku-fallback' },
             ...(getAvailableModels().google
               ? [{ model: 'gemini-pro', timeoutMs: 45000, jsonMode: true, label: 'gemini-fallback' }]
               : []),

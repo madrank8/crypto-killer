@@ -235,8 +235,8 @@ export async function POST(request) {
 
           const available = getAvailableModels()
           const writeAttempts = [
-            { model: 'claude-opus', user: writerPrompt.user, timeoutMs: 120000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${writerPrompt.user}\n\nReturn compact JSON only.`, timeoutMs: 75000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: writerPrompt.user, timeoutMs: 180000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${writerPrompt.user}\n\nReturn compact JSON only.`, timeoutMs: 120000, label: 'sonnet-compact' },
             ...(available.google
               ? [{ model: 'gemini-pro', user: `${writerPrompt.user}\n\nReturn compact JSON only.`, timeoutMs: 45000, jsonMode: true, label: 'gemini-fallback' }]
               : []),

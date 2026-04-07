@@ -184,8 +184,8 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           const available = getAvailableModels()
           const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 90000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 180000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 120000, label: 'sonnet-compact' },
             ...(available.google
               ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
@@ -205,7 +205,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               writerModelUsed = res.resolvedModel || attempt.model
               break
             } catch (e) {
-              console.error(`Writer attempt failed [${attempt.label}]:`, e.message)
+              console.error(`Writer attempt failed [${attempt.label}]:`, e.message, '| model:', attempt.model, '| timeout:', attempt.timeoutMs)
             }
           }
 
