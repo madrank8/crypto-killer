@@ -279,6 +279,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           }
           // ── ADD PERSONA METADATA TO AUDIT ──
           if (!audit) audit = {}
+          audit.social_proof = article.social_proof || []
           audit.writer_persona = {
             id: personaMetadata.id,
             name: personaMetadata.name,
@@ -306,6 +307,9 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               sections: articleSections,
               faq: articleFaq,              sources: article.sources || sourceLedger,
               internal_links: article.internal_links || content.internal_links || [],
+              not_for_you: article.not_for_you || null,
+              information_gain_summary: article.information_gain_summary || null,
+              verify_tags_count: typeof article.verify_tags_count === 'number' ? article.verify_tags_count : null,
               word_count: wordCount,
               ai_model: writerModelUsed,
               ai_audit: audit,
