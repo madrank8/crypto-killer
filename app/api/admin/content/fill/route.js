@@ -25,7 +25,8 @@ function sectionsToHtml(sections = []) {
   return (sections || [])
     .map((s) => {
       const body = String(s.body || '')
-      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text      if (/<(figure|div|img)\b/i.test(body)) {
+      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text
+      if (/<(figure|div|img)\b/i.test(body)) {
         // Split on double newlines, wrap plain text paragraphs in <p>, pass HTML through
         const blocks = body.split(/\n{2,}/)
         const rendered = blocks.map(block => {
