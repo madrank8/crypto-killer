@@ -295,7 +295,7 @@ export async function POST(request) {
               sourceLedger,
               {}
             )
-            const auditResult = await callModel('gpt-4o', auditPrompt.system, auditMsg, {
+            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
               jsonMode: true,
               timeoutMs: 45000,
             })

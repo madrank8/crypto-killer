@@ -1013,7 +1013,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
 
             // Try GPT-4o first (fresh perspective), fall back to Claude Sonnet on any failure
             const auditModels = availableModelsInfo.openai
-              ? ['gpt-4o', 'claude-sonnet']
+              ? ['gpt-5.4-mini', 'claude-sonnet']
               : ['claude-sonnet']
 
             let auditResult = null
