@@ -1,9 +1,9 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
-import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
+import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
 
 export const maxDuration = 300
 
@@ -14,14 +14,19 @@ export const maxDuration = 300
  *
  * Phase transition: outline → article (full_article populated)
  * Uses the approved sections/faq as the structural skeleton.
+ * 
+ * PERSONA INTEGRATION:
+ * - Randomly selects one of three writer personas (Webb/Nair/Ortiz)
+ * - Each persona has distinct voice, system prompt, and user prompt template
+ * - Persona metadata is tracked in ai_audit for article provenance
  */
 
 function sectionsToHtml(sections = []) {
   return (sections || [])
     .map((s) => {
       const body = String(s.body || '')
-      // If body contains HTML block elements (figure, div, img), render as-is
-      if (/<(figure|div|img)\b/i.test(body)) {
+      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text      if (/<(figure|div|img)\b/i.test(body)) {
+        // Split on double newlines, wrap plain text paragraphs in <p>, pass HTML through
         const blocks = body.split(/\n{2,}/)
         const rendered = blocks.map(block => {
           if (/<(figure|div|img)\b/i.test(block)) return block
@@ -39,6 +44,7 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
   const keyword = topic?.target_keyword || topicTitle
   const parentTitle = parentTopic?.title
 
+  // Use the approved outline sections, fill body from description + key_points
   const filledSections = (sections || []).map((s) => ({
     heading: s.heading,
     body: [
@@ -49,7 +55,6 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
       .filter(Boolean)
       .join(' '),
   }))
-
   const filledFaq = (faq || []).map((f) => ({
     question: f.question,
     answer: f.answer || f.answer_hint || `For questions about ${keyword}, verify claims independently and consult official sources before taking action.`,
@@ -79,7 +84,6 @@ export async function POST(request) {
     if (!contentId) {
       return Response.json({ error: 'content_id is required' }, { status: 400 })
     }
-
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
@@ -90,6 +94,15 @@ export async function POST(request) {
         try {
           send({ step: 'init', progress: 5, message: 'Loading content with approved outline...' })
 
+          // ── SELECT RANDOM WRITER PERSONA ──
+          const persona = selectPersona()
+          const personaMetadata = getPersonaMetadata(persona)
+          send({ 
+            step: 'init', 
+            progress: 10, 
+            message: `Using writer persona: ${personaMetadata.name} (${personaMetadata.model})` 
+          })
+
           // Load content
           const contentRows = await supaFetch(`/content?id=eq.${contentId}&select=*&limit=1`)
           const content = Array.isArray(contentRows) ? contentRows[0] : null
@@ -99,7 +112,6 @@ export async function POST(request) {
           if (!Array.isArray(sections) || sections.length === 0) {
             throw new Error('No outline found. Generate an outline first.')
           }
-
           // Load topic + parent
           let topic = null
           if (content.topic_id) {
@@ -126,7 +138,7 @@ export async function POST(request) {
           }
 
           const sourceLedger = content.sources || []
-
+          // Build an enhanced topic object that includes the approved outline
           const enhancedTopic = {
             ...topic,
             approved_outline: sections.map((s) => ({
@@ -138,27 +150,25 @@ export async function POST(request) {
             approved_faq: content.faq || [],
           }
 
-          send({ step: 'writing', progress: 25, message: 'Writing full article with Claude Opus...' })
+          send({ step: 'writing', progress: 25, message: `Writing article using ${personaMetadata.name}...` })
 
-          const writerPrompt = topicalArticleWriterPrompt({
-            topic: enhancedTopic,
-            parentTopic,
-            sourceLedger,
-            icpData,
-          })
+          // ── GET PERSONA PROMPTS ──
+          const personaPrompts = getPersonaPrompts(persona, enhancedTopic, parentTopic, sourceLedger, enhancedTopic.approved_outline, enhancedTopic.approved_faq)
+          const systemPrompt = personaPrompts.system
+          const baseUserPrompt = personaPrompts.user
 
+          // Augment the user prompt with the approved outline and FAQ
           const outlineBlock = sections
             .map((s, i) => {
               const kp = (s.key_points || []).map((p) => `  - ${p}`).join('\n')
               return `${i + 1}. ${s.heading} (~${s.target_word_count || 180} words)\n   ${s.description || ''}\n${kp}`
             })
             .join('\n\n')
-
           const faqBlock = (content.faq || [])
             .map((f, i) => `${i + 1}. Q: ${f.question}\n   Hint: ${f.answer || f.answer_hint || ''}`)
             .join('\n')
 
-          const augmentedUserPrompt = `${writerPrompt.user}
+          const augmentedUserPrompt = `${baseUserPrompt}
 
 APPROVED OUTLINE (you MUST follow this structure exactly):
 ${outlineBlock}
@@ -179,14 +189,13 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
           ]
-
           for (let i = 0; i < writeAttempts.length; i++) {
             const attempt = writeAttempts[i]
             if (i > 0) {
               send({ step: 'writing', progress: 35 + i * 10, message: `Retrying writer (${attempt.label})...` })
             }
             try {
-              const res = await callModel(attempt.model, writerPrompt.system, attempt.user, {
+              const res = await callModel(attempt.model, systemPrompt, attempt.user, {
                 maxTokens: 8192,
                 timeoutMs: attempt.timeoutMs,
                 ...(attempt.jsonMode ? { jsonMode: true } : {}),
@@ -206,10 +215,13 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           }
 
           // ── Phase 4: Visual Generation ──
+          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] placeholders
+          // and replace with actual rendered visuals
           send({ step: 'visuals', progress: 68, message: 'Generating visual assets...' })
 
           let visualMeta = []
           try {
+            // Process visuals in sections (where placeholders live)
             const sectionResult = await processVisualsSections(
               Array.isArray(article.sections) ? article.sections : sections,
               {
@@ -235,7 +247,6 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             console.error('Visual generation phase failed:', vizErr.message)
             send({ step: 'visuals', progress: 82, message: 'Visual generation failed — continuing without visuals' })
           }
-
           // Quality audit
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 
@@ -265,6 +276,14 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           } catch {
             audit = null
           }
+          // ── ADD PERSONA METADATA TO AUDIT ──
+          if (!audit) audit = {}
+          audit.writer_persona = {
+            id: personaMetadata.id,
+            name: personaMetadata.name,
+            title: personaMetadata.title,
+            model: personaMetadata.model,
+          }
 
           // Save full article
           send({ step: 'saving', progress: 85, message: 'Saving full article...' })
@@ -284,8 +303,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               summary: article.summary || content.summary,
               full_article: fullArticle,
               sections: articleSections,
-              faq: articleFaq,
-              sources: article.sources || sourceLedger,
+              faq: articleFaq,              sources: article.sources || sourceLedger,
               internal_links: article.internal_links || content.internal_links || [],
               word_count: wordCount,
               ai_model: writerModelUsed,
@@ -298,11 +316,12 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           send({
             step: 'done',
             progress: 100,
-            message: 'Article generated successfully — review and publish when ready.',
+            message: `Article generated successfully by ${personaMetadata.name} — review and publish when ready.`,
             result: {
               content_id: contentId,
               word_count: wordCount,
               model: writerModelUsed,
+              persona: personaMetadata.name,
               has_audit: !!audit,
             },
           })
@@ -313,7 +332,6 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
         }
       },
     })
-
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
