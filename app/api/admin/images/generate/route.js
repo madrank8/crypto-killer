@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import { generateImageSet, generateImage } from '@/lib/images';
 import { supabaseRequest } from '@/lib/supabase';
@@ -58,6 +59,12 @@ export async function POST(request) {
         });
       }
 
+      // Purge ISR cache so the public page reflects new images
+      try {
+        revalidatePath(`/review/${review.slug}`);
+        revalidatePath('/');
+      } catch (_) { /* non-fatal */ }
+
       return Response.json({
         success: true,
         review_id: body.review_id,
@@ -113,6 +120,12 @@ export async function POST(request) {
           body: JSON.stringify(update),
         });
       }
+
+      // Purge ISR cache for blog content
+      try {
+        revalidatePath(`/blog/${content.slug}`);
+        revalidatePath('/blog');
+      } catch (_) { /* non-fatal */ }
 
       return Response.json({
         success: true,
