@@ -465,7 +465,7 @@ export default function ContentEditorPage({ params }) {
 
       setContent((prev) => ({ ...prev, status: data.status, published_at: data.published_at }));
       if (data.live_sync?.success) {
-        setMsg(`Published and synced to /blog (${data.blog_url})`);
+        setMsg(`\u2713 Published & synced to live site`);
       } else if (action === 'publish') {
         setMsg(`Published, but blog sync failed: ${data.live_sync?.error || 'unknown error'}`);
       } else {
@@ -475,6 +475,30 @@ export default function ContentEditorPage({ params }) {
       setError(e.message);
     } finally {
       setPublishing(false);
+    }
+  };
+
+  /* -- Manual sync to live site -- */
+  const [syncing, setSyncing] = useState(false);
+  const syncToLive = async () => {
+    setSyncing(true);
+    setError('');
+    setMsg('');
+    try {
+      const res = await fetch(`/api/admin/content/${id}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setMsg('\u2713 Synced to live site');
+      } else {
+        setError(`Sync failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      setError(`Sync failed: ${e.message}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -635,9 +659,32 @@ export default function ContentEditorPage({ params }) {
           </button>
           {phase === 'article' && (
             content.status === 'published' ? (
-              <button onClick={() => publishAction('unpublish')} disabled={publishing || saving} className="text-sm px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white">
-                {publishing ? 'Working...' : 'Unpublish'}
-              </button>
+              <>
+                <a
+                  href={`https://cryptokiller.org/blog/${content.slug}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm px-3 py-2 rounded-lg bg-green-600/10 text-green-400 hover:bg-green-600/20 border border-green-600/20 transition flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  Live Post
+                </a>
+                <button
+                  onClick={syncToLive}
+                  disabled={syncing || publishing}
+                  className="text-sm px-3 py-2 rounded-lg bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-600/20 transition flex items-center gap-1.5"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {syncing ? 'Syncing...' : 'Sync to Live'}
+                </button>
+                <button onClick={() => publishAction('unpublish')} disabled={publishing || saving} className="text-sm px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white">
+                  {publishing ? 'Working...' : 'Unpublish'}
+                </button>
+              </>
             ) : (
               <button onClick={() => publishAction('publish')} disabled={publishing || saving} className="text-sm px-3 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white">
                 {publishing ? 'Publishing...' : 'Publish to /blog'}
