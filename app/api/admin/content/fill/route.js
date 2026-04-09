@@ -21,21 +21,33 @@ export const maxDuration = 300
  * - Persona metadata is tracked in ai_audit for article provenance
  */
 
-function sectionBodyToHtml(body) {
-  const text = String(body || '')
-  if (/<(figure|div|img)\b/i.test(text)) {
-    const blocks = text.split(/\n{2,}/)
-    return blocks.map(block => {
-      if (/<(figure|div|img)\b/i.test(block)) return block
-      return `<p>${block.replace(/\n/g, '<br/>')}</p>`
-    }).join('\n')
-  }
-  return `<p>${text.replace(/\n+/g, '<br/>')}</p>`
+/**
+ * Convert plain-text section body into proper HTML paragraphs.
+ * Splits on double newlines → <p> tags. Handles {{VERIFY}} tags.
+ */
+function bodyToHtml(body) {
+  if (!body) return ''
+  const text = String(body)
+  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim())
+  return paragraphs.map(p => {
+    let html = p.trim()
+      .replace(/\n/g, '<br/>')
+      .replace(/\{\{VERIFY:\s*(.+?)\s*\|\s*(.+?)\}\}/g,
+        '<span class="verify-tag" data-verify="true" title="$2">[$1]</span>')
+      .replace(/\{\{RESEARCH NEEDED:\s*(.+?)\}\}/g,
+        '<span class="research-tag" data-verify="research">[$1]</span>')
+      .replace(/\{\{SOURCE NEEDED:\s*(.+?)\}\}/g,
+        '<span class="source-tag" data-verify="source">[$1]</span>')
+    if (/<(figure|div|img|table|blockquote)\b/i.test(html)) return html
+    return `<p>${html}</p>`
+  }).join('\n')
 }
 
 /**
  * Build full HTML from structured article data.
- * Includes: Key Takeaways, sections, Not For You, FAQ with schema, author bio.
+ * Renders: Summary → Key Takeaways → Body sections with social proof →
+ *          Not For You → FAQ with schema → Source Ledger → Related Investigations →
+ *          Author bio → Article + FAQPage JSON-LD schemas
  */
 function buildArticleHtml(article, persona) {
   const sections = Array.isArray(article.sections) ? article.sections : []
@@ -45,6 +57,9 @@ function buildArticleHtml(article, persona) {
   const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
   const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
   const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
+  const sources = Array.isArray(article.sources) ? article.sources : []
+  const socialProof = Array.isArray(article.social_proof) ? article.social_proof : []
+  const visualPlaceholders = Array.isArray(article.visual_placeholders) ? article.visual_placeholders : []
 
   const parts = []
 
@@ -56,12 +71,58 @@ function buildArticleHtml(article, persona) {
     parts.push(`<div class="key-takeaways">\n<h2>Key Takeaways</h2>\n<ul>\n${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}\n</ul>\n</div>`)
   }
 
-  for (const s of sections) {
-    parts.push(`<h2>${s.heading || 'Section'}</h2>\n${sectionBodyToHtml(s.body)}`)
+  // Distribute social proof across sections
+  const socialProofMap = {}
+  if (socialProof.length > 0) {
+    const interval = Math.max(1, Math.floor(sections.length / socialProof.length))
+    socialProof.forEach((sp, i) => {
+      const targetIdx = Math.min(i * interval + interval - 1, sections.length - 1)
+      if (!socialProofMap[targetIdx]) socialProofMap[targetIdx] = []
+      socialProofMap[targetIdx].push(sp)
+    })
+  }
+
+  // Distribute visual placeholders across sections
+  const visualMap = {}
+  if (visualPlaceholders.length > 0) {
+    const interval = Math.max(1, Math.floor(sections.length / visualPlaceholders.length))
+    visualPlaceholders.forEach((vp, i) => {
+      const targetIdx = Math.min(i * interval, sections.length - 1)
+      if (!visualMap[targetIdx]) visualMap[targetIdx] = []
+      visualMap[targetIdx].push(vp)
+    })
+  }
+
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i]
+    let sectionHtml = `<h2>${s.heading || 'Section'}</h2>\n${bodyToHtml(s.body)}`
+
+    if (visualMap[i]) {
+      for (const vp of visualMap[i]) {
+        const match = String(vp).match(/\[(\w+)\s+NEEDED:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
+        if (match) {
+          sectionHtml += `\n<figure class="visual-placeholder" data-type="${match[1].toLowerCase()}">
+<div class="placeholder-box" role="img" aria-label="${match[3]?.trim() || match[2].trim()}">[${match[1].toUpperCase()}: ${match[2].trim()}]</div>
+<figcaption>${match[3]?.trim() || match[2].trim()}</figcaption>
+</figure>`
+        }
+      }
+    }
+
+    if (socialProofMap[i]) {
+      for (const sp of socialProofMap[i]) {
+        sectionHtml += `\n<blockquote class="social-proof" data-proof-type="${sp.type || 'industry'}">
+<p>${sp.content || ''}</p>
+<cite>— <strong>${sp.source || 'Source'}</strong>${sp.attribution ? `, ${sp.attribution}` : ''}</cite>
+</blockquote>`
+      }
+    }
+
+    parts.push(sectionHtml)
   }
 
   if (notForYou) {
-    parts.push(`<div class="not-for-you">\n<h2>When This Guide Does NOT Apply</h2>\n<p>${notForYou}</p>\n</div>`)
+    parts.push(`<div class="not-for-you">\n<h2>When This Guide Does NOT Apply</h2>\n${bodyToHtml(notForYou)}\n</div>`)
   }
 
   if (faq.length > 0) {
@@ -78,13 +139,97 @@ function buildArticleHtml(article, persona) {
     parts.push(`<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`)
   }
 
+  // Source Ledger
+  if (sources.length > 0) {
+    parts.push(`<div class="source-ledger">\n<h3>Sources & References</h3>\n<ol>\n${sources.map(s => {
+      const typeLabel = s.type ? `[${s.type}]` : ''
+      const dateLabel = s.accessed_date ? ` (accessed ${s.accessed_date})` : ''
+      return `<li>${typeLabel} <a href="${s.url || '#'}" target="_blank" rel="noopener noreferrer">${s.title || s.url}</a>${dateLabel}</li>`
+    }).join('\n')}\n</ol>\n</div>`)
+  }
+
   if (internalLinks.length > 0) {
     parts.push(`<div class="related-reading">\n<h3>Related Investigations</h3>\n<ul>\n${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}\n</ul>\n</div>`)
   }
 
   parts.push(`<div class="author-bio">\n<p><strong>${authorName}</strong> — ${authorBio}</p>\n</div>`)
 
+  // Article JSON-LD schema
+  const articleSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: article.headline || article.title || '',
+    description: article.meta_description || article.summary || '',
+    author: { '@type': 'Person', name: authorName, description: authorBio },
+    publisher: { '@type': 'Organization', name: 'CryptoKiller', url: 'https://cryptokiller.org' },
+    datePublished: new Date().toISOString().slice(0, 10),
+    dateModified: new Date().toISOString().slice(0, 10),
+    mainEntityOfPage: { '@type': 'WebPage' },
+    ...(sources.length > 0 ? {
+      citation: sources.slice(0, 5).map(s => ({ '@type': 'CreativeWork', name: s.title || '', url: s.url || '' })),
+    } : {}),
+  }
+  parts.push(`<script type="application/ld+json">${JSON.stringify(articleSchema)}</script>`)
+
   return parts.join('\n\n')
+}
+
+/**
+ * Fetch aggregate platform intelligence from Supabase for Information Gain.
+ */
+async function fetchPlatformIntelligence() {
+  try {
+    const topBrands = await supaFetch('/scam_brands?select=name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_trend&order=scam_score.desc&limit=10')
+    const allBrands = Array.isArray(topBrands) ? topBrands : []
+    const totalCreatives = allBrands.reduce((sum, b) => sum + (b.total_creatives || 0), 0)
+    const totalGeos = new Set(allBrands.flatMap(b => b.total_geos || 0)).size || allBrands.length
+    const celebrityAbuse = allBrands.filter(b => (b.total_celebrities || 0) > 0).length
+    const avgScamScore = allBrands.length > 0 ? Math.round(allBrands.reduce((s, b) => s + (b.scam_score || 0), 0) / allBrands.length) : 0
+    const velocities = allBrands.map(b => b.velocity_trend).filter(Boolean)
+    const topVelocityTrend = velocities.length > 0 ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0] : 'stable'
+    return {
+      totalBrands: allBrands.length,
+      totalCreatives, totalGeos, avgScamScore, celebrityAbuse, topVelocityTrend,
+      topScamScore: allBrands[0] ? { name: allBrands[0].name, score: allBrands[0].scam_score } : null,
+    }
+  } catch (err) {
+    console.error('[fill/platformIntelligence]', err.message)
+    return {}
+  }
+}
+
+/**
+ * Fetch published slugs for real internal linking.
+ */
+async function fetchPublishedSlugs() {
+  try {
+    const [reviews, content] = await Promise.all([
+      supaFetch('/reviews?status=eq.published&select=slug,brand_id&order=published_at.desc&limit=50'),
+      supaFetch('/content?status=eq.published&select=title,slug&order=published_at.desc&limit=30'),
+    ])
+    const reviewSlugs = []
+    if (Array.isArray(reviews)) {
+      for (const r of reviews.slice(0, 30)) {
+        if (r.slug) {
+          let name = r.slug.replace(/-/g, ' ')
+          if (r.brand_id) {
+            try {
+              const brands = await supaFetch(`/scam_brands?id=eq.${r.brand_id}&select=name&limit=1`)
+              if (Array.isArray(brands) && brands[0]?.name) name = brands[0].name
+            } catch { /* use slug-derived name */ }
+          }
+          reviewSlugs.push({ slug: r.slug, name })
+        }
+      }
+    }
+    return {
+      reviews: reviewSlugs,
+      content: Array.isArray(content) ? content.filter(c => c.slug) : [],
+    }
+  } catch (err) {
+    console.error('[fill/publishedSlugs]', err.message)
+    return { reviews: [], content: [] }
+  }
 }
 
 function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedger) {
@@ -188,6 +333,13 @@ export async function POST(request) {
             icpData = {}
           }
 
+          // ── FETCH PLATFORM INTELLIGENCE + PUBLISHED SLUGS (parallel) ──
+          send({ step: 'intel', progress: 15, message: 'Fetching platform intelligence & published content...' })
+          const [platformIntelligence, publishedSlugs] = await Promise.all([
+            fetchPlatformIntelligence(),
+            fetchPublishedSlugs(),
+          ])
+
           const sourceLedger = content.sources || []
           // Build an enhanced topic object that includes the approved outline
           const enhancedTopic = {
@@ -203,8 +355,11 @@ export async function POST(request) {
 
           send({ step: 'writing', progress: 25, message: `Writing article using ${personaMetadata.name}...` })
 
-          // ── GET PERSONA PROMPTS ──
-          const personaPrompts = getPersonaPrompts(persona, enhancedTopic, parentTopic, sourceLedger, enhancedTopic.approved_outline, enhancedTopic.approved_faq)
+          // ── GET PERSONA PROMPTS (with platform intelligence + published slugs) ──
+          const personaPrompts = getPersonaPrompts(persona, enhancedTopic, parentTopic, sourceLedger, enhancedTopic.approved_outline, enhancedTopic.approved_faq, {
+            platformIntelligence,
+            publishedSlugs,
+          })
           const systemPrompt = personaPrompts.system
           const baseUserPrompt = personaPrompts.user
 
