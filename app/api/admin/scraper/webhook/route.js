@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY } from '@/lib/supabase';
 import { timingSafeEqual } from 'crypto';
 
 function safeCompare(a, b) {
@@ -57,10 +57,11 @@ export async function POST(request) {
       update.finished_at = new Date().toISOString();
     }
 
+    const writeKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${writeKey}`,
+      apikey: writeKey,
     };
 
     const res = await fetch(
