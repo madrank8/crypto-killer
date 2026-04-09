@@ -71,7 +71,10 @@ function buildArticleHtml(article, persona) {
   const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
   const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
   const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
-  const sources = Array.isArray(article.sources) ? article.sources : []
+  // Normalize accessed_date to today — AI models return unreliable/identical dates
+  const todayDate = new Date().toISOString().slice(0, 10)
+  const sources = (Array.isArray(article.sources) ? article.sources : [])
+    .map(s => ({ ...s, accessed_date: todayDate }))
   const socialProof = Array.isArray(article.social_proof) ? article.social_proof : []
   const visualPlaceholders = Array.isArray(article.visual_placeholders) ? article.visual_placeholders : []
 
@@ -274,11 +277,14 @@ Return ONLY valid JSON with this shape:
 }
 Rules:
 - URLs must be real and navigable. Never invent URLs.
-- TEMPORAL DIVERSITY: Sources must span at least 2 different years.
-- MANDATORY: At least 1 source published in ${currentYear} (current year) for semantic freshness.
-- MANDATORY: At least 1 source of type "academic" or "industry_study" with named methodology.
+- TEMPORAL DIVERSITY: Sources MUST span at least 3 different publication_year values.
+  * At least 1 foundational source from 2020-2023 (e.g., FBI IC3 report, academic study, FTC annual data).
+  * At least 1 source from ${currentYear - 1} (last year).
+  * At least 1 source from ${currentYear} (current year) for semantic freshness.
+- MANDATORY: At least 1 source of type "academic" or "industry_study" with named methodology and sample size.
 - Prefer regulatory/government sources first (SEC, FTC, FBI IC3, FCA, CFPB).
-- Use REAL accessed_date reflecting when the source was actually published, not today's date for all of them.
+- accessed_date: set to the source's ACTUAL publication date (YYYY-MM-DD). Each source MUST have a DIFFERENT date.
+- publication_year: integer year the source was published. MUST vary across sources.
 - For "temporal" field: ESTABLISHED = published > 30 days ago, RECENT = published within last 30 days.
 - No markdown fences.`,
     user: `Research credible sources for this topic:
@@ -297,7 +303,7 @@ Return 6-10 sources. Priority order:
 7. Technical analysis from security firms (Chainalysis, Netcraft, CertiK)
 8. At least one current-year (${currentYear}) news article or report for freshness
 
-IMPORTANT: Use the actual publication/access date for each source, not "${currentDate}" for all of them.`,
+IMPORTANT: Each source MUST have a unique accessed_date matching its real publication date. NEVER use the same date for all sources. publication_year values MUST include at least 3 different years spanning 2020-${currentYear}.`,
   }
 }
 

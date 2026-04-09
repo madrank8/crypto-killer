@@ -57,7 +57,10 @@ function buildArticleHtml(article, persona) {
   const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
   const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
   const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
-  const sources = Array.isArray(article.sources) ? article.sources : []
+  // Normalize accessed_date to today — AI models return unreliable/identical dates
+  const todayDate = new Date().toISOString().slice(0, 10)
+  const sources = (Array.isArray(article.sources) ? article.sources : [])
+    .map(s => ({ ...s, accessed_date: todayDate }))
   const socialProof = Array.isArray(article.social_proof) ? article.social_proof : []
   const visualPlaceholders = Array.isArray(article.visual_placeholders) ? article.visual_placeholders : []
 

@@ -48,6 +48,7 @@ JSON shape:
 Rules:
 - 5-8 sections total.
 - Each section should target 120-260 words in the final article.
+- At least 3 of the H2 headings MUST use question format (e.g., "How Do Scammers Fabricate Profits?" not "The Technology Scammers Use"). Critical for AI Overview extraction.
 - 4-8 FAQ items.
 - Include concrete, specific section headings (not generic).
 - Focus on E-E-A-T: experience, expertise, authority, trust.
@@ -76,24 +77,29 @@ Generate the outline JSON now.`
 }
 
 function sourceResearchPrompt(topic, currentDate) {
+  const currentYear = new Date().getFullYear()
   return {
     system: `You are a source researcher for topical crypto scam safety content.
 Return ONLY valid JSON with this shape:
 {
   "sources": [
-    { "title": "...", "url": "https://...", "type": "regulatory|government|news|technical|consumer_protection", "accessed_date": "${currentDate}" }
+    { "title": "...", "url": "https://...", "type": "regulatory|government|news|technical|consumer_protection|academic|industry_study", "accessed_date": "YYYY-MM-DD", "publication_year": 2025, "temporal": "ESTABLISHED|RECENT" }
   ]
 }
 Rules:
-- URLs must be real and navigable.
-- Prefer regulatory/government sources first.
+- URLs must be real and navigable. Never invent URLs.
+- TEMPORAL DIVERSITY: Sources MUST span at least 2 different publication_year values.
+  * At least 1 source from ${currentYear} (current year) for semantic freshness.
+  * At least 1 foundational source from 2020-2023.
+- Prefer regulatory/government sources first (SEC, FTC, FBI IC3, FCA, CFPB).
+- accessed_date: set to the source's ACTUAL publication date (YYYY-MM-DD). Each source MUST have a DIFFERENT date.
 - No markdown fences.`,
     user: `Research credible sources for this topic:
 Title: ${topic.title}
 Keyword: ${topic.target_keyword || topic.title}
 Type: ${topic.content_type || 'educational'}
 
-Return 4-8 sources.`,
+Return 4-8 sources. Each source MUST have a unique accessed_date matching its real publication date.`,
   }
 }
 
