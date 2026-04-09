@@ -3,6 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
+import { generateArticleImages } from '@/lib/images'
 import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
 
 export const maxDuration = 300
@@ -456,6 +457,42 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             console.error('Visual generation phase failed:', vizErr.message)
             send({ step: 'visuals', progress: 82, message: 'Visual generation failed — continuing without visuals' })
           }
+
+          // ── Phase 4b: Hero + Content Images (AI queries → Unsplash → TinyPNG → Supabase) ──
+          let heroImageData = null
+          try {
+            send({ step: 'stock_images', progress: 83, message: 'Generating context-aware stock images...' })
+            const imgSet = await generateArticleImages(
+              content.slug || `content-${contentId}`,
+              { ...article, target_keyword: topic?.target_keyword },
+              { contentCount: 2, aiHelpers: { callModel, extractJSON } }
+            )
+            if (imgSet.hero) {
+              heroImageData = imgSet.hero
+              const imgUpdate = {
+                hero_image_url: imgSet.hero.url,
+                hero_image_alt: imgSet.hero.alt,
+                hero_image_credit: imgSet.hero.credit,
+              }
+              if (imgSet.contentImages.length > 0) {
+                imgUpdate.content_images = imgSet.contentImages.map(img => ({
+                  url: img.url, alt: img.alt, credit: img.credit,
+                  creditUrl: img.creditUrl, placement: img.placement,
+                }))
+              }
+              await supaFetch(`/content?id=eq.${contentId}`, {
+                method: 'PATCH',
+                headers: { Prefer: 'return=minimal' },
+                body: JSON.stringify(imgUpdate),
+              })
+              const queryInfo = imgSet.queries?.heroQuery ? ` (hero: "${imgSet.queries.heroQuery}")` : ''
+              send({ step: 'stock_images_done', progress: 84, message: `Stock images compressed & uploaded${queryInfo}` })
+            }
+          } catch (imgErr) {
+            console.error('[content/fill] Image pipeline error:', imgErr.message)
+            send({ step: 'stock_images_skip', progress: 84, message: `Stock images skipped: ${imgErr.message}` })
+          }
+
           // Quality audit
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 

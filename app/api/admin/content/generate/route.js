@@ -6,7 +6,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { generateImageSet } from '@/lib/images'
+import { generateArticleImages, generateImageSet } from '@/lib/images'
 
 export const maxDuration = 300
 
@@ -707,11 +707,14 @@ Return the COMPLETE corrected JSON object.`
             }),
           })
 
-          // ── GENERATE HERO + CONTENT IMAGES (Unsplash -> TinyPNG -> Supabase) ──
+          // ── GENERATE HERO + CONTENT IMAGES (AI queries → Unsplash → TinyPNG → Supabase) ──
           let heroUrl = null
           try {
-            send({ step: 'images', progress: 90, message: 'Generating hero & content images...' })
-            const imgSet = await generateImageSet(content.slug, { contentCount: 1 })
+            send({ step: 'images', progress: 90, message: 'Generating context-aware article images...' })
+            const imgSet = await generateArticleImages(content.slug, article, {
+              contentCount: 2,
+              aiHelpers: { callModel, extractJSON },
+            })
             if (imgSet.hero) {
               heroUrl = imgSet.hero.url
               const imgUpdate = {
@@ -730,7 +733,8 @@ Return the COMPLETE corrected JSON object.`
                 headers: { Prefer: 'return=minimal' },
                 body: JSON.stringify(imgUpdate),
               })
-              send({ step: 'images_done', progress: 96, message: `Images compressed & uploaded` })
+              const queryInfo = imgSet.queries?.heroQuery ? ` (hero: "${imgSet.queries.heroQuery}")` : ''
+              send({ step: 'images_done', progress: 96, message: `Images compressed & uploaded${queryInfo}` })
             }
           } catch (imgErr) {
             console.error('[content/generate] Image pipeline error:', imgErr.message)
