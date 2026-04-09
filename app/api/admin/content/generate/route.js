@@ -29,32 +29,109 @@ async function ensureUniqueContentSlug(base) {
 }
 
 /**
- * Convert plain-text section body into proper HTML paragraphs.
- * Splits on double newlines → <p> tags. Single newlines → <br/>.
- * Handles {{VERIFY:...}} tags → <span data-verify> for inline rendering.
+ * Apply inline formatting: VERIFY tags, bold, italic, inline code.
+ */
+function applyInlineFormatting(text) {
+  return text
+    .replace(/\{\{VERIFY:\s*(.+?)\s*\|\s*(.+?)\}\}/g,
+      '<span class="verify-tag" data-verify="true" title="$2">[$1]</span>')
+    .replace(/\{\{RESEARCH NEEDED:\s*(.+?)\}\}/g,
+      '<span class="research-tag" data-verify="research">[$1]</span>')
+    .replace(/\{\{SOURCE NEEDED:\s*(.+?)\}\}/g,
+      '<span class="source-tag" data-verify="source">[$1]</span>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+}
+
+/**
+ * Convert markdown-flavored section body into rich HTML.
+ * Parses: tables, unordered/ordered lists, callout boxes, blockquotes,
+ * bold/italic, inline code, and {{VERIFY}} tags. Falls back to <p> for plain text.
  */
 function bodyToHtml(body) {
   if (!body) return ''
   const text = String(body)
 
-  // Split on double newlines for paragraph breaks
-  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim())
+  // Split into blocks on double newlines
+  const blocks = text.split(/\n{2,}/).filter(b => b.trim())
+  const htmlParts = []
 
-  return paragraphs.map(p => {
-    let html = p.trim()
-      .replace(/\n/g, '<br/>')
-      // Render {{VERIFY:...}} tags as styled inline markers
-      .replace(/\{\{VERIFY:\s*(.+?)\s*\|\s*(.+?)\}\}/g,
-        '<span class="verify-tag" data-verify="true" title="$2">[$1]</span>')
-      .replace(/\{\{RESEARCH NEEDED:\s*(.+?)\}\}/g,
-        '<span class="research-tag" data-verify="research">[$1]</span>')
-      .replace(/\{\{SOURCE NEEDED:\s*(.+?)\}\}/g,
-        '<span class="source-tag" data-verify="source">[$1]</span>')
+  for (const block of blocks) {
+    const trimmed = block.trim()
 
+    // ── Callout boxes: {{WARNING: text}} or {{TIP: text}} ──
+    const calloutMatch = trimmed.match(/^\{\{(WARNING|TIP|NOTE|CAUTION):\s*([\s\S]+?)\}\}$/i)
+    if (calloutMatch) {
+      const type = calloutMatch[1].toLowerCase()
+      const content = applyInlineFormatting(calloutMatch[2].trim())
+      htmlParts.push(`<div class="callout callout-${type}"><strong>${calloutMatch[1].charAt(0).toUpperCase() + calloutMatch[1].slice(1).toLowerCase()}:</strong> ${content}</div>`)
+      continue
+    }
+
+    // ── Markdown table: lines starting with | ──
+    const lines = trimmed.split('\n')
+    if (lines.length >= 2 && lines[0].trim().startsWith('|') && lines[1].trim().match(/^\|[\s:|-]+\|$/)) {
+      const parseRow = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
+      const headers = parseRow(lines[0])
+      const dataRows = lines.slice(2).filter(l => l.trim().startsWith('|'))
+      let table = '<div class="table-wrapper"><table>\n<thead><tr>'
+      headers.forEach(h => { table += `<th>${applyInlineFormatting(h)}</th>` })
+      table += '</tr></thead>\n<tbody>'
+      dataRows.forEach(row => {
+        const cells = parseRow(row)
+        table += '\n<tr>'
+        cells.forEach(c => { table += `<td>${applyInlineFormatting(c)}</td>` })
+        table += '</tr>'
+      })
+      table += '\n</tbody></table></div>'
+      htmlParts.push(table)
+      continue
+    }
+
+    // ── Blockquote: lines starting with > ──
+    if (lines[0].trim().startsWith('>')) {
+      const quoteLines = lines.map(l => l.trim().replace(/^>\s?/, ''))
+      // Check if last line is an attribution (starts with — or --)
+      let attribution = ''
+      let quoteText = quoteLines
+      if (quoteLines.length > 1 && /^(—|--|-)/.test(quoteLines[quoteLines.length - 1])) {
+        attribution = quoteLines[quoteLines.length - 1].replace(/^(—|--|-)\s*/, '')
+        quoteText = quoteLines.slice(0, -1)
+      }
+      let bq = `<blockquote class="expert-quote"><p>${applyInlineFormatting(quoteText.join(' '))}</p>`
+      if (attribution) bq += `\n<cite>— ${applyInlineFormatting(attribution)}</cite>`
+      bq += '</blockquote>'
+      htmlParts.push(bq)
+      continue
+    }
+
+    // ── Unordered list: lines starting with - or * ──
+    if (lines.every(l => /^\s*[-*]\s+/.test(l) || !l.trim())) {
+      const items = lines.filter(l => l.trim()).map(l => l.trim().replace(/^[-*]\s+/, ''))
+      htmlParts.push(`<ul>\n${items.map(i => `<li>${applyInlineFormatting(i)}</li>`).join('\n')}\n</ul>`)
+      continue
+    }
+
+    // ── Ordered list: lines starting with 1. 2. etc ──
+    if (lines.every(l => /^\s*\d+\.\s+/.test(l) || !l.trim())) {
+      const items = lines.filter(l => l.trim()).map(l => l.trim().replace(/^\d+\.\s+/, ''))
+      htmlParts.push(`<ol>\n${items.map(i => `<li>${applyInlineFormatting(i)}</li>`).join('\n')}\n</ol>`)
+      continue
+    }
+
+    // ── Default: paragraph ──
+    let html = trimmed.replace(/\n/g, '<br/>')
+    html = applyInlineFormatting(html)
     // Don't wrap if already contains block elements
-    if (/<(figure|div|img|table|blockquote)\b/i.test(html)) return html
-    return `<p>${html}</p>`
-  }).join('\n')
+    if (/<(figure|div|img|table|blockquote)\b/i.test(html)) {
+      htmlParts.push(html)
+    } else {
+      htmlParts.push(`<p>${html}</p>`)
+    }
+  }
+
+  return htmlParts.join('\n')
 }
 
 /**
@@ -95,14 +172,22 @@ ${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}
 </div>`)
   }
 
-  // Distribute social proof across sections (one per ~2 sections)
+  // Distribute social proof evenly — first quote appears by section 1, max 1 per section, no clustering
   const socialProofMap = {}
-  if (socialProof.length > 0) {
-    const interval = Math.max(1, Math.floor(sections.length / socialProof.length))
+  if (socialProof.length > 0 && sections.length > 0) {
+    const count = socialProof.length
+    const sLen = sections.length
+    // Place first quote at section index 1 (or 0 if only 1 section), then spread rest evenly
+    const startIdx = sLen > 1 ? 1 : 0
+    const availableSlots = sLen - startIdx
+    const step = count <= 1 ? 1 : Math.max(1, Math.floor(availableSlots / count))
     socialProof.forEach((sp, i) => {
-      const targetIdx = Math.min(i * interval + interval - 1, sections.length - 1)
-      if (!socialProofMap[targetIdx]) socialProofMap[targetIdx] = []
-      socialProofMap[targetIdx].push(sp)
+      const targetIdx = Math.min(startIdx + i * step, sLen - 1)
+      // Avoid doubling up — shift to next available slot
+      let finalIdx = targetIdx
+      while (socialProofMap[finalIdx] && finalIdx < sLen - 1) finalIdx++
+      if (!socialProofMap[finalIdx]) socialProofMap[finalIdx] = []
+      socialProofMap[finalIdx].push(sp)
     })
   }
 
