@@ -573,14 +573,27 @@ export default function ReviewEditor({ params }) {
             {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save'}
           </button>
 
-          {/* Publish / Unpublish */}
+          {/* Publish / Unpublish + View Live */}
           {review.status === 'published' ? (
-            <button
-              onClick={handleUnpublish}
-              className="text-sm font-medium px-4 py-2 rounded-lg text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700 transition"
-            >
-              Unpublish
-            </button>
+            <>
+              <a
+                href={`https://cryptokiller.org/review/${review.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-green-600/10 text-green-400 hover:bg-green-600/20 border border-green-600/20 transition flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                View Live
+              </a>
+              <button
+                onClick={handleUnpublish}
+                className="text-sm font-medium px-4 py-2 rounded-lg text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700 transition"
+              >
+                Unpublish
+              </button>
+            </>
           ) : (
             <button
               onClick={handlePublish}
