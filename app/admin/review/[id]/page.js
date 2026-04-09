@@ -346,6 +346,8 @@ export default function ReviewEditor({ params }) {
   const [saveError, setSaveError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
   const [imageMsg, setImageMsg] = useState('');
   const [generatingUnsplash, setGeneratingUnsplash] = useState(false);
@@ -446,6 +448,7 @@ export default function ReviewEditor({ params }) {
 
   const handlePublish = async () => {
     setPublishError('');
+    setSyncMsg('');
     setPublishing(true);
     try {
       await handleSave();
@@ -456,7 +459,17 @@ export default function ReviewEditor({ params }) {
       });
 
       if (res.ok) {
+        const data = await res.json();
         setReview((r) => ({ ...r, status: 'published' }));
+        // Show live sync feedback
+        if (data.live_sync?.success) {
+          setSyncMsg('✓ Synced to live site');
+          setTimeout(() => setSyncMsg(''), 5000);
+        } else if (data.live_sync?.error) {
+          setSyncMsg(`⚠ Live sync failed: ${data.live_sync.error}`);
+        } else if (!data.live_sync) {
+          setSyncMsg('⚠ Live sync skipped — REPLIT_SITE_URL not configured');
+        }
       } else {
         setPublishError('Error publishing');
       }
@@ -464,6 +477,28 @@ export default function ReviewEditor({ params }) {
       setPublishError('Error publishing');
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handleSyncToLive = async () => {
+    setSyncing(true);
+    setSyncMsg('');
+    try {
+      const res = await fetch(`/api/admin/reviews/${id}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSyncMsg('✓ Synced to live site');
+        setTimeout(() => setSyncMsg(''), 5000);
+      } else {
+        setSyncMsg(`⚠ Sync failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (err) {
+      setSyncMsg(`⚠ Sync failed: ${err.message || 'Network error'}`);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -707,7 +742,7 @@ export default function ReviewEditor({ params }) {
             {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save'}
           </button>
 
-          {/* Publish / Unpublish + View Live */}
+          {/* Publish / Unpublish + View Live + Sync */}
           {review.status === 'published' ? (
             <>
               <a
@@ -721,6 +756,16 @@ export default function ReviewEditor({ params }) {
                 </svg>
                 View Live
               </a>
+              <button
+                onClick={handleSyncToLive}
+                disabled={syncing}
+                className="text-sm font-medium px-4 py-2 rounded-lg bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-600/20 transition flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {syncing ? 'Syncing...' : 'Sync to Live'}
+              </button>
               <button
                 onClick={handleUnpublish}
                 className="text-sm font-medium px-4 py-2 rounded-lg text-gray-400 hover:text-white border border-gray-800 hover:border-gray-700 transition"
@@ -754,6 +799,16 @@ export default function ReviewEditor({ params }) {
       {(publishError || saveError) && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
           {publishError || saveError}
+        </div>
+      )}
+
+      {syncMsg && (
+        <div className={`py-2 px-3 rounded-lg text-sm ${
+          syncMsg.startsWith('✓')
+            ? 'bg-green-900/20 border border-green-600/30 text-green-400'
+            : 'bg-amber-900/20 border border-amber-600/30 text-amber-400'
+        }`}>
+          {syncMsg}
         </div>
       )}
 
