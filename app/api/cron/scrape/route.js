@@ -9,8 +9,8 @@ import {
   runScrapeLoop,
 } from '@/lib/scraper';
 
-const BATCHES_PER_CHUNK = 3; // Process 3 batches per invocation (~1500 creatives)
-const MAX_CHAINS = 200; // Safety limit to prevent infinite loops
+const BATCHES_PER_CHUNK = 80; // 80 × 500 = 40K creatives per invocation (~160s, within 300s timeout)
+const MAX_CHAINS = 500; // Safety limit — 500 × 40K = 20M creatives max
 
 /**
  * GET /api/cron/scrape
