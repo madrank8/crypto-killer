@@ -5,6 +5,82 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
+/* ─── Geo flag helper ─── */
+function geoFlag(code) {
+  if (!code || code.length !== 2) return '🌐';
+  const offset = 127397;
+  return String.fromCodePoint(...[...code.toUpperCase()].map(c => c.charCodeAt(0) + offset));
+}
+
+/* ─── Format numbers with K/M suffix ─── */
+function fmt(n) {
+  if (n == null) return '—';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return n.toLocaleString();
+}
+
+/* ─── Time ago helper ─── */
+function timeAgo(dateStr) {
+  if (!dateStr) return 'never';
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+/* ─── Stat Card ─── */
+function StatCard({ label, value, sub, accent = 'text-white' }) {
+  return (
+    <div className="bg-dark-card border border-gray-800 rounded-xl px-4 py-3">
+      <p className="text-[11px] uppercase tracking-wider text-gray-500 font-medium">{label}</p>
+      <p className={`text-2xl font-bold mt-0.5 ${accent}`}>{value}</p>
+      {sub && <p className="text-xs text-gray-500 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+/* ─── Trend Pill (for stats) ─── */
+function TrendPill({ trend, count, ads }) {
+  const colors = {
+    surging: 'bg-red-500/15 text-red-400 border-red-500/20',
+    rising: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
+    stable: 'bg-gray-500/15 text-gray-300 border-gray-500/20',
+    declining: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+    dead: 'bg-gray-700/15 text-gray-600 border-gray-700/20',
+  };
+  return (
+    <div className={`flex items-center justify-between px-3 py-2 rounded-lg border ${colors[trend] || colors.stable}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold capitalize">{trend}</span>
+        <span className="text-[10px] opacity-60">{fmt(ads)} ads</span>
+      </div>
+      <span className="text-sm font-bold">{fmt(count)}</span>
+    </div>
+  );
+}
+
+/* ─── Scrape History Row ─── */
+function ScrapeRow({ run }) {
+  const isOk = run.status === 'completed';
+  return (
+    <div className="flex items-center gap-3 text-xs py-1.5">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOk ? 'bg-green-500' : 'bg-red-500'}`} />
+      <span className="text-gray-400 w-16 shrink-0">{timeAgo(run.finished_at || run.started_at)}</span>
+      <span className="text-gray-300 flex-1 truncate">
+        {fmt(run.creatives_synced)} synced
+        {run.brands_updated > 0 && ` · ${fmt(run.brands_updated)} brands`}
+      </span>
+      <span className="text-gray-600 shrink-0">{run.trigger_type}</span>
+    </div>
+  );
+}
+
+/* ─── Brand list components ─── */
 function TrendBadge({ trend }) {
   const config = {
     surging: 'bg-red-500/20 text-red-300 border-red-500/30',
@@ -30,11 +106,20 @@ function ScamScoreChip({ score }) {
     </span>
   );
 }
+
+/* ═══════════════════════════════════════════════════════ */
+/*  MAIN PAGE                                            */
+/* ═══════════════════════════════════════════════════════ */
 export default function BrandsPage() {
   const { token } = useAdmin();
   const router = useRouter();
   const searchParams = useSearchParams();
 
+  // ─── Stats state ───
+  const [stats, setStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
+  // ─── Brands state ───
   const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
@@ -50,12 +135,27 @@ export default function BrandsPage() {
 
   const [generatingId, setGeneratingId] = useState(null);
   const [toast, setToast] = useState(null);
+  const [showStats, setShowStats] = useState(true);
 
   const showToast = (msg, type = 'error') => {
     setToast({ msg, type });
     if (type !== 'error') setTimeout(() => setToast(null), 3000);
   };
 
+  // ─── Fetch stats ───
+  useEffect(() => {
+    if (!token) return;
+    setStatsLoading(true);
+    fetch('/api/admin/funnel-stats', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setStats(data); })
+      .catch(() => {})
+      .finally(() => setStatsLoading(false));
+  }, [token]);
+
+  // ─── Fetch brands ───
   const fetchBrands = useCallback(async (pageNum = 1, append = false) => {
     if (!token) return;
     setLoading(true);
@@ -76,7 +176,6 @@ export default function BrandsPage() {
         const data = await res.json();
         let results = data.brands || [];
 
-        // Client-side search filter
         if (search.trim()) {
           const q = search.toLowerCase();
           results = results.filter((b) => b.name.toLowerCase().includes(q));
@@ -101,6 +200,7 @@ export default function BrandsPage() {
     setPage(1);
     fetchBrands(1);
   }, [fetchBrands]);
+
   const loadMore = () => {
     const next = page + 1;
     setPage(next);
@@ -138,21 +238,174 @@ export default function BrandsPage() {
       setGeneratingId(null);
     }
   };
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* ─── Page Header ─── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Funnels</h1>
           <p className="text-gray-500 text-sm mt-1">
-            {total} scam funnels tracked
+            {total > 0 ? `${total.toLocaleString()} scam funnels tracked` : 'Loading...'}
           </p>
         </div>
+        <button
+          onClick={() => setShowStats(!showStats)}
+          className="text-xs text-gray-500 hover:text-gray-300 px-3 py-1.5 rounded-lg border border-gray-800 hover:border-gray-700 transition"
+        >
+          {showStats ? 'Hide Stats' : 'Show Stats'}
+        </button>
       </div>
 
-      {/* Filters Bar */}
+      {/* ═══════════════════════════════════════════════ */}
+      {/*  STATS DASHBOARD                               */}
+      {/* ═══════════════════════════════════════════════ */}
+      {showStats && (
+        <div className="space-y-4">
+          {statsLoading ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-dark-card border border-gray-800 rounded-xl px-4 py-3 animate-pulse">
+                  <div className="h-3 bg-gray-800 rounded w-16 mb-2" />
+                  <div className="h-7 bg-gray-800 rounded w-20" />
+                </div>
+              ))}
+            </div>
+          ) : stats ? (
+            <>
+              {/* Row 1: Key metrics */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <StatCard
+                  label="Total Creatives"
+                  value={fmt(stats.overview.total_creatives)}
+                  sub={`${fmt(stats.overview.total_api || stats.last_scrape?.total_api)} on SpyOwl`}
+                  accent="text-white"
+                />
+                <StatCard
+                  label="Total Funnels"
+                  value={fmt(stats.overview.total_brands)}
+                  sub={`${fmt(stats.overview.active_brands)} active`}
+                  accent="text-white"
+                />
+                <StatCard
+                  label="Weekly Velocity"
+                  value={fmt(stats.overview.total_velocity)}
+                  sub="new ads / week"
+                  accent="text-orange-400"
+                />
+                <StatCard
+                  label="Countries"
+                  value={stats.overview.unique_geos}
+                  sub="targeted by scams"
+                  accent="text-blue-400"
+                />
+                <StatCard
+                  label="Celebrities"
+                  value={fmt(stats.overview.unique_celebrities)}
+                  sub="exploited in ads"
+                  accent="text-amber-400"
+                />
+                <StatCard
+                  label="Reviews"
+                  value={`${stats.reviews.published}/${stats.reviews.total}`}
+                  sub={`${stats.overview.review_coverage}% coverage`}
+                  accent="text-green-400"
+                />
+              </div>
+
+              {/* Row 2: Trend breakdown + Top geos + Scrape history */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Trend Breakdown */}
+                <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-3">Trend Breakdown</h3>
+                  <div className="space-y-1.5">
+                    {['surging', 'rising', 'stable', 'declining', 'dead'].map(t => (
+                      <TrendPill key={t} trend={t} count={stats.trends.counts[t]} ads={stats.trends.ads[t]} />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Top Geos */}
+                <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-3">Top Targeted Countries</h3>
+                  <div className="space-y-1.5">
+                    {(stats.top_geos || []).slice(0, 8).map((g, i) => (
+                      <div key={g.geo} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600 text-xs w-4">{i + 1}.</span>
+                          <span className="text-base">{geoFlag(g.geo)}</span>
+                          <span className="text-gray-300">{g.geo}</span>
+                        </div>
+                        <span className="text-gray-500 text-xs">{fmt(g.count)} funnels</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Scrape History */}
+                <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-2">Recent Scrapes</h3>
+                  {stats.last_scrape && (
+                    <p className="text-[11px] text-gray-600 mb-2">
+                      Last: {timeAgo(stats.last_scrape.finished_at)} · {fmt(stats.last_scrape.creatives_synced)} synced
+                    </p>
+                  )}
+                  <div className="space-y-0.5">
+                    {(stats.scrape_history || []).slice(0, 7).map(run => (
+                      <ScrapeRow key={run.id} run={run} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 3: Threat levels bar */}
+              <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+                <h3 className="text-xs uppercase tracking-wider text-gray-500 font-medium mb-3">Threat Distribution</h3>
+                <div className="flex gap-1 h-3 rounded-full overflow-hidden bg-gray-800">
+                  {stats.overview.total_brands > 0 && (
+                    <>
+                      <div
+                        className="bg-red-500 rounded-l-full transition-all"
+                        style={{ width: `${(stats.threat_levels.high / stats.overview.total_brands) * 100}%` }}
+                        title={`High threat: ${stats.threat_levels.high}`}
+                      />
+                      <div
+                        className="bg-amber-500 transition-all"
+                        style={{ width: `${(stats.threat_levels.medium / stats.overview.total_brands) * 100}%` }}
+                        title={`Medium threat: ${stats.threat_levels.medium}`}
+                      />
+                      <div
+                        className="bg-green-500 rounded-r-full transition-all"
+                        style={{ width: `${(stats.threat_levels.low / stats.overview.total_brands) * 100}%` }}
+                        title={`Low threat: ${stats.threat_levels.low}`}
+                      />
+                    </>
+                  )}
+                </div>
+                <div className="flex items-center gap-6 mt-2 text-xs">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-gray-400">High ({fmt(stats.threat_levels.high)})</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-gray-400">Medium ({fmt(stats.threat_levels.medium)})</span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-gray-400">Low ({fmt(stats.threat_levels.low)})</span>
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════ */}
+      {/*  FILTERS BAR                                   */}
+      {/* ═══════════════════════════════════════════════ */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Search */}
         <div className="flex-1 min-w-[200px] max-w-sm">
           <input
             type="text"
@@ -163,7 +416,6 @@ export default function BrandsPage() {
           />
         </div>
 
-        {/* Sort */}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
@@ -173,7 +425,7 @@ export default function BrandsPage() {
           <option value="velocity">Most Active</option>
           <option value="scam_score">Highest Score</option>
         </select>
-        {/* Trend */}
+
         <select
           value={trendFilter}
           onChange={(e) => setTrendFilter(e.target.value)}
@@ -187,7 +439,6 @@ export default function BrandsPage() {
           <option value="dead">Dead</option>
         </select>
 
-        {/* Review Status */}
         <select
           value={reviewFilter}
           onChange={(e) => setReviewFilter(e.target.value)}
@@ -200,8 +451,11 @@ export default function BrandsPage() {
         </select>
       </div>
 
-      {/* Brands List */}
-      <div className="space-y-2">        {brands.map((brand) => (
+      {/* ═══════════════════════════════════════════════ */}
+      {/*  BRANDS LIST                                   */}
+      {/* ═══════════════════════════════════════════════ */}
+      <div className="space-y-2">
+        {brands.map((brand) => (
           <div
             key={brand.id}
             className={`bg-dark-card border rounded-xl px-5 py-4 flex items-center gap-4 transition hover:border-gray-700 ${
@@ -210,10 +464,8 @@ export default function BrandsPage() {
                 : 'border-gray-800'
             }`}
           >
-            {/* Score */}
             <ScamScoreChip score={brand.scam_score} />
 
-            {/* Brand Info */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-white font-semibold text-sm truncate">{brand.name}</span>
@@ -228,7 +480,7 @@ export default function BrandsPage() {
                 )}
               </div>
             </div>
-            {/* Review Status + Action */}
+
             <div className="flex items-center gap-3 shrink-0">
               {brand.review_status === 'published' ? (
                 <>
@@ -257,7 +509,8 @@ export default function BrandsPage() {
                   onClick={() => handleOneClickGenerate(brand.id)}
                   disabled={generatingId === brand.id}
                   className="text-xs font-semibold text-red-400 hover:text-red-300 px-4 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 border border-red-600/20 transition"
-                >                  {generatingId === brand.id ? (
+                >
+                  {generatingId === brand.id ? (
                     <span className="flex items-center gap-1.5">
                       <span className="animate-spin">⟳</span> Generating...
                     </span>
@@ -292,12 +545,13 @@ export default function BrandsPage() {
             onClick={loadMore}
             disabled={loading}
             className="text-sm text-gray-400 hover:text-white px-6 py-2 rounded-lg border border-gray-800 hover:border-gray-700 transition"
-          >            {loading ? 'Loading...' : 'Load More'}
+          >
+            {loading ? 'Loading...' : 'Load More'}
           </button>
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Toast */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-2">
           <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl max-w-sm ${
