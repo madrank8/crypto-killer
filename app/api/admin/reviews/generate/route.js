@@ -5,6 +5,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
+import { generateImageSet } from '@/lib/images'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -1173,6 +1174,41 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
     } catch (revalError) {
       console.error('Revalidation error (non-fatal):', revalError.message)
     }
+
+    // ─── GENERATE HERO + CONTENT IMAGES (Unsplash → TinyPNG → Supabase) ───
+    let heroImageResult = null
+    let contentImagesResult = []
+    try {
+      send({ step: 'images_unsplash', progress: 93, message: 'Generating hero & content images (Unsplash → compress → upload)...' })
+      const imgSet = await generateImageSet(slug, { contentCount: 1 })
+      if (imgSet.hero) {
+        heroImageResult = imgSet.hero
+        const imgUpdate = {
+          hero_image_url: imgSet.hero.url,
+          hero_image_alt: imgSet.hero.alt,
+          hero_image_credit: imgSet.hero.credit,
+        }
+        if (imgSet.contentImages.length > 0) {
+          contentImagesResult = imgSet.contentImages
+          imgUpdate.content_images = imgSet.contentImages.map(img => ({
+            url: img.url, alt: img.alt, credit: img.credit,
+            creditUrl: img.creditUrl, placement: img.placement,
+          }))
+        }
+        await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
+          method: 'PATCH',
+          body: JSON.stringify(imgUpdate),
+          headers: { 'Prefer': 'return=minimal' },
+        })
+        send({ step: 'images_done', progress: 97, message: `Hero image + ${contentImagesResult.length} content image(s) generated & compressed` })
+      } else if (imgSet.errors.length > 0) {
+        send({ step: 'images_warn', progress: 97, message: `Image generation partial: ${imgSet.errors[0]}` })
+      }
+    } catch (imgError) {
+      console.error('[generate] Image pipeline error (non-fatal):', imgError.message)
+      send({ step: 'images_skip', progress: 97, message: `Image generation skipped: ${imgError.message}` })
+    }
+
           send({
             step: 'done',
             progress: 100,
@@ -1183,6 +1219,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
               word_count: wordCount,
               images_embedded: availableImages.length,
+              hero_image: heroImageResult?.url || null,
               schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList'],
               pipeline_version: 'multi-agent-v1.0',
               audit_grade: auditReport?.grade || 'skipped',

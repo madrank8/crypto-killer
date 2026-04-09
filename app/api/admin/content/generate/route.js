@@ -6,6 +6,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
+import { generateImageSet } from '@/lib/images'
 
 export const maxDuration = 300
 
@@ -352,6 +353,36 @@ export async function POST(request) {
             }),
           })
 
+          // ─── GENERATE HERO + CONTENT IMAGES (Unsplash → TinyPNG → Supabase) ───
+          let heroUrl = null
+          try {
+            send({ step: 'images', progress: 90, message: 'Generating hero & content images...' })
+            const imgSet = await generateImageSet(content.slug, { contentCount: 1 })
+            if (imgSet.hero) {
+              heroUrl = imgSet.hero.url
+              const imgUpdate = {
+                hero_image_url: imgSet.hero.url,
+                hero_image_alt: imgSet.hero.alt,
+                hero_image_credit: imgSet.hero.credit,
+              }
+              if (imgSet.contentImages.length > 0) {
+                imgUpdate.content_images = imgSet.contentImages.map(img => ({
+                  url: img.url, alt: img.alt, credit: img.credit,
+                  creditUrl: img.creditUrl, placement: img.placement,
+                }))
+              }
+              await supaFetch(`/content?id=eq.${content.id}`, {
+                method: 'PATCH',
+                headers: { Prefer: 'return=minimal' },
+                body: JSON.stringify(imgUpdate),
+              })
+              send({ step: 'images_done', progress: 96, message: `Images compressed & uploaded` })
+            }
+          } catch (imgErr) {
+            console.error('[content/generate] Image pipeline error:', imgErr.message)
+            send({ step: 'images_skip', progress: 96, message: `Images skipped: ${imgErr.message}` })
+          }
+
           send({
             step: 'done',
             progress: 100,
@@ -361,6 +392,7 @@ export async function POST(request) {
               slug: content.slug,
               topic_id: topic.id,
               word_count: wordCount,
+              hero_image: heroUrl,
             },
           })
         } catch (err) {
