@@ -246,6 +246,90 @@ function parseEvidenceImages(html) {
   return images;
 }
 
+/* ─── Unsplash Hero / Content Images Card ─── */
+function UnsplashImagesCard({ review, generating, message, onGenerate }) {
+  const hasHero = !!review?.hero_image_url;
+  const contentImages = Array.isArray(review?.content_images) ? review.content_images : [];
+
+  return (
+    <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+          Unsplash Images
+        </h3>
+      </div>
+
+      {/* Hero preview */}
+      {hasHero ? (
+        <div className="mb-3 rounded-lg overflow-hidden border border-gray-800">
+          <img
+            src={review.hero_image_url}
+            alt={review.hero_image_alt || 'Hero'}
+            className="w-full h-28 object-cover"
+          />
+          <div className="px-2 py-1 bg-dark-surface flex items-center justify-between">
+            <span className="text-[10px] text-green-400 font-medium">Hero ✓</span>
+            {review.hero_image_credit && (
+              <span className="text-[10px] text-gray-600 truncate ml-2">{review.hero_image_credit}</span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mb-3 rounded-lg border border-dashed border-gray-700 bg-dark-surface p-3 text-center">
+          <span className="text-gray-600 text-xs">No hero image</span>
+        </div>
+      )}
+
+      {/* Content images preview */}
+      {contentImages.length > 0 ? (
+        <div className="grid grid-cols-2 gap-1.5 mb-3">
+          {contentImages.map((img, i) => (
+            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
+              <img
+                src={img.url}
+                alt={img.alt || `Content ${i + 1}`}
+                className="w-full h-16 object-cover"
+                loading="lazy"
+              />
+              <div className="px-1.5 py-0.5 bg-dark-surface">
+                <span className="text-[10px] text-gray-500">Content {i + 1}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mb-3 rounded-lg border border-dashed border-gray-700 bg-dark-surface p-2 text-center">
+          <span className="text-gray-600 text-xs">No content images</span>
+        </div>
+      )}
+
+      {/* Status message */}
+      {message && (
+        <div className={`mb-3 text-xs px-2 py-1.5 rounded ${
+          message.startsWith('✓') ? 'bg-green-950/40 text-green-400' : 'bg-red-950/40 text-red-400'
+        }`}>
+          {message}
+        </div>
+      )}
+
+      {/* Generate / Regenerate button */}
+      <button
+        onClick={onGenerate}
+        disabled={generating}
+        className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-600/20 transition flex items-center justify-center gap-1.5"
+      >
+        {generating ? (
+          <><span className="animate-spin">⟳</span> Generating...</>
+        ) : hasHero ? (
+          <><span>🔄</span> Regenerate Images</>
+        ) : (
+          <><span>🖼️</span> Generate Images</>
+        )}
+      </button>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════
    MAIN EDITOR PAGE
    ═══════════════════════════════════════════ */
@@ -264,6 +348,8 @@ export default function ReviewEditor({ params }) {
   const [publishError, setPublishError] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
   const [imageMsg, setImageMsg] = useState('');
+  const [generatingUnsplash, setGeneratingUnsplash] = useState(false);
+  const [unsplashMsg, setUnsplashMsg] = useState('');
 
   // AI Generate with progress tracking
   const gen = useGenerateWithProgress(token);
@@ -499,6 +585,54 @@ export default function ReviewEditor({ params }) {
       }
     } catch (err) {
       console.error('Image removal error:', err);
+    }
+  };
+
+  // ─── Unsplash Image Generation ───
+  const handleGenerateUnsplashImages = async () => {
+    setGeneratingUnsplash(true);
+    setUnsplashMsg('');
+    try {
+      const res = await fetch('/api/admin/images/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ review_id: id, content_count: 2 }),
+      });
+
+      const data = await res.json();
+
+      if (data.success) {
+        const parts = [];
+        if (data.hero) parts.push('Hero image');
+        if (data.content_images?.length) parts.push(`${data.content_images.length} content image(s)`);
+        setUnsplashMsg(`✓ Generated: ${parts.join(' + ') || 'no images'}`);
+
+        // Refresh review data to pick up new image URLs
+        const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (refreshRes.ok) {
+          const refreshData = await refreshRes.json();
+          setReview((r) => ({
+            ...r,
+            hero_image_url: refreshData.hero_image_url,
+            hero_image_alt: refreshData.hero_image_alt,
+            hero_image_credit: refreshData.hero_image_credit,
+            content_images: refreshData.content_images,
+          }));
+        }
+      } else {
+        setUnsplashMsg(`✗ ${data.error || 'Failed to generate images'}`);
+      }
+    } catch (err) {
+      console.error('Unsplash image generation error:', err);
+      setUnsplashMsg(`✗ Error: ${err.message || 'network error'}`);
+    } finally {
+      setGeneratingUnsplash(false);
+      setTimeout(() => setUnsplashMsg(''), 6000);
     }
   };
 
@@ -751,6 +885,12 @@ export default function ReviewEditor({ params }) {
             redFlagCount={redFlags.length}
             faqCount={faqs.length}
             status={review.status}
+          />
+          <UnsplashImagesCard
+            review={review}
+            generating={generatingUnsplash}
+            message={unsplashMsg}
+            onGenerate={handleGenerateUnsplashImages}
           />
           <EvidenceImagesCard
             images={evidenceImages}
