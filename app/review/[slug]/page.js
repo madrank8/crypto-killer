@@ -47,7 +47,7 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&status=eq.published&select=title,meta_description,slug,scam_score`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=title,meta_description,slug,scam_score,hero_image_url,hero_image_alt`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -58,6 +58,10 @@ export async function generateMetadata({ params }) {
     }
 
     const review = reviews[0]
+    const ogImages = review.hero_image_url
+      ? [{ url: review.hero_image_url, alt: review.hero_image_alt || review.title }]
+      : []
+
     return {
       title: review.title || 'Scam Review - Crypto Killer',
       description: review.meta_description || 'Detailed scam analysis and verdict.',
@@ -65,6 +69,13 @@ export async function generateMetadata({ params }) {
         title: review.title,
         description: review.meta_description,
         type: 'article',
+        ...(ogImages.length > 0 && { images: ogImages }),
+      },
+      twitter: {
+        card: ogImages.length > 0 ? 'summary_large_image' : 'summary',
+        title: review.title,
+        description: review.meta_description,
+        ...(ogImages.length > 0 && { images: [review.hero_image_url] }),
       },
     }
   } catch (error) {
@@ -121,7 +132,7 @@ function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
 export default async function ReviewPage({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at,hero_image_url,hero_image_alt,hero_image_credit,content_images`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -239,6 +250,23 @@ export default async function ReviewPage({ params }) {
               </p>
             )}
 
+            {/* Hero Image */}
+            {review.hero_image_url && (
+              <div className="mb-10 rounded-2xl overflow-hidden border border-slate-800">
+                <img
+                  src={review.hero_image_url}
+                  alt={review.hero_image_alt || `${brand?.name || 'Scam'} investigation`}
+                  className="w-full h-auto max-h-[480px] object-cover"
+                  loading="eager"
+                />
+                {review.hero_image_credit && (
+                  <div className="bg-slate-900/80 px-4 py-2 text-xs text-slate-500">
+                    Photo: {review.hero_image_credit}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Meta Bar */}
             <div className="flex flex-wrap items-center gap-6 text-sm text-slate-400 mb-10 pb-8 border-b border-slate-800/50">
               {formattedDate && (
@@ -325,6 +353,27 @@ export default async function ReviewPage({ params }) {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Main Content - Col Span 2 */}
               <div className="lg:col-span-2 space-y-10">
+                {/* Content Images Gallery (from Unsplash pipeline) */}
+                {Array.isArray(review.content_images) && review.content_images.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
+                    {review.content_images.map((img, i) => (
+                      <figure key={i} className="rounded-xl overflow-hidden border border-slate-800 bg-slate-900/40">
+                        <img
+                          src={img.url}
+                          alt={img.alt || `Evidence image ${i + 1}`}
+                          className="w-full h-48 object-cover"
+                          loading="lazy"
+                        />
+                        {img.credit && (
+                          <figcaption className="px-3 py-1.5 text-xs text-slate-500">
+                            Photo: {img.credit}
+                          </figcaption>
+                        )}
+                      </figure>
+                    ))}
+                  </div>
+                )}
+
                 {/* Full Article (with embedded visuals) — takes priority if available */}
                 {review.full_article && review.full_article.includes('ck-visual') ? (
                   <div>
