@@ -336,6 +336,10 @@ export default function ContentEditorPage({ params }) {
   // Phase override: user can go "Back to Outline" from article
   const [forcePhase, setForcePhase] = useState(null);
 
+  // Image regeneration
+  const [regeneratingImages, setRegeneratingImages] = useState(false);
+  const [imageMsg, setImageMsg] = useState('');
+
   // SSE progress modal
   const [modalOpen, setModalOpen] = useState(false);
   const [modalStep, setModalStep] = useState('');
@@ -499,6 +503,42 @@ export default function ContentEditorPage({ params }) {
       setError(`Sync failed: ${e.message}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  /* -- Regenerate images -- */
+  const regenerateImages = async (mode = 'all') => {
+    setRegeneratingImages(true);
+    setImageMsg('');
+    setError('');
+    try {
+      await save();
+      const res = await fetch(`/api/admin/content/${id}/images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ mode }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Image generation failed');
+
+      const parts = [];
+      if (data.results?.stock?.success && data.results.stock.hero) {
+        parts.push(`Hero image: "${data.results.stock.queries?.heroQuery || 'generated'}"`);
+        if (data.results.stock.contentImages > 0) {
+          parts.push(`${data.results.stock.contentImages} section images`);
+        }
+      }
+      if (data.results?.visuals?.success && data.results.visuals.total > 0) {
+        parts.push(`${data.results.visuals.succeeded}/${data.results.visuals.total} AI visuals`);
+      }
+
+      setImageMsg(parts.length > 0 ? `✓ ${parts.join(' · ')}` : 'No images generated');
+      await reloadContent();
+    } catch (e) {
+      setError(`Image generation failed: ${e.message}`);
+    } finally {
+      setRegeneratingImages(false);
+      setTimeout(() => setImageMsg(''), 6000);
     }
   };
 
@@ -926,6 +966,73 @@ export default function ContentEditorPage({ params }) {
               {content.ai_model && (
                 <p className="text-xs text-gray-600">Model: {content.ai_model}</p>
               )}
+            </div>
+
+            {/* Images card */}
+            <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs uppercase tracking-wide text-gray-500">Images</h3>
+                {imageMsg && (
+                  <span className="text-[10px] text-green-400 truncate max-w-[180px]">{imageMsg}</span>
+                )}
+              </div>
+
+              {/* Hero image preview */}
+              {content.hero_image_url ? (
+                <div className="space-y-1">
+                  <img
+                    src={content.hero_image_url}
+                    alt={content.hero_image_alt || 'Hero'}
+                    className="w-full h-24 object-cover rounded-lg border border-gray-700"
+                  />
+                  <p className="text-[10px] text-gray-600 truncate">{content.hero_image_credit || ''}</p>
+                </div>
+              ) : (
+                <div className="w-full h-20 rounded-lg border-2 border-dashed border-gray-700 flex items-center justify-center">
+                  <span className="text-xs text-gray-600">No hero image</span>
+                </div>
+              )}
+
+              {/* Content images count */}
+              {content.content_images?.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  {content.content_images.length} section image{content.content_images.length > 1 ? 's' : ''}
+                </p>
+              )}
+
+              {/* Visual meta stats */}
+              {content.visual_meta?.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  {content.visual_meta.filter(v => v.succeeded).length}/{content.visual_meta.length} AI visuals rendered
+                </p>
+              )}
+
+              {/* Action buttons */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => regenerateImages('all')}
+                  disabled={regeneratingImages}
+                  className="w-full text-xs px-3 py-2 rounded-lg bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-600/20 transition disabled:opacity-50"
+                >
+                  {regeneratingImages ? 'Generating…' : '🖼️ Regenerate All Images'}
+                </button>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => regenerateImages('stock')}
+                    disabled={regeneratingImages}
+                    className="flex-1 text-[10px] px-2 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition disabled:opacity-50"
+                  >
+                    Stock Only
+                  </button>
+                  <button
+                    onClick={() => regenerateImages('visuals')}
+                    disabled={regeneratingImages}
+                    className="flex-1 text-[10px] px-2 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500 transition disabled:opacity-50"
+                  >
+                    AI Visuals Only
+                  </button>
+                </div>
+              </div>
             </div>
 
             {content.summary && (
