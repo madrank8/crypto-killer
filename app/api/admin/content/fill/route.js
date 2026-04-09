@@ -21,23 +21,70 @@ export const maxDuration = 300
  * - Persona metadata is tracked in ai_audit for article provenance
  */
 
-function sectionsToHtml(sections = []) {
-  return (sections || [])
-    .map((s) => {
-      const body = String(s.body || '')
-      // If body contains HTML block elements (figure, div, img), render as-is with line breaks in text
-      if (/<(figure|div|img)\b/i.test(body)) {
-        // Split on double newlines, wrap plain text paragraphs in <p>, pass HTML through
-        const blocks = body.split(/\n{2,}/)
-        const rendered = blocks.map(block => {
-          if (/<(figure|div|img)\b/i.test(block)) return block
-          return `<p>${block.replace(/\n/g, '<br/>')}</p>`
-        }).join('\n')
-        return `<h2>${s.heading || 'Section'}</h2>\n${rendered}`
-      }
-      return `<h2>${s.heading || 'Section'}</h2><p>${body.replace(/\n+/g, '<br/>')}</p>`
-    })
-    .join('\n\n')
+function sectionBodyToHtml(body) {
+  const text = String(body || '')
+  if (/<(figure|div|img)\b/i.test(text)) {
+    const blocks = text.split(/\n{2,}/)
+    return blocks.map(block => {
+      if (/<(figure|div|img)\b/i.test(block)) return block
+      return `<p>${block.replace(/\n/g, '<br/>')}</p>`
+    }).join('\n')
+  }
+  return `<p>${text.replace(/\n+/g, '<br/>')}</p>`
+}
+
+/**
+ * Build full HTML from structured article data.
+ * Includes: Key Takeaways, sections, Not For You, FAQ with schema, author bio.
+ */
+function buildArticleHtml(article, persona) {
+  const sections = Array.isArray(article.sections) ? article.sections : []
+  const faq = Array.isArray(article.faq) ? article.faq : []
+  const keyTakeaways = Array.isArray(article.key_takeaways) ? article.key_takeaways : []
+  const notForYou = article.not_for_you || ''
+  const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
+  const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
+  const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
+
+  const parts = []
+
+  if (article.summary) {
+    parts.push(`<p class="article-summary">${article.summary}</p>`)
+  }
+
+  if (keyTakeaways.length > 0) {
+    parts.push(`<div class="key-takeaways">\n<h2>Key Takeaways</h2>\n<ul>\n${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}\n</ul>\n</div>`)
+  }
+
+  for (const s of sections) {
+    parts.push(`<h2>${s.heading || 'Section'}</h2>\n${sectionBodyToHtml(s.body)}`)
+  }
+
+  if (notForYou) {
+    parts.push(`<div class="not-for-you">\n<h2>When This Guide Does NOT Apply</h2>\n<p>${notForYou}</p>\n</div>`)
+  }
+
+  if (faq.length > 0) {
+    parts.push(`<div class="faq-section">\n<h2>Frequently Asked Questions</h2>\n${faq.map(f => `<details>\n<summary>${f.question}</summary>\n<p>${f.answer || ''}</p>\n</details>`).join('\n')}\n</div>`)
+    const faqSchema = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faq.map(f => ({
+        '@type': 'Question',
+        name: f.question,
+        acceptedAnswer: { '@type': 'Answer', text: f.answer || '' },
+      })),
+    }
+    parts.push(`<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`)
+  }
+
+  if (internalLinks.length > 0) {
+    parts.push(`<div class="related-reading">\n<h3>Related Investigations</h3>\n<ul>\n${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}\n</ul>\n</div>`)
+  }
+
+  parts.push(`<div class="author-bio">\n<p><strong>${authorName}</strong> — ${authorBio}</p>\n</div>`)
+
+  return parts.join('\n\n')
 }
 
 function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedger) {
@@ -95,15 +142,6 @@ export async function POST(request) {
         try {
           send({ step: 'init', progress: 5, message: 'Loading content with approved outline...' })
 
-          // ── SELECT RANDOM WRITER PERSONA ──
-          const persona = selectPersona()
-          const personaMetadata = getPersonaMetadata(persona)
-          send({ 
-            step: 'init', 
-            progress: 10, 
-            message: `Using writer persona: ${personaMetadata.name} (${personaMetadata.model})` 
-          })
-
           // Load content
           const contentRows = await supaFetch(`/content?id=eq.${contentId}&select=*&limit=1`)
           const content = Array.isArray(contentRows) ? contentRows[0] : null
@@ -120,6 +158,18 @@ export async function POST(request) {
             topic = Array.isArray(topicRows) ? topicRows[0] : null
           }
           if (!topic) throw new Error('Linked topic not found')
+
+          // ── SELECT CONTENT-TYPE-AWARE WRITER PERSONA (after topic is loaded) ──
+          const persona = selectPersona({
+            contentType: topic.content_type,
+            pageRole: topic.page_role,
+          })
+          const personaMetadata = getPersonaMetadata(persona)
+          send({
+            step: 'init',
+            progress: 10,
+            message: `Using writer persona: ${personaMetadata.name} (${personaMetadata.model})`
+          })
 
           let parentTopic = null
           if (topic.parent_id) {
@@ -292,7 +342,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           const articleSections = Array.isArray(article.sections) ? article.sections : sections
           const articleFaq = Array.isArray(article.faq) ? article.faq : content.faq || []
-          const fullArticle = stripVerifyTags(sectionsToHtml(articleSections))
+          const fullArticle = stripVerifyTags(buildArticleHtml(article, persona))
           const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
           await supaFetch(`/content?id=eq.${contentId}`, {

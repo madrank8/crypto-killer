@@ -28,38 +28,110 @@ async function ensureUniqueContentSlug(base) {
   return `${cleanBase}-${Date.now()}`
 }
 
-function sectionsToHtml(sections = []) {
-  return (sections || [])
-    .map((s) => `<h2>${s.heading || 'Section'}</h2><p>${String(s.body || '').replace(/\n+/g, '<br/>')}</p>`)
-    .join('\n\n')
+/**
+ * Build full HTML from structured article data.
+ * Includes: Key Takeaways, sections, Not For You, FAQ with schema, author bio.
+ */
+function buildArticleHtml(article, persona) {
+  const sections = Array.isArray(article.sections) ? article.sections : []
+  const faq = Array.isArray(article.faq) ? article.faq : []
+  const keyTakeaways = Array.isArray(article.key_takeaways) ? article.key_takeaways : []
+  const notForYou = article.not_for_you || ''
+  const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
+  const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
+  const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
+
+  const parts = []
+
+  // Summary / intro
+  if (article.summary) {
+    parts.push(`<p class="article-summary">${article.summary}</p>`)
+  }
+
+  // Key Takeaways (BLUF)
+  if (keyTakeaways.length > 0) {
+    parts.push(`<div class="key-takeaways">
+<h2>Key Takeaways</h2>
+<ul>
+${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}
+</ul>
+</div>`)
+  }
+
+  // Body sections
+  for (const s of sections) {
+    const body = String(s.body || '')
+    // If body contains HTML block elements (figure, div, img), render as-is
+    if (/<(figure|div|img)\b/i.test(body)) {
+      const blocks = body.split(/\n{2,}/)
+      const rendered = blocks.map(block => {
+        if (/<(figure|div|img)\b/i.test(block)) return block
+        return `<p>${block.replace(/\n/g, '<br/>')}</p>`
+      }).join('\n')
+      parts.push(`<h2>${s.heading || 'Section'}</h2>\n${rendered}`)
+    } else {
+      parts.push(`<h2>${s.heading || 'Section'}</h2><p>${body.replace(/\n+/g, '<br/>')}</p>`)
+    }
+  }
+
+  // Not For You block
+  if (notForYou) {
+    parts.push(`<div class="not-for-you">
+<h2>When This Guide Does NOT Apply</h2>
+<p>${notForYou}</p>
+</div>`)
+  }
+
+  // FAQ with FAQPage schema markup
+  if (faq.length > 0) {
+    parts.push(`<div class="faq-section">
+<h2>Frequently Asked Questions</h2>
+${faq.map(f => `<details>
+<summary>${f.question}</summary>
+<p>${f.answer || ''}</p>
+</details>`).join('\n')}
+</div>`)
+
+    // FAQPage JSON-LD schema
+    const faqSchema = {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faq.map(f => ({
+        '@type': 'Question',
+        name: f.question,
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: f.answer || '',
+        },
+      })),
+    }
+    parts.push(`<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`)
+  }
+
+  // Internal links section (rendered as related reading)
+  if (internalLinks.length > 0) {
+    parts.push(`<div class="related-reading">
+<h3>Related Investigations</h3>
+<ul>
+${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}
+</ul>
+</div>`)
+  }
+
+  // Author bio
+  parts.push(`<div class="author-bio">
+<p><strong>${authorName}</strong> — ${authorBio}</p>
+</div>`)
+
+  return parts.join('\n\n')
 }
 
 function fallbackSourceLedger(topicKeyword, currentDate) {
   return [
-    {
-      title: 'FCA ScamSmart Warning List',
-      url: 'https://www.fca.org.uk/scamsmart/warning-list',
-      type: 'regulatory',
-      accessed_date: currentDate,
-    },
-    {
-      title: 'FTC Report Fraud',
-      url: 'https://reportfraud.ftc.gov/',
-      type: 'government',
-      accessed_date: currentDate,
-    },
-    {
-      title: 'FBI IC3',
-      url: 'https://www.ic3.gov/',
-      type: 'government',
-      accessed_date: currentDate,
-    },
-    {
-      title: `Consumer Protection References for ${topicKeyword}`,
-      url: 'https://www.scamadviser.com/',
-      type: 'consumer_protection',
-      accessed_date: currentDate,
-    },
+    { title: 'FCA ScamSmart Warning List', url: 'https://www.fca.org.uk/scamsmart/warning-list', type: 'regulatory', accessed_date: currentDate },
+    { title: 'FTC Report Fraud', url: 'https://reportfraud.ftc.gov/', type: 'government', accessed_date: currentDate },
+    { title: 'FBI IC3', url: 'https://www.ic3.gov/', type: 'government', accessed_date: currentDate },
+    { title: `Consumer Protection References for ${topicKeyword}`, url: 'https://www.scamadviser.com/', type: 'consumer_protection', accessed_date: currentDate },
   ]
 }
 
@@ -75,11 +147,12 @@ Return ONLY valid JSON with this shape:
 Rules:
 - URLs must be real and navigable.
 - Prefer regulatory/government sources first.
+- Include at least one recent (${new Date().getFullYear()}) source for freshness.
 - No markdown fences.`,
     user: `Research credible sources for this topic:
 ${JSON.stringify(topic, null, 2)}
 
-Return 4-8 sources.`,
+Return 5-8 sources. Prioritize: FBI IC3 reports, FTC consumer alerts, SEC investor alerts, CFPB advisories, state AG warnings. Include at least one academic or industry study.`,
   }
 }
 
@@ -93,74 +166,112 @@ function buildDeterministicArticle(topic, parentTopic, sourceLedger) {
     title: `${topicTitle}: Safety Guide`,
     headline: `${topicTitle} — How to Verify Claims and Avoid Losses`,
     meta_description: `Practical safety guide for ${keyword}. Learn red flags, verification steps, and what to do if targeted.`,
-    summary:
-      `This guide explains how ${keyword} scams typically operate, how to verify claims before sending money, and what steps to take if you were targeted.`,
+    summary: `This guide explains how ${keyword} scams typically operate, how to verify claims before sending money, and what steps to take if you were targeted.`,
+    key_takeaways: [
+      `${keyword} scams use urgency, social proof, and jargon to pressure fast decisions`,
+      'Verify legal entity details, regulator records, and domain history before depositing',
+      'Preserve all evidence immediately if you suspect fraud',
+      'Avoid anyone asking for upfront recovery fees',
+    ],
     sections: [
-      {
-        heading: `What ${keyword} usually looks like`,
-        body:
-          `${keyword} scams often combine urgency, social proof, and technical jargon to pressure a fast decision. Common patterns include guaranteed return claims, celebrity or authority impersonation, and direct messages that push users off-platform. ${parentLine}`.trim(),
-      },
-      {
-        heading: 'Core red flags to check first',
-        body:
-          'Start with objective checks: registration claims, domain age, support contact quality, and withdrawal terms. If the offer promises fixed returns, requires immediate deposits, or avoids transparent legal/company details, treat it as high risk.',
-      },
-      {
-        heading: 'Verification workflow before depositing',
-        body:
-          'Use a simple sequence: verify legal entity details, confirm regulator records where relevant, inspect domain/WHOIS history, review independent complaint patterns, and test support responses with concrete questions. If multiple checks fail, stop immediately.',
-      },
-      {
-        heading: 'What to do if you already sent funds',
-        body:
-          'Preserve evidence (wallet addresses, transaction IDs, chats, screenshots), notify your payment provider/bank quickly, and report to official channels. Avoid anyone asking for an upfront recovery fee; follow documented reporting paths first.',
-      },
-      {
-        heading: 'Prevention habits for future decisions',
-        body:
-          'Use cooling-off time, independent verification, and strict risk limits. Never rely on social media proof alone. Keep a checklist and require all checks to pass before any transfer. When uncertain, default to not sending funds.',
-      },
+      { heading: `What ${keyword} usually looks like`, body: `${keyword} scams often combine urgency, social proof, and technical jargon to pressure a fast decision. Common patterns include guaranteed return claims, celebrity or authority impersonation, and direct messages that push users off-platform. ${parentLine}`.trim() },
+      { heading: 'Core red flags to check first', body: 'Start with objective checks: registration claims, domain age, support contact quality, and withdrawal terms. If the offer promises fixed returns, requires immediate deposits, or avoids transparent legal/company details, treat it as high risk.' },
+      { heading: 'Verification workflow before depositing', body: 'Use a simple sequence: verify legal entity details, confirm regulator records where relevant, inspect domain/WHOIS history, review independent complaint patterns, and test support responses with concrete questions. If multiple checks fail, stop immediately.' },
+      { heading: 'What to do if you already sent funds', body: 'Preserve evidence (wallet addresses, transaction IDs, chats, screenshots), notify your payment provider/bank quickly, and report to official channels. Avoid anyone asking for an upfront recovery fee; follow documented reporting paths first.' },
+      { heading: 'Prevention habits for future decisions', body: 'Use cooling-off time, independent verification, and strict risk limits. Never rely on social media proof alone. Keep a checklist and require all checks to pass before any transfer. When uncertain, default to not sending funds.' },
     ],
     faq: [
-      {
-        question: `Is ${keyword} always a scam?`,
-        answer:
-          'Not every mention of a keyword is automatically fraudulent, but any offer with pressure tactics, guaranteed returns, or unclear legal identity should be treated as high risk until fully verified.',
-      },
-      {
-        question: 'What is the first thing I should verify?',
-        answer:
-          'Verify legal entity and regulatory claims first, then validate domain history and withdrawal terms. If these are vague, inconsistent, or missing, do not deposit.',
-      },
-      {
-        question: 'Can I recover funds after being scammed?',
-        answer:
-          'Recovery depends on payment method and speed of reporting. Collect evidence immediately, contact your provider, and file official reports. Avoid third parties demanding upfront recovery payments.',
-      },
-      {
-        question: 'How should families help a victim?',
-        answer:
-          'Focus on evidence capture, fast reporting, and emotional support. Avoid blame. Help the victim document timelines and freeze further payments while official complaints are filed.',
-      },
+      { question: `Is ${keyword} always a scam?`, answer: 'Not every mention of a keyword is automatically fraudulent, but any offer with pressure tactics, guaranteed returns, or unclear legal identity should be treated as high risk until fully verified.' },
+      { question: 'What is the first thing I should verify?', answer: 'Verify legal entity and regulatory claims first, then validate domain history and withdrawal terms. If these are vague, inconsistent, or missing, do not deposit.' },
+      { question: 'Can I recover funds after being scammed?', answer: 'Recovery depends on payment method and speed of reporting. Collect evidence immediately, contact your provider, and file official reports. Avoid third parties demanding upfront recovery payments.' },
+      { question: 'How should families help a victim?', answer: 'Focus on evidence capture, fast reporting, and emotional support. Avoid blame. Help the victim document timelines and freeze further payments while official complaints are filed.' },
     ],
     sources: sourceLedger || [],
     internal_links: [
-      {
-        anchor_text: 'how crypto scam funnels work',
-        target_topic: 'scam mechanics',
-        context: 'Use this when explaining persuasion stages and conversion tactics.',
-      },
-      {
-        anchor_text: 'crypto scam recovery checklist',
-        target_topic: 'recovery',
-        context: 'Use this in post-loss action sections.',
-      },
+      { anchor_text: 'how crypto scam funnels work', target_slug: '/blog/crypto-scam-mechanics', context: 'Explaining persuasion stages and conversion tactics.' },
+      { anchor_text: 'crypto scam recovery checklist', target_slug: '/blog/crypto-scam-recovery', context: 'Post-loss action sections.' },
     ],
-    not_for_you: `This guide may not apply if you are using a regulated, licensed exchange with verified withdrawal history. It also does not cover disputes with legitimate platforms over fees or service quality — only suspected fraud.`,
+    not_for_you: `This guide may not apply if you are using a regulated, licensed exchange with verified withdrawal history. It also does not cover disputes with legitimate platforms over fees or service quality — only suspected fraud. If you have already lost funds and need immediate help, skip to our recovery checklist instead.`,
+    author_name: 'CryptoKiller Research Team',
+    author_bio: 'The CryptoKiller Research Team investigates cryptocurrency fraud using ad intelligence, on-chain analysis, and regulatory data.',
     verify_tags_count: 0,
     reddit_test_passed: false,
     information_gain_summary: 'Deterministic fallback — no unique information gain analysis available.',
+  }
+}
+
+/**
+ * Fetch aggregate platform intelligence from Supabase for Information Gain injection.
+ */
+async function fetchPlatformIntelligence() {
+  try {
+    // Total brands
+    const brandsCount = await supaFetch('/scam_brands?select=id&limit=1', {
+      headers: { Prefer: 'count=exact' },
+      rawResponse: true,
+    })
+    const totalBrands = parseInt(brandsCount?.headers?.get?.('content-range')?.split('/')?.[1] || '0', 10)
+
+    // Aggregate stats via RPC or direct queries
+    const topBrands = await supaFetch('/scam_brands?select=name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_trend&order=scam_score.desc&limit=10')
+    const allBrands = Array.isArray(topBrands) ? topBrands : []
+
+    const totalCreatives = allBrands.reduce((sum, b) => sum + (b.total_creatives || 0), 0)
+    const totalGeos = new Set(allBrands.flatMap(b => b.total_geos || 0)).size || allBrands.length
+    const celebrityAbuse = allBrands.filter(b => (b.total_celebrities || 0) > 0).length
+    const avgScamScore = allBrands.length > 0 ? Math.round(allBrands.reduce((s, b) => s + (b.scam_score || 0), 0) / allBrands.length) : 0
+    const velocities = allBrands.map(b => b.velocity_trend).filter(Boolean)
+    const topVelocityTrend = velocities.length > 0 ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0] : 'stable'
+
+    return {
+      totalBrands: totalBrands || allBrands.length,
+      totalCreatives,
+      totalGeos,
+      avgScamScore,
+      celebrityAbuse,
+      topVelocityTrend,
+      topScamScore: allBrands[0] ? { name: allBrands[0].name, score: allBrands[0].scam_score } : null,
+    }
+  } catch (err) {
+    console.error('[platformIntelligence] Failed to fetch:', err.message)
+    return {}
+  }
+}
+
+/**
+ * Fetch published review and content slugs for real internal linking.
+ */
+async function fetchPublishedSlugs() {
+  try {
+    const [reviews, content] = await Promise.all([
+      supaFetch('/reviews?status=eq.published&select=slug,brand_id&order=published_at.desc&limit=50'),
+      supaFetch('/content?status=eq.published&select=title,slug&order=published_at.desc&limit=30'),
+    ])
+
+    // For reviews, fetch brand names
+    const reviewSlugs = []
+    if (Array.isArray(reviews)) {
+      for (const r of reviews.slice(0, 30)) {
+        if (r.slug) {
+          let name = r.slug.replace(/-/g, ' ')
+          if (r.brand_id) {
+            try {
+              const brands = await supaFetch(`/scam_brands?id=eq.${r.brand_id}&select=name&limit=1`)
+              if (Array.isArray(brands) && brands[0]?.name) name = brands[0].name
+            } catch { /* use slug-derived name */ }
+          }
+          reviewSlugs.push({ slug: r.slug, name })
+        }
+      }
+    }
+
+    return {
+      reviews: reviewSlugs,
+      content: Array.isArray(content) ? content.filter(c => c.slug) : [],
+    }
+  } catch (err) {
+    console.error('[publishedSlugs] Failed to fetch:', err.message)
+    return { reviews: [], content: [] }
   }
 }
 
@@ -205,6 +316,13 @@ export async function POST(request) {
             icpData = {}
           }
 
+          // ── FETCH PLATFORM INTELLIGENCE + PUBLISHED SLUGS (parallel) ──
+          send({ step: 'intel', progress: 10, message: 'Fetching platform intelligence & published content...' })
+          const [platformIntelligence, publishedSlugs] = await Promise.all([
+            fetchPlatformIntelligence(),
+            fetchPublishedSlugs(),
+          ])
+
           send({ step: 'research', progress: 18, message: 'Researching verified sources...' })
 
           let sourceLedger = []
@@ -229,6 +347,8 @@ export async function POST(request) {
             parentTopic,
             sourceLedger,
             icpData,
+            platformIntelligence,
+            publishedSlugs,
           })
 
           let article = null
@@ -276,6 +396,54 @@ export async function POST(request) {
             writerModelUsed = 'deterministic-fallback'
           }
 
+          // ── HARD FAIL CHECK — remediate missing required fields ──
+          const hardFails = []
+          if (!article.key_takeaways || !Array.isArray(article.key_takeaways) || article.key_takeaways.length < 4) {
+            hardFails.push('key_takeaways missing or < 4 items')
+          }
+          if (!article.not_for_you || String(article.not_for_you).split(/\s+/).length < 40) {
+            hardFails.push('not_for_you missing or < 40 words')
+          }
+          if (!article.visual_placeholders || !Array.isArray(article.visual_placeholders) || article.visual_placeholders.length < 3) {
+            hardFails.push('visual_placeholders < 3')
+          }
+          if (!article.internal_links || !Array.isArray(article.internal_links) || article.internal_links.length < 2) {
+            hardFails.push('internal_links < 2')
+          }
+
+          if (hardFails.length > 0 && writerModelUsed !== 'deterministic-fallback') {
+            send({ step: 'remediate', progress: 68, message: `Remediating ${hardFails.length} hard fails: ${hardFails.join(', ')}` })
+            try {
+              const fixPrompt = `The article JSON is missing required fields. Fix ONLY the missing/insufficient fields and return the complete corrected JSON.
+
+HARD FAILS TO FIX:
+${hardFails.map(f => `- ${f}`).join('\n')}
+
+ORIGINAL ARTICLE JSON:
+${JSON.stringify(article, null, 2).slice(0, 6000)}
+
+${publishedSlugs?.reviews?.length > 0 ? `AVAILABLE REVIEW SLUGS FOR INTERNAL LINKS:\n${publishedSlugs.reviews.slice(0, 15).map(s => `${s.name} -> /review/${s.slug}`).join(', ')}` : ''}
+
+Return the COMPLETE corrected JSON object.`
+              const fixResult = await callModel('claude-haiku', writerPrompt.system, fixPrompt, {
+                maxTokens: 4096,
+                timeoutMs: 60000,
+              })
+              const fixed = extractJSON(fixResult.text)
+              if (fixed) {
+                // Merge fixes into the original article
+                if (fixed.key_takeaways?.length >= 4) article.key_takeaways = fixed.key_takeaways
+                if (fixed.not_for_you && String(fixed.not_for_you).split(/\s+/).length >= 40) article.not_for_you = fixed.not_for_you
+                if (fixed.visual_placeholders?.length >= 3) article.visual_placeholders = fixed.visual_placeholders
+                if (fixed.internal_links?.length >= 2) article.internal_links = fixed.internal_links
+                if (fixed.author_name) article.author_name = fixed.author_name
+                if (fixed.author_bio) article.author_bio = fixed.author_bio
+              }
+            } catch (fixErr) {
+              console.error('[remediation] Failed:', fixErr.message)
+            }
+          }
+
           send({ step: 'audit', progress: 72, message: 'Running quality audit...' })
 
           let audit = null
@@ -308,10 +476,8 @@ export async function POST(request) {
           send({ step: 'saving', progress: 84, message: 'Saving draft content...' })
 
           const slug = await ensureUniqueContentSlug(article.slug || article.title || topic.title)
-          const sections = Array.isArray(article.sections) ? article.sections : []
-          const faq = Array.isArray(article.faq) ? article.faq : []
-          const fullArticle = sectionsToHtml(sections)
-          const wordCount = fullArticle.split(/\s+/).filter(Boolean).length
+          const fullArticle = buildArticleHtml(article)
+          const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
           const inserted = await supaFetch('/content?select=id,slug', {
             method: 'POST',
@@ -325,8 +491,8 @@ export async function POST(request) {
               meta_description: article.meta_description || null,
               summary: article.summary || null,
               full_article: fullArticle,
-              sections,
-              faq,
+              sections: Array.isArray(article.sections) ? article.sections : [],
+              faq: Array.isArray(article.faq) ? article.faq : [],
               internal_links: article.internal_links || [],
               sources: article.sources || sourceLedger,
               word_count: wordCount,
@@ -353,7 +519,7 @@ export async function POST(request) {
             }),
           })
 
-          // ─── GENERATE HERO + CONTENT IMAGES (Unsplash → TinyPNG → Supabase) ───
+          // ── GENERATE HERO + CONTENT IMAGES (Unsplash -> TinyPNG -> Supabase) ──
           let heroUrl = null
           try {
             send({ step: 'images', progress: 90, message: 'Generating hero & content images...' })
@@ -393,6 +559,7 @@ export async function POST(request) {
               topic_id: topic.id,
               word_count: wordCount,
               hero_image: heroUrl,
+              hard_fails_remediated: hardFails.length > 0 ? hardFails : undefined,
             },
           })
         } catch (err) {
@@ -415,4 +582,3 @@ export async function POST(request) {
     return Response.json({ error: error.message }, { status: 500 })
   }
 }
-
