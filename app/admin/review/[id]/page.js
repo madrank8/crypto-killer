@@ -246,17 +246,21 @@ function parseEvidenceImages(html) {
   return images;
 }
 
-/* ─── Unsplash Hero / Content Images Card ─── */
-function UnsplashImagesCard({ review, generating, message, onGenerate }) {
+/* ─── Midjourney / AI Images Card ─── */
+function MidjourneyImagesCard({ review, generating, message, progressMsg, onGenerate }) {
   const hasHero = !!review?.hero_image_url;
   const contentImages = Array.isArray(review?.content_images) ? review.content_images : [];
+  const heroSource = review?.hero_image_credit?.includes('Midjourney') ? 'midjourney' : 'unsplash';
 
   return (
     <div className="bg-dark-card border border-gray-800 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-          Unsplash Images
+          AI Generated Images
         </h3>
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-950/50 text-purple-400 border border-purple-800/30">
+          Midjourney
+        </span>
       </div>
 
       {/* Hero preview */}
@@ -267,39 +271,75 @@ function UnsplashImagesCard({ review, generating, message, onGenerate }) {
             alt={review.hero_image_alt || 'Hero'}
             className="w-full h-28 object-cover"
           />
-          <div className="px-2 py-1 bg-dark-surface flex items-center justify-between">
-            <span className="text-[10px] text-green-400 font-medium">Hero ✓</span>
-            {review.hero_image_credit && (
-              <span className="text-[10px] text-gray-600 truncate ml-2">{review.hero_image_credit}</span>
+          <div className="px-2 py-1.5 bg-dark-surface space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-green-400 font-medium">Hero ✓</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                heroSource === 'midjourney'
+                  ? 'bg-purple-950/50 text-purple-300'
+                  : 'bg-blue-950/50 text-blue-300'
+              }`}>
+                {heroSource === 'midjourney' ? '✦ MJ' : '📷 Unsplash'}
+              </span>
+            </div>
+            {review.hero_image_alt && (
+              <p className="text-[9px] text-gray-600 leading-tight line-clamp-2" title={review.hero_image_alt}>
+                {review.hero_image_alt}
+              </p>
             )}
           </div>
         </div>
       ) : (
-        <div className="mb-3 rounded-lg border border-dashed border-gray-700 bg-dark-surface p-3 text-center">
-          <span className="text-gray-600 text-xs">No hero image</span>
+        <div className="mb-3 rounded-lg border border-dashed border-gray-700 bg-dark-surface p-4 text-center">
+          <div className="text-gray-600 text-2xl mb-1">✦</div>
+          <span className="text-gray-600 text-xs">No hero image yet</span>
+          <p className="text-[10px] text-gray-700 mt-1">Click generate to create a cinematic Midjourney image</p>
         </div>
       )}
 
       {/* Content images preview */}
       {contentImages.length > 0 ? (
         <div className="grid grid-cols-2 gap-1.5 mb-3">
-          {contentImages.map((img, i) => (
-            <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
-              <img
-                src={img.url}
-                alt={img.alt || `Content ${i + 1}`}
-                className="w-full h-16 object-cover"
-                loading="lazy"
-              />
-              <div className="px-1.5 py-0.5 bg-dark-surface">
-                <span className="text-[10px] text-gray-500">Content {i + 1}</span>
+          {contentImages.map((img, i) => {
+            const imgSource = img.credit?.includes('Midjourney') ? 'midjourney' : 'unsplash';
+            return (
+              <div key={i} className="rounded-lg overflow-hidden border border-gray-800">
+                <img
+                  src={img.url}
+                  alt={img.alt || `Content ${i + 1}`}
+                  className="w-full h-16 object-cover"
+                  loading="lazy"
+                />
+                <div className="px-1.5 py-0.5 bg-dark-surface flex items-center justify-between">
+                  <span className="text-[10px] text-gray-500">Content {i + 1}</span>
+                  <span className={`text-[8px] px-1 py-0.5 rounded ${
+                    imgSource === 'midjourney'
+                      ? 'bg-purple-950/50 text-purple-400'
+                      : 'bg-blue-950/50 text-blue-400'
+                  }`}>
+                    {imgSource === 'midjourney' ? 'MJ' : 'US'}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="mb-3 rounded-lg border border-dashed border-gray-700 bg-dark-surface p-2 text-center">
           <span className="text-gray-600 text-xs">No content images</span>
+        </div>
+      )}
+
+      {/* Progress indicator during generation */}
+      {generating && progressMsg && (
+        <div className="mb-3 text-xs px-2.5 py-2 rounded bg-purple-950/30 border border-purple-800/20">
+          <div className="flex items-center gap-2 text-purple-300">
+            <span className="animate-spin text-sm">⟳</span>
+            <span>{progressMsg}</span>
+          </div>
+          <div className="mt-1.5 w-full bg-purple-950/50 rounded-full h-1">
+            <div className="bg-purple-500 h-1 rounded-full animate-pulse" style={{ width: '60%' }} />
+          </div>
         </div>
       )}
 
@@ -316,16 +356,21 @@ function UnsplashImagesCard({ review, generating, message, onGenerate }) {
       <button
         onClick={onGenerate}
         disabled={generating}
-        className="w-full py-2 text-xs font-medium rounded-lg bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-600/20 transition flex items-center justify-center gap-1.5"
+        className="w-full py-2.5 text-xs font-medium rounded-lg bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-600/20 transition flex items-center justify-center gap-1.5"
       >
         {generating ? (
-          <><span className="animate-spin">⟳</span> Generating...</>
+          <><span className="animate-spin">⟳</span> Generating via Midjourney (~60s)...</>
         ) : hasHero ? (
-          <><span>🔄</span> Regenerate Images</>
+          <><span>✦</span> Regenerate with Midjourney</>
         ) : (
-          <><span>🖼️</span> Generate Images</>
+          <><span>✦</span> Generate with Midjourney</>
         )}
       </button>
+
+      {/* Credits info */}
+      <p className="text-[10px] text-gray-700 mt-1.5 text-center">
+        ~6 credits per image • Images hosted permanently on CDN
+      </p>
     </div>
   );
 }
@@ -350,8 +395,9 @@ export default function ReviewEditor({ params }) {
   const [syncMsg, setSyncMsg] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
   const [imageMsg, setImageMsg] = useState('');
-  const [generatingUnsplash, setGeneratingUnsplash] = useState(false);
-  const [unsplashMsg, setUnsplashMsg] = useState('');
+  const [generatingImages, setGeneratingImages] = useState(false);
+  const [imageGenMsg, setImageGenMsg] = useState('');
+  const [imageProgressMsg, setImageProgressMsg] = useState('');
 
   // AI Generate with progress tracking
   const gen = useGenerateWithProgress(token);
@@ -623,11 +669,29 @@ export default function ReviewEditor({ params }) {
     }
   };
 
-  // ─── Unsplash Image Generation ───
-  const handleGenerateUnsplashImages = async () => {
-    setGeneratingUnsplash(true);
-    setUnsplashMsg('');
+  // ─── Midjourney Image Generation ───
+  const handleGenerateImages = async () => {
+    setGeneratingImages(true);
+    setImageGenMsg('');
+    setImageProgressMsg('Submitting to Midjourney...');
     try {
+      // Start a timer to show progress messages
+      let elapsed = 0;
+      const progressInterval = setInterval(() => {
+        elapsed += 5;
+        if (elapsed < 15) {
+          setImageProgressMsg('Submitting prompts to Midjourney...');
+        } else if (elapsed < 40) {
+          setImageProgressMsg(`Generating hero image... (${elapsed}s)`);
+        } else if (elapsed < 80) {
+          setImageProgressMsg(`Generating content images... (${elapsed}s)`);
+        } else if (elapsed < 120) {
+          setImageProgressMsg(`Compressing & uploading... (${elapsed}s)`);
+        } else {
+          setImageProgressMsg(`Still processing... (${elapsed}s)`);
+        }
+      }, 5000);
+
       const res = await fetch('/api/admin/images/generate', {
         method: 'POST',
         headers: {
@@ -637,13 +701,26 @@ export default function ReviewEditor({ params }) {
         body: JSON.stringify({ review_id: id, content_count: 2 }),
       });
 
+      clearInterval(progressInterval);
+      setImageProgressMsg('');
+
       const data = await res.json();
 
       if (data.success) {
         const parts = [];
-        if (data.hero) parts.push('Hero image');
-        if (data.content_images?.length) parts.push(`${data.content_images.length} content image(s)`);
-        setUnsplashMsg(`✓ Generated: ${parts.join(' + ') || 'no images'}`);
+        if (data.hero) {
+          const src = data.hero.source === 'midjourney' ? '✦ MJ' : '📷 Unsplash';
+          parts.push(`Hero (${src})`);
+        }
+        if (data.content_images?.length) {
+          parts.push(`${data.content_images.length} content image(s)`);
+        }
+        setImageGenMsg(`✓ Generated: ${parts.join(' + ') || 'no images'}`);
+
+        // Show prompt used
+        if (data.hero?.prompt) {
+          console.log('[UI] MJ Hero prompt:', data.hero.prompt);
+        }
 
         // Refresh review data to pick up new image URLs
         const refreshRes = await fetch(`/api/admin/reviews/${id}`, {
@@ -660,14 +737,15 @@ export default function ReviewEditor({ params }) {
           }));
         }
       } else {
-        setUnsplashMsg(`✗ ${data.error || 'Failed to generate images'}`);
+        setImageGenMsg(`✗ ${data.error || 'Failed to generate images'}`);
       }
     } catch (err) {
-      console.error('Unsplash image generation error:', err);
-      setUnsplashMsg(`✗ Error: ${err.message || 'network error'}`);
+      console.error('Image generation error:', err);
+      setImageGenMsg(`✗ Error: ${err.message || 'network error'}`);
+      setImageProgressMsg('');
     } finally {
-      setGeneratingUnsplash(false);
-      setTimeout(() => setUnsplashMsg(''), 6000);
+      setGeneratingImages(false);
+      setTimeout(() => setImageGenMsg(''), 8000);
     }
   };
 
@@ -941,11 +1019,12 @@ export default function ReviewEditor({ params }) {
             faqCount={faqs.length}
             status={review.status}
           />
-          <UnsplashImagesCard
+          <MidjourneyImagesCard
             review={review}
-            generating={generatingUnsplash}
-            message={unsplashMsg}
-            onGenerate={handleGenerateUnsplashImages}
+            generating={generatingImages}
+            message={imageGenMsg}
+            progressMsg={imageProgressMsg}
+            onGenerate={handleGenerateImages}
           />
           <EvidenceImagesCard
             images={evidenceImages}

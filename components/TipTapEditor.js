@@ -106,6 +106,7 @@ export default function TipTapEditor({ content, onChange, placeholder, showViewT
   const [viewMode, setViewMode] = useState(hasVisuals ? 'preview' : 'edit');
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
