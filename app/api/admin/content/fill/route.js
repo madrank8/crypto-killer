@@ -554,7 +554,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             const imgSet = await generateArticleImages(
               content.slug || `content-${contentId}`,
               { ...article, target_keyword: topic?.target_keyword },
-              { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: 30000 }
+              { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: 1, maxMjRetries: 0 }
             )
             // Capture content images regardless of hero success
             generatedContentImages = imgSet.contentImages || []

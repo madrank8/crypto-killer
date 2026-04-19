@@ -63,15 +63,14 @@ export async function POST(request, { params }) {
         }
 
         // Vercel Hobby plan = 60s function timeout.
-        // MJ takes 60-150s per image — it will NEVER finish in time.
-        // Give MJ only 30s to try, then fall back to Unsplash (which takes ~8s).
-        // 30s MJ + 20s Unsplash fallback + compress + upload = fits in 60s.
-        const MJ_TIMEOUT_MS = 30000
-
+        // MJ takes 60-150s — will NEVER finish in time.
+        // Skip MJ entirely (maxMjWaitMs: 1) → go straight to Unsplash.
+        // Unsplash pipeline: search ~2s + TinyPNG ~5s + upload ~2s = ~9s per image.
+        // 3 images in parallel = ~10s total. Well within 60s.
         const imgSet = await generateArticleImages(
           content.slug || `content-${id}`,
           articleContext,
-          { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: MJ_TIMEOUT_MS }
+          { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: 1, maxMjRetries: 0 }
         )
 
         console.log('[images] generateArticleImages result:', JSON.stringify({
