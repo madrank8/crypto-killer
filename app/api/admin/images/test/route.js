@@ -64,29 +64,39 @@ export async function GET() {
           const buf = Buffer.from(await dl.arrayBuffer())
           steps.download = { size: buf.length, type: dl.headers.get('content-type') }
 
-          // Step 5: Upload to Supabase
+          // Step 5: Upload to Supabase (try service key, fall back to anon)
           try {
             const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-            const writeKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
             const fname = `test-${Date.now()}.jpg`
             const uploadUrl = `${supaUrl}/storage/v1/object/visuals/${fname}`
+            const ct = dl.headers.get('content-type') || 'image/jpeg'
 
-            const upRes = await fetch(uploadUrl, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${writeKey}`,
-                'Content-Type': dl.headers.get('content-type') || 'image/jpeg',
-                'x-upsert': 'true',
-              },
-              body: buf,
-              signal: AbortSignal.timeout(15000),
-            })
+            const keysToTry = [
+              { name: 'service_role', key: process.env.SUPABASE_SERVICE_ROLE_KEY },
+              { name: 'anon', key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY },
+            ].filter(k => k.key)
 
-            if (!upRes.ok) {
-              steps.upload = { error: `${upRes.status}: ${await upRes.text()}` }
-            } else {
-              const publicUrl = `${supaUrl}/storage/v1/object/public/visuals/${fname}`
-              steps.upload = { success: true, publicUrl }
+            steps.upload = { tried: [] }
+            for (const { name, key } of keysToTry) {
+              const upRes = await fetch(uploadUrl, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${key}`,
+                  'Content-Type': ct,
+                  'x-upsert': 'true',
+                },
+                body: buf,
+                signal: AbortSignal.timeout(15000),
+              })
+
+              if (upRes.ok) {
+                const publicUrl = `${supaUrl}/storage/v1/object/public/visuals/${fname}`
+                steps.upload = { success: true, keyUsed: name, publicUrl }
+                break
+              } else {
+                const errText = await upRes.text().catch(() => '')
+                steps.upload.tried.push({ key: name, status: upRes.status, error: errText.slice(0, 150) })
+              }
             }
           } catch (e) {
             steps.upload = { error: e.message }
