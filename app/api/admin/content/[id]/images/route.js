@@ -68,6 +68,14 @@ export async function POST(request, { params }) {
           { contentCount: 2, aiHelpers: { callModel, extractJSON } }
         )
 
+        console.log('[images] generateArticleImages result:', JSON.stringify({
+          hasHero: !!imgSet.hero,
+          heroUrl: imgSet.hero?.url?.slice(0, 80) || null,
+          contentCount: imgSet.contentImages?.length || 0,
+          errors: imgSet.errors,
+          queryHero: imgSet.queries?.heroQuery?.slice(0, 60) || null,
+        }))
+
         const imgUpdate = {}
         if (imgSet.hero) {
           imgUpdate.hero_image_url = imgSet.hero.url
@@ -100,6 +108,10 @@ export async function POST(request, { params }) {
             headers: { Prefer: 'return=minimal' },
             body: JSON.stringify(imgUpdate),
           })
+        }
+
+        if (!imgSet.hero && imgSet.contentImages.length === 0) {
+          console.error('[images] No images generated at all. Errors:', imgSet.errors)
         }
 
         results.stock = {
