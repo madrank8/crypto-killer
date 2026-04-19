@@ -66,10 +66,30 @@ export async function POST(request, { params }) {
     if (!content) return Response.json({ error: 'Content not found' }, { status: 404 })
 
     const nowIso = new Date().toISOString()
+    const nowDate = nowIso.slice(0, 10) // YYYY-MM-DD
     const contentUpdates =
       action === 'publish'
         ? { status: 'published', published_at: nowIso, updated_at: nowIso }
         : { status: 'draft', published_at: null, updated_at: nowIso }
+
+    // Update datePublished/dateModified in embedded JSON-LD schema
+    if (action === 'publish' && content.full_article) {
+      try {
+        contentUpdates.full_article = content.full_article.replace(
+          /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+          (match, jsonStr) => {
+            try {
+              const schema = JSON.parse(jsonStr)
+              if (!schema.datePublished || schema.datePublished === schema.dateModified) {
+                schema.datePublished = nowDate
+              }
+              schema.dateModified = nowDate
+              return `<script type="application/ld+json">${JSON.stringify(schema)}</script>`
+            } catch { return match }
+          }
+        )
+      } catch { /* non-fatal — keep original HTML */ }
+    }
 
     await supaFetch(`/content?id=eq.${id}`, {
       method: 'PATCH',
