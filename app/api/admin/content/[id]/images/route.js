@@ -2,7 +2,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON } from '@/lib/ai-models'
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
-import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
+import { processVisuals, refreshVisualAssets, stripVerifyTags } from '@/lib/visual-generator'
 
 export const maxDuration = 60
 
@@ -14,10 +14,11 @@ export const maxDuration = 60
  *   1. Unsplash stock images (hero + 2 section images) via AI-generated queries
  *   2. AI-generated visuals (DALL-E, Mermaid, QuickChart) from visual placeholders
  *
- * Body: { mode?: 'all' | 'stock' | 'visuals' }  (default: 'all')
+ * Body: { mode?: 'all' | 'stock' | 'visuals' | 'refresh' }  (default: 'all')
  *   - 'all'     — run both pipelines
  *   - 'stock'   — only Unsplash hero + section images
  *   - 'visuals' — only AI-generated visuals from placeholders
+ *   - 'refresh' — re-upload existing visuals to Supabase + fix responsive styling
  */
 export async function POST(request, { params }) {
   try {
@@ -178,6 +179,41 @@ export async function POST(request, { params }) {
         }
       } catch (err) {
         results.visuals = { success: false, error: err.message }
+      }
+    }
+
+    // ── Pipeline 3: Refresh existing visuals (re-upload + fix styling) ──
+    if (mode === 'refresh') {
+      try {
+        const fullArticle = content.full_article || ''
+
+        if (!fullArticle) {
+          results.refresh = { success: false, error: 'No full_article to process' }
+        } else {
+          const refreshResult = await refreshVisualAssets(fullArticle, {
+            contentId: id,
+            contentType: 'content',
+          })
+
+          if (refreshResult.refreshed > 0) {
+            await supaFetch(`/content?id=eq.${id}`, {
+              method: 'PATCH',
+              headers: { Prefer: 'return=minimal' },
+              body: JSON.stringify({
+                full_article: refreshResult.html,
+                updated_at: new Date().toISOString(),
+              }),
+            })
+          }
+
+          results.refresh = {
+            success: true,
+            refreshed: refreshResult.refreshed,
+            failed: refreshResult.failed,
+          }
+        }
+      } catch (err) {
+        results.refresh = { success: false, error: err.message }
       }
     }
 

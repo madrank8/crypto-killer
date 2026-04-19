@@ -626,6 +626,16 @@ export default function ContentEditorPage({ params }) {
       if (data.results?.visuals?.success && data.results.visuals.total > 0) {
         parts.push(`${data.results.visuals.succeeded}/${data.results.visuals.total} AI visuals`);
       }
+      if (data.results?.refresh?.success) {
+        if (data.results.refresh.refreshed > 0) {
+          parts.push(`${data.results.refresh.refreshed} visual(s) refreshed`);
+        } else {
+          parts.push('No visuals found to refresh');
+        }
+        if (data.results.refresh.failed > 0) {
+          parts.push(`${data.results.refresh.failed} failed`);
+        }
+      }
 
       setImageMsg(parts.length > 0 ? `\u2713 ${parts.join(' \u00b7 ')}` : 'No images generated');
       await reloadContent();
@@ -1145,6 +1155,13 @@ export default function ContentEditorPage({ params }) {
                     AI Visuals Only
                   </button>
                 </div>
+                <button
+                  onClick={() => regenerateImages('refresh')}
+                  disabled={regeneratingImages}
+                  className="w-full text-[10px] px-2 py-1.5 rounded-lg border border-emerald-600/20 text-emerald-400 hover:bg-emerald-600/10 hover:border-emerald-500/30 transition disabled:opacity-50"
+                >
+                  {regeneratingImages ? 'Refreshing\u2026' : '\u2728 Refresh Visuals (fix diagrams/charts)'}
+                </button>
               </div>
             </div>
 
