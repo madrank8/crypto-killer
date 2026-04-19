@@ -73,13 +73,15 @@ export async function POST(request, { params }) {
           { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: 1, maxMjRetries: 0 }
         )
 
-        console.log('[images] generateArticleImages result:', JSON.stringify({
-          hasHero: !!imgSet.hero,
-          heroUrl: imgSet.hero?.url?.slice(0, 80) || null,
-          contentCount: imgSet.contentImages?.length || 0,
-          errors: imgSet.errors,
-          queryHero: imgSet.queries?.heroQuery?.slice(0, 60) || null,
-        }))
+        // Short log lines so Vercel doesn't truncate them
+        console.log(`[img] hero=${!!imgSet.hero} content=${imgSet.contentImages?.length || 0} errs=${imgSet.errors?.length || 0}`)
+        if (imgSet.errors?.length > 0) {
+          for (const e of imgSet.errors) {
+            console.error(`[img] ERR: ${e.slice(0, 200)}`)
+          }
+        }
+        if (imgSet.hero) console.log(`[img] heroUrl: ${imgSet.hero.url?.slice(0, 120)}`)
+        if (imgSet.queries) console.log(`[img] query: ${imgSet.queries.heroQuery?.slice(0, 100)}`)
 
         const imgUpdate = {}
         if (imgSet.hero) {
