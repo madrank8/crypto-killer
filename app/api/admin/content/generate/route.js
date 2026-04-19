@@ -60,6 +60,13 @@ function bodyToHtml(body) {
   for (const block of blocks) {
     const trimmed = block.trim()
 
+    // ── H3 subheading: ### heading text ──
+    const h3Match = trimmed.match(/^###\s+(.+)$/)
+    if (h3Match) {
+      htmlParts.push(`<h3>${applyInlineFormatting(h3Match[1].trim())}</h3>`)
+      continue
+    }
+
     // ── Callout boxes: {{WARNING: text}} or {{TIP: text}} ──
     const calloutMatch = trimmed.match(/^\{\{(WARNING|TIP|NOTE|CAUTION):\s*([\s\S]+?)\}\}$/i)
     if (calloutMatch) {
