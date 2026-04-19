@@ -1,98 +1,75 @@
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { callModel } from '@/lib/ai-models'
+import { callModel, extractJSON } from '@/lib/ai-models'
 
-export const maxDuration = 120
+export const maxDuration = 60
 
 /**
  * POST /api/admin/aeo-fix
  *
- * Targeted AEO fixes — patches specific issues in an article without
- * regenerating the whole thing. Sends the current HTML + fix instructions
- * to an LLM and returns the patched HTML.
+ * Targeted AEO fixes — returns JSON patches instead of the full article
+ * to stay within Vercel's function timeout. The frontend applies patches.
  *
  * Body: {
- *   fullArticle: string,       // current HTML
+ *   fullArticle: string,
  *   title: string,
  *   keyword: string,
- *   metaDescription: string,
- *   fixes: string[],           // category IDs to fix
+ *   fixes: string[],
  *   contentType: 'content' | 'review',
  * }
- *
- * fixes can include:
- *   'extractive'   — add 40-60 word answer blocks after headings
- *   'headings'     — rewrite H2s to question-shaped
- *   'bluf'         — rewrite opening to answer-first
- *   'entities'     — add entity disambiguation on first mentions
- *   'attribution'  — replace vague claims with named-source phrasing
- *   'freshness'    — add current-year references and "Updated" line
- *   'formatting'   — add tables, FAQ blocks, key-takeaway boxes
- *   'surface'      — improve heading depth, add inline citations
- *   'seo'          — (meta fixes are UI-side, article-level only here)
  */
 
-const FIX_INSTRUCTIONS = {
-  extractive: `EXTRACTIVE ANSWERS:
-- After every H2 and H3 heading, ensure there is a 40-60 word standalone paragraph that directly answers the heading's question/topic.
-- The answer must be DECLARATION-FIRST — lead with the answer, not with "In this section" or "Let's explore".
-- The answer must make sense if lifted out of context (no orphan pronouns like "this" or "it" referring to something else).
-- If a heading already has a good extractive answer, leave it alone.
-- Only add/fix answers that are missing or start with filler phrases.`,
+/** Extract headings + first paragraph after each for AI context */
+function extractStructure(html) {
+  if (!html) return ''
+  const parts = []
 
-  headings: `QUESTION-SHAPED HEADINGS:
-- Rewrite H2 headings to mirror natural-language queries users would type into AI search.
-- Use question words: What, How, Why, Is, Can, Should, Does, Which, Where, When.
-- Keep H2s between 5-14 words. Too short (< 3 words) is too vague, too long (> 14) gets truncated.
-- Preserve the primary keyword inside the question when possible.
-- Do NOT change H3 headings unless they are obviously broken.
-- If a heading is already question-shaped, leave it alone.`,
+  // Get first 800 chars (intro)
+  parts.push('INTRO:\n' + html.slice(0, 800).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim())
 
-  bluf: `BLUF (BOTTOM LINE UP FRONT):
-- Rewrite the first 1-2 paragraphs to lead with the answer, not a story or introduction.
-- Remove any opening that starts with "In this guide", "In this article", "Welcome to", "Let's explore", "Today we'll".
-- The first paragraph should directly answer the page's primary question in 40-80 words.
-- Include the target keyword naturally in the first 100 words.
-- Include at least one named source or specific fact in the first 200 words.
-- Keep the rest of the article unchanged.`,
+  // Extract all headings with their first paragraph
+  const regex = /<(h[23])[^>]*>([\s\S]*?)<\/\1>\s*(?:<p[^>]*>([\s\S]*?)<\/p>)?/gi
+  let m
+  let idx = 0
+  while ((m = regex.exec(html)) !== null) {
+    const heading = m[2].replace(/<[^>]*>/g, '').trim()
+    const para = m[3] ? m[3].replace(/<[^>]*>/g, '').trim().slice(0, 200) : '(no paragraph after heading)'
+    parts.push(`H${m[1][1]}[${idx}]: ${heading}\n  → ${para}`)
+    idx++
+  }
 
-  entities: `ENTITY DISAMBIGUATION:
-- On FIRST mention of every proper noun, brand, drug, tool, framework, acronym, or law, add a brief appositive clause that disambiguates it.
-  Example: "Enclomiphene" → "Enclomiphene, a selective estrogen receptor modulator,"
-  Example: "SERP" → "SERP (Search Engine Results Page)"
-- Do NOT add disambiguation on subsequent mentions — only the first.
-- If an entity is already disambiguated on first mention, leave it alone.
-- Target 15+ distinct named entities for articles over 1500 words.`,
+  return parts.join('\n\n')
+}
 
-  attribution: `ATTRIBUTION-READY CLAIMS:
-- Find every instance of vague attribution like "studies show", "experts say", "research indicates", "according to experts", "data suggests" and replace with NAMED sources.
-  Example: "Studies show X increases by 30%" → "A 2024 Journal of Clinical Endocrinology study (n=412) found X increases by 30%"
-- Every statistic must have a year attached.
-- Every claim should have a named source inline (not footnoted).
-- If you cannot verify a specific source, use plausible attribution format and mark with [VERIFY] so the editor knows to check.
-- Do NOT invent fake studies or authors.`,
+const FIX_PROMPTS = {
+  extractive: `For each heading that lacks a strong extractive answer (40-60 word standalone declaration-first paragraph), generate one.
+Return array: [{ "after_heading_index": N, "insert_html": "<p>answer...</p>" }]
+Only generate for headings that need it — skip ones that already have good answers.`,
 
-  freshness: `FRESHNESS SIGNALS:
-- Add a visible "Updated: April 2026" line near the top of the article (after the first paragraph or in a metadata block).
-- Ensure at least 2-3 references to "2026" or "2025" appear naturally in the content where discussing current state.
-- If citing old statistics, add recent context: "As of 2026, this trend has [continued/accelerated/changed]."
-- Do NOT change dateModified schema here — that's handled separately.`,
+  headings: `Rewrite H2 headings to question-shaped format (What, How, Why, Is, Can, Should...).
+Return array: [{ "heading_index": N, "old": "original heading", "new": "Question-shaped heading?" }]
+Only rewrite headings that are NOT already questions. Keep 5-14 words.`,
 
-  formatting: `STRUCTURED FORMATTING:
-- Add a "Key Takeaways" or "Quick Summary" box near the top with 3-5 bullet points summarizing the article.
-  Format: <div class="key-takeaways"><h3>Key Takeaways</h3><ul><li>...</li></ul></div>
-- If the article discusses comparisons, add an HTML comparison table with relevant columns.
-- Ensure there are at least 2 ordered or unordered lists in the body.
-- If FAQ items exist but aren't in the article HTML, add a FAQ section at the bottom:
-  <div class="faq-section"><h2>Frequently Asked Questions</h2> then each Q&A as <h3>Question?</h3><p>Answer</p>
-- Leave existing structural elements in place — only ADD missing ones.`,
+  bluf: `The opening needs to be answer-first (BLUF). Generate a replacement for the first 1-2 paragraphs.
+The new opening must: lead with the direct answer (40-80 words), include the keyword naturally, contain one specific fact.
+Return: { "replace_intro": "<p>new opening paragraph...</p>" }`,
 
-  surface: `AI SURFACE FIT:
-- If the article has fewer than 8 H2 headings, add relevant H2 sections to improve query fan-out coverage.
-- Each new H2 should target a common sub-query related to the topic.
-- Under every new H2, add a 40-60 word extractive answer + 1-2 supporting paragraphs.
-- Add H3 sub-headings under longer H2 sections to create heading depth.
-- Ensure there are inline citations/external links in the body (at least 3-4).
-- If no images are in the article body, add placeholder comments where images should go: <!-- IMAGE: description of recommended image -->`,
+  entities: `Find proper nouns, brands, acronyms, tools that appear WITHOUT disambiguation on first mention.
+Return array: [{ "entity": "name", "find": "exact text to find", "replace": "text with appositive clause added" }]
+Example: { "entity": "SERP", "find": "SERP results", "replace": "SERP (Search Engine Results Page) results" }`,
+
+  attribution: `Find vague claims like "studies show", "experts say", "research indicates" and generate named-source replacements.
+Return array: [{ "find": "exact vague text", "replace": "named-source version with year" }]
+Mark uncertain sources with [VERIFY].`,
+
+  freshness: `Generate freshness signals to insert.
+Return: { "updated_line": "<p class=\"updated-date\"><strong>Updated: April 2026</strong></p>", "year_inserts": [{ "near_heading_index": N, "text": "phrase with 2026 reference to weave in" }] }`,
+
+  formatting: `Generate structural elements the article is missing.
+Return: { "key_takeaways": "<div class=\\"key-takeaways\\"><h3>Key Takeaways</h3><ul><li>point 1</li>...</ul></div>", "faq_section": "<div class=\\"faq-section\\"><h2>Frequently Asked Questions</h2><h3>Q1?</h3><p>A1</p>...</div>" or null, "tables": [{ "after_heading_index": N, "html": "<table>...</table>" }] or [] }`,
+
+  surface: `Generate new H2 sections to improve query fan-out coverage (target 10-15 H2s total).
+Return array: [{ "new_section_html": "<h2>Question heading?</h2><p>40-60 word extractive answer...</p><p>Supporting detail...</p>", "insert_before_heading_index": N or "append" }]
+Each new H2 should target a common sub-query. Include H3 sub-headings where relevant.`,
 }
 
 export async function POST(request) {
@@ -104,7 +81,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json()
-    const { fullArticle, title, keyword, metaDescription, fixes, contentType } = body
+    const { fullArticle, title, keyword, fixes, contentType } = body
 
     if (!fullArticle) {
       return Response.json({ error: 'No article content provided' }, { status: 400 })
@@ -113,60 +90,186 @@ export async function POST(request) {
       return Response.json({ error: 'No fixes specified' }, { status: 400 })
     }
 
-    // Build fix instructions from requested categories
-    const fixBlocks = fixes
-      .filter(f => FIX_INSTRUCTIONS[f])
-      .map(f => FIX_INSTRUCTIONS[f])
-
-    if (fixBlocks.length === 0) {
+    const validFixes = fixes.filter(f => FIX_PROMPTS[f])
+    if (validFixes.length === 0) {
       return Response.json({ error: 'No valid fix categories' }, { status: 400 })
     }
 
-    const systemPrompt = `You are an expert SEO and AEO (Answer Engine Optimization) editor.
-Your job is to apply TARGETED fixes to an existing article. You must:
-1. ONLY modify what the fix instructions specify — preserve everything else exactly.
-2. Keep the same HTML structure, CSS classes, and formatting.
-3. Never remove existing content unless the fix explicitly replaces it.
-4. Return the COMPLETE article HTML with fixes applied.
-5. Do NOT add markdown — output pure HTML only.
-6. Do NOT wrap the output in code fences or backticks.
-7. Do NOT add explanations before or after — output ONLY the fixed HTML.`
+    // Extract article structure (headings + first paras) — much smaller than full HTML
+    const structure = extractStructure(fullArticle)
+    const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
-    const userPrompt = `ARTICLE CONTEXT:
-- Title: ${title || 'Untitled'}
-- Target keyword: ${keyword || 'none'}
-- Meta description: ${metaDescription || 'none'}
-- Content type: ${contentType || 'content'}
-- Word count: ~${fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length} words
+    const fixInstructions = validFixes.map(f => `### ${f.toUpperCase()}\n${FIX_PROMPTS[f]}`).join('\n\n')
 
-FIX INSTRUCTIONS — Apply ALL of the following:
+    const systemPrompt = `You are an AEO (Answer Engine Optimization) editor. You return ONLY valid JSON — no markdown fences, no explanation.
+Given an article's structure (headings + first paragraphs), generate targeted patches.
+All HTML output must be clean, semantic HTML. No markdown.
+The keyword is "${keyword || 'none'}" and the content type is "${contentType || 'content'}".`
 
-${fixBlocks.join('\n\n---\n\n')}
+    const userPrompt = `ARTICLE: "${title || 'Untitled'}" (~${wordCount} words)
 
-CURRENT ARTICLE HTML:
+STRUCTURE:
+${structure}
 
-${fullArticle}`
+GENERATE PATCHES FOR:
+${fixInstructions}
 
-    const result = await callModel('claude-sonnet', systemPrompt, userPrompt, {
-      maxTokens: 16000,
+Return a single JSON object with a key for each fix category requested. Example shape:
+{
+  "extractive": [...],
+  "headings": [...],
+  "bluf": {...},
+  ...
+}
+Return ONLY the JSON.`
+
+    const result = await callModel('claude-haiku', systemPrompt, userPrompt, {
+      maxTokens: 4000,
+      timeoutMs: 45000,
     })
 
     if (!result?.text) {
       return Response.json({ error: 'AI returned empty response' }, { status: 500 })
     }
 
-    // Clean up response — strip code fences if the model added them
-    let fixedHtml = result.text.trim()
-    if (fixedHtml.startsWith('```html')) {
-      fixedHtml = fixedHtml.replace(/^```html\s*/, '').replace(/\s*```$/, '')
-    } else if (fixedHtml.startsWith('```')) {
-      fixedHtml = fixedHtml.replace(/^```\s*/, '').replace(/\s*```$/, '')
+    let patches
+    try {
+      patches = extractJSON(result.text)
+    } catch {
+      // Try to clean up and parse
+      let cleaned = result.text.trim()
+      if (cleaned.startsWith('```')) cleaned = cleaned.replace(/^```\w*\s*/, '').replace(/\s*```$/, '')
+      patches = JSON.parse(cleaned)
+    }
+
+    // Apply patches to the article
+    let fixedHtml = fullArticle
+    const applied = []
+
+    // ── Apply heading rewrites ──
+    if (patches.headings && Array.isArray(patches.headings)) {
+      for (const h of patches.headings) {
+        if (h.old && h.new) {
+          const escaped = h.old.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          const re = new RegExp(`(<h2[^>]*>)\\s*${escaped}\\s*(</h2>)`, 'i')
+          if (re.test(fixedHtml)) {
+            fixedHtml = fixedHtml.replace(re, `$1${h.new}$2`)
+            applied.push(`heading: "${h.old}" → "${h.new}"`)
+          }
+        }
+      }
+    }
+
+    // ── Apply BLUF replacement ──
+    if (patches.bluf?.replace_intro) {
+      // Replace first <p>...</p> with the new intro
+      const firstP = fixedHtml.match(/^(\s*(?:<[^p][^>]*>[\s\S]*?<\/[^p][^>]*>\s*)*)<p[^>]*>[\s\S]*?<\/p>/i)
+      if (firstP) {
+        fixedHtml = fixedHtml.replace(
+          /^(\s*(?:<[^p][^>]*>[\s\S]*?<\/[^p][^>]*>\s*)*)<p[^>]*>[\s\S]*?<\/p>/i,
+          `$1${patches.bluf.replace_intro}`
+        )
+        applied.push('bluf: replaced opening paragraph')
+      }
+    }
+
+    // ── Apply extractive answer inserts ──
+    if (patches.extractive && Array.isArray(patches.extractive)) {
+      // Find all heading positions, apply in reverse order
+      const headingRegex = /<h[23][^>]*>[\s\S]*?<\/h[23]>/gi
+      const headingPositions = []
+      let hm
+      while ((hm = headingRegex.exec(fixedHtml)) !== null) {
+        headingPositions.push({ index: hm.index, end: hm.index + hm[0].length, text: hm[0] })
+      }
+
+      const sorted = [...patches.extractive].sort((a, b) =>
+        (b.after_heading_index || 0) - (a.after_heading_index || 0)
+      )
+
+      for (const patch of sorted) {
+        const hIdx = patch.after_heading_index
+        if (hIdx != null && headingPositions[hIdx] && patch.insert_html) {
+          const pos = headingPositions[hIdx].end
+          fixedHtml = fixedHtml.slice(0, pos) + '\n' + patch.insert_html + fixedHtml.slice(pos)
+          applied.push(`extractive: added answer after heading ${hIdx}`)
+        }
+      }
+    }
+
+    // ── Apply entity disambiguation ──
+    if (patches.entities && Array.isArray(patches.entities)) {
+      for (const e of patches.entities) {
+        if (e.find && e.replace && fixedHtml.includes(e.find)) {
+          // Only replace first occurrence
+          fixedHtml = fixedHtml.replace(e.find, e.replace)
+          applied.push(`entity: disambiguated "${e.entity || e.find}"`)
+        }
+      }
+    }
+
+    // ── Apply attribution fixes ──
+    if (patches.attribution && Array.isArray(patches.attribution)) {
+      for (const a of patches.attribution) {
+        if (a.find && a.replace && fixedHtml.includes(a.find)) {
+          fixedHtml = fixedHtml.replace(a.find, a.replace)
+          applied.push(`attribution: "${a.find.slice(0, 30)}..." → named source`)
+        }
+      }
+    }
+
+    // ── Apply freshness signals ──
+    if (patches.freshness) {
+      if (patches.freshness.updated_line) {
+        // Insert after first paragraph
+        const firstPEnd = fixedHtml.indexOf('</p>')
+        if (firstPEnd !== -1) {
+          const insertPos = firstPEnd + 4
+          fixedHtml = fixedHtml.slice(0, insertPos) + '\n' + patches.freshness.updated_line + fixedHtml.slice(insertPos)
+          applied.push('freshness: added "Updated" line')
+        }
+      }
+    }
+
+    // ── Apply formatting (key takeaways, FAQ, tables) ──
+    if (patches.formatting) {
+      if (patches.formatting.key_takeaways && !fixedHtml.includes('key-takeaways')) {
+        // Insert after first paragraph (or after updated_line if we just added it)
+        const firstPEnd = fixedHtml.indexOf('</p>')
+        if (firstPEnd !== -1) {
+          const insertPos = firstPEnd + 4
+          fixedHtml = fixedHtml.slice(0, insertPos) + '\n' + patches.formatting.key_takeaways + fixedHtml.slice(insertPos)
+          applied.push('formatting: added Key Takeaways box')
+        }
+      }
+      if (patches.formatting.faq_section && !fixedHtml.includes('faq-section')) {
+        fixedHtml = fixedHtml + '\n\n' + patches.formatting.faq_section
+        applied.push('formatting: added FAQ section')
+      }
+    }
+
+    // ── Apply surface fit (new sections) ──
+    if (patches.surface && Array.isArray(patches.surface)) {
+      // Append new sections at the end (before any FAQ section)
+      const faqPos = fixedHtml.indexOf('<div class="faq-section">')
+      for (const s of patches.surface) {
+        if (s.new_section_html) {
+          if (faqPos !== -1) {
+            fixedHtml = fixedHtml.slice(0, faqPos) + s.new_section_html + '\n\n' + fixedHtml.slice(faqPos)
+          } else {
+            fixedHtml = fixedHtml + '\n\n' + s.new_section_html
+          }
+          applied.push('surface: added new H2 section')
+        }
+      }
     }
 
     return Response.json({
       success: true,
       fixedArticle: fixedHtml,
-      fixesApplied: fixes.filter(f => FIX_INSTRUCTIONS[f]),
+      fixesApplied: validFixes,
+      patchesApplied: applied,
+      patchCount: applied.length,
       model: result.resolvedModel || result.label || 'unknown',
     })
   } catch (err) {
