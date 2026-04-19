@@ -1,4 +1,5 @@
 export const maxDuration = 60
+export const dynamic = 'force-dynamic'
 
 /**
  * GET /api/admin/images/test
