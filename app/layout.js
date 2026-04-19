@@ -1,5 +1,6 @@
 import './globals.css'
 import PublicShell from '@/components/PublicShell'
+import { Analytics } from '@vercel/analytics/next'
 
 export const metadata = {
   title: 'Crypto Killer - Stop Crypto Scams Before They Start',
@@ -31,6 +32,7 @@ export default function RootLayout({ children }) {
       </head>
       <body className="bg-dark-bg text-gray-100">
         <PublicShell>{children}</PublicShell>
+        <Analytics />
       </body>
     </html>
   )
