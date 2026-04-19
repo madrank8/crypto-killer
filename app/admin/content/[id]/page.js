@@ -324,6 +324,9 @@ export default function ContentEditorPage({ params }) {
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  const [aeoFixing, setAeoFixing] = useState(false);
+  const [aeoFixingId, setAeoFixingId] = useState(null);
+  const [editorKey, setEditorKey] = useState(0);
 
   const [content, setContent] = useState(null);
   const [topic, setTopic] = useState(null);
@@ -515,6 +518,47 @@ export default function ContentEditorPage({ params }) {
       setError(`Sync failed: ${e.message}`);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  /* -- AEO Fix -- */
+  const handleAeoFix = async (fixIds) => {
+    setAeoFixing(true);
+    setAeoFixingId(fixIds.length === 1 ? fixIds[0] : 'all');
+    setError('');
+    try {
+      const res = await fetch('/api/admin/aeo-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          fullArticle,
+          title,
+          keyword: topic?.target_keyword || '',
+          metaDescription,
+          fixes: fixIds,
+          contentType: 'content',
+        }),
+      });
+      let data;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(data.error || 'Fix failed');
+      if (data.fixedArticle) {
+        setFullArticle(data.fixedArticle);
+        setEditorKey(k => k + 1);
+        setMsg(`AEO fixes applied (${data.fixesApplied?.join(', ')}). Review & save.`);
+        setTimeout(() => setMsg(''), 6000);
+      }
+    } catch (e) {
+      setError(`AEO fix failed: ${e.message}`);
+    } finally {
+      setAeoFixing(false);
+      setAeoFixingId(null);
     }
   };
 
@@ -989,7 +1033,7 @@ export default function ContentEditorPage({ params }) {
             />
 
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-3">
-              <TipTapEditor key={phase + '-' + (content?.id || '')} content={fullArticle} onChange={setFullArticle} />
+              <TipTapEditor key={phase + '-' + (content?.id || '') + '-' + editorKey} content={fullArticle} onChange={setFullArticle} />
             </div>
           </div>
 
@@ -1120,6 +1164,9 @@ export default function ContentEditorPage({ params }) {
               heroImage={content.hero_image_url || ''}
               heroImageAlt={content.hero_image_alt || ''}
               wordCount={wordCount}
+              onFix={handleAeoFix}
+              fixing={aeoFixing}
+              fixingId={aeoFixingId}
             />
 
             {content.summary && (

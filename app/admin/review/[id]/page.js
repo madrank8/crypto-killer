@@ -399,6 +399,8 @@ export default function ReviewEditor({ params }) {
   const [generatingImages, setGeneratingImages] = useState(false);
   const [imageGenMsg, setImageGenMsg] = useState('');
   const [imageProgressMsg, setImageProgressMsg] = useState('');
+  const [aeoFixing, setAeoFixing] = useState(false);
+  const [aeoFixingId, setAeoFixingId] = useState(null);
 
   // AI Generate with progress tracking
   const gen = useGenerateWithProgress(token);
@@ -453,6 +455,48 @@ export default function ReviewEditor({ params }) {
     .replace(/<[^>]*>/g, ' ')
     .split(/\s+/)
     .filter((w) => w).length;
+
+  /* -- AEO Fix -- */
+  const handleAeoFix = async (fixIds) => {
+    setAeoFixing(true);
+    setAeoFixingId(fixIds.length === 1 ? fixIds[0] : 'all');
+    setSaveError('');
+    try {
+      const res = await fetch('/api/admin/aeo-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          fullArticle,
+          title,
+          keyword: review?.brand_name || brand?.name || '',
+          metaDescription,
+          fixes: fixIds,
+          contentType: 'review',
+        }),
+      });
+      let data;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(data.error || 'Fix failed');
+      if (data.fixedArticle) {
+        setFullArticle(data.fixedArticle);
+        setEditorKey(k => k + 1);
+        setSyncMsg(`AEO fixes applied (${data.fixesApplied?.join(', ')}). Review & save.`);
+        setTimeout(() => setSyncMsg(''), 6000);
+      }
+    } catch (e) {
+      setSaveError(`AEO fix failed: ${e.message}`);
+      setTimeout(() => setSaveError(''), 6000);
+    } finally {
+      setAeoFixing(false);
+      setAeoFixingId(null);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -1052,6 +1096,9 @@ export default function ReviewEditor({ params }) {
             wordCount={wordCount}
             redFlags={redFlags}
             verdict={verdict}
+            onFix={handleAeoFix}
+            fixing={aeoFixing}
+            fixingId={aeoFixingId}
           />
         </div>
       </div>

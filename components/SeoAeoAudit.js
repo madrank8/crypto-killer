@@ -126,7 +126,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Extractive blocks are within 25-90 word range' })
     }
 
-    categories.push({ name: 'Extractive Answer Coverage', score: Math.max(0, score), findings })
+    categories.push({ id: 'extractive', name: 'Extractive Answer Coverage', score: Math.max(0, score), findings })
   }
 
   // ── 2. Question-Shaped Headings ──
@@ -168,7 +168,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'All H2s are 3+ words' })
     }
 
-    categories.push({ name: 'Question-Shaped Headings', score: Math.max(0, score), findings })
+    categories.push({ id: 'headings', name: 'Question-Shaped Headings', score: Math.max(0, score), findings })
   }
 
   // ── 3. BLUF & Hook ──
@@ -208,7 +208,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Named source found in first 300 words' })
     }
 
-    categories.push({ name: 'BLUF & Hook', score: Math.max(0, score), findings })
+    categories.push({ id: 'bluf', name: 'BLUF & Hook', score: Math.max(0, score), findings })
   }
 
   // ── 4. Entity Disambiguation ──
@@ -256,7 +256,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'All acronyms appear to be defined' })
     }
 
-    categories.push({ name: 'Entity Disambiguation', score: Math.max(0, score), findings })
+    categories.push({ id: 'entities', name: 'Entity Disambiguation', score: Math.max(0, score), findings })
   }
 
   // ── 5. Attribution & Sources ──
@@ -300,7 +300,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Year references found near data' })
     }
 
-    categories.push({ name: 'Attribution & Sources', score: Math.max(0, score), findings })
+    categories.push({ id: 'attribution', name: 'Attribution & Sources', score: Math.max(0, score), findings })
   }
 
   // ── 6. Freshness Signals ──
@@ -338,7 +338,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Source dates are reasonably recent' })
     }
 
-    categories.push({ name: 'Freshness Signals', score: Math.max(0, score), findings })
+    categories.push({ id: 'freshness', name: 'Freshness Signals', score: Math.max(0, score), findings })
   }
 
   // ── 7. Structured Formatting ──
@@ -388,7 +388,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Comparison or data element present' })
     }
 
-    categories.push({ name: 'Structured Formatting', score: Math.max(0, score), findings })
+    categories.push({ id: 'formatting', name: 'Structured Formatting', score: Math.max(0, score), findings })
   }
 
   // ── 8. Schema Readiness ──
@@ -437,7 +437,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'dateModified present in schema' })
     }
 
-    categories.push({ name: 'Schema Readiness', score: Math.max(0, score), findings })
+    categories.push({ id: 'schema', name: 'Schema Readiness', score: Math.max(0, score), findings })
   }
 
   // ── 9. AI Surface Fit ──
@@ -488,7 +488,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: 'Hierarchical heading structure with H3s' })
     }
 
-    categories.push({ name: 'AI Surface Fit', score: Math.max(0, score), findings })
+    categories.push({ id: 'surface', name: 'AI Surface Fit', score: Math.max(0, score), findings })
   }
 
   // ── 10. On-Page SEO Basics ──
@@ -557,7 +557,7 @@ function runAudit(props) {
       findings.push({ pass: true, text: `${internalLinks.length} internal link(s)` })
     }
 
-    categories.push({ name: 'On-Page SEO Basics', score: Math.max(0, score), findings })
+    categories.push({ id: 'seo', name: 'On-Page SEO Basics', score: Math.max(0, score), findings })
   }
 
   const totalScore = categories.reduce((sum, c) => sum + c.score, 0)
@@ -613,8 +613,16 @@ function TierBadge({ tier }) {
   )
 }
 
-function CategoryCard({ category, defaultOpen }) {
+// Categories that can be fixed by the AI endpoint
+const FIXABLE_CATEGORIES = new Set([
+  'extractive', 'headings', 'bluf', 'entities', 'attribution',
+  'freshness', 'formatting', 'surface',
+])
+
+function CategoryCard({ category, defaultOpen, onFix, fixing, fixingId }) {
   const [open, setOpen] = useState(defaultOpen)
+  const canFix = FIXABLE_CATEGORIES.has(category.id) && category.score < 8
+  const isFixing = fixing && fixingId === category.id
 
   return (
     <div className="rounded-lg border border-gray-800/60 bg-gray-800/30 overflow-hidden">
@@ -654,6 +662,19 @@ function CategoryCard({ category, defaultOpen }) {
               </span>
             </div>
           ))}
+          {canFix && onFix && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onFix(category.id) }}
+              disabled={fixing}
+              className="mt-2 w-full text-[11px] px-2.5 py-1.5 rounded-md bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-600/20 transition disabled:opacity-40 flex items-center justify-center gap-1.5"
+            >
+              {isFixing ? (
+                <><span className="animate-spin">&#x27F3;</span> Fixing...</>
+              ) : (
+                <><span>&#x2728;</span> AI Fix This</>
+              )}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -662,7 +683,7 @@ function CategoryCard({ category, defaultOpen }) {
 
 // ─── Main Component ─────────────────────────────────────────────────────────────
 
-export default function SeoAeoAudit(props) {
+export default function SeoAeoAudit({ onFix, fixing = false, fixingId = null, ...props }) {
   const { totalScore, tier, categories } = useMemo(() => runAudit(props), [
     props.contentType,
     props.title,
@@ -767,10 +788,37 @@ export default function SeoAeoAudit(props) {
         <span className="text-xs font-semibold uppercase tracking-wide">{readinessLabel}</span>
       </div>
 
+      {/* Fix All Failing button */}
+      {onFix && totalScore < 80 && (() => {
+        const failingFixable = categories
+          .filter(c => c.score < 8 && FIXABLE_CATEGORIES.has(c.id))
+          .map(c => c.id)
+        return failingFixable.length > 0 ? (
+          <button
+            onClick={() => onFix(failingFixable)}
+            disabled={fixing}
+            className="w-full text-xs px-3 py-2 rounded-lg bg-indigo-600/15 text-indigo-400 hover:bg-indigo-600/25 border border-indigo-600/25 transition disabled:opacity-40 flex items-center justify-center gap-1.5 font-medium"
+          >
+            {fixing ? (
+              <><span className="animate-spin">&#x27F3;</span> Fixing {fixingId === 'all' ? 'all issues' : fixingId}...</>
+            ) : (
+              <><span>&#x2728;</span> AI Fix All Failing ({failingFixable.length} categories)</>
+            )}
+          </button>
+        ) : null
+      })()}
+
       {/* Categories */}
       <div className="space-y-1.5">
         {categories.map((cat, i) => (
-          <CategoryCard key={i} category={cat} defaultOpen={cat.score < 7} />
+          <CategoryCard
+            key={i}
+            category={cat}
+            defaultOpen={cat.score < 7}
+            onFix={onFix ? (id) => onFix([id]) : null}
+            fixing={fixing}
+            fixingId={fixingId}
+          />
         ))}
       </div>
 
