@@ -188,10 +188,11 @@ const STORAGE_UPLOAD_BASE = SUPABASE_URL
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Phase A of the split pipeline: source research + content generation only.
-// Must fit inside the Vercel Hobby 60s limit. Visuals, audit and hero-image
-// generation happen in Phase B (/api/admin/reviews/[id]/polish) triggered by
-// the review editor after navigation.
-export const maxDuration = 60
+// Requires Vercel Pro (300s cap) — source research + Claude Opus content gen
+// collectively can run 60-150s. Visuals, audit and hero-image generation
+// happen in Phase B (/api/admin/reviews/[id]/polish) after navigation so the
+// user sees the draft and editor as soon as phase A lands.
+export const maxDuration = 300
 
 /** * POST /api/admin/reviews/generate
  * Phase A of the split review-generation pipeline.

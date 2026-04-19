@@ -9,10 +9,11 @@ import { generateArticleImages } from '@/lib/images'
 
 // Phase B of the split review-generation pipeline:
 //   visuals (Imagen) → audit → hero/content images → revalidate.
-// Runs after /generate has persisted the draft. Must fit inside the Vercel
-// Hobby 60s cap. Any sub-phase that fails is logged and skipped — the whole
-// run still lands at generation_status='polished' so the UI unblocks.
-export const maxDuration = 60
+// Runs after /generate has persisted the draft. Needs Vercel Pro (300s cap)
+// so 3-5 Imagen calls plus the audit model can all complete. Any sub-phase
+// that fails is logged and skipped — the whole run still lands at
+// generation_status='polished' so the UI unblocks.
+export const maxDuration = 300
 
 const PIPELINE_VERSION = 'multi-agent-v1.1-split'
 
