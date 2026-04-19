@@ -70,7 +70,14 @@ export async function POST(request) {
       );
     }
 
+    // IMPORTANT: prefer VERCEL_PROJECT_PRODUCTION_URL over VERCEL_URL. With
+    // Vercel Authentication (deployment protection) enabled — which this
+    // project has — the deployment-specific hostname that VERCEL_URL points
+    // to is 401'd by the edge SSO layer before the route handler runs. The
+    // production alias is the only unprotected hostname, and that's what
+    // VERCEL_PROJECT_PRODUCTION_URL gives us.
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+      || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
       || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
       || (process.env.VERCEL_BRANCH_URL ? `https://${process.env.VERCEL_BRANCH_URL}` : null);
 

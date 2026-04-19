@@ -119,8 +119,12 @@ export async function GET(request) {
 
     // ─── CONTINUE OR FINALIZE ───
     if (result.hasMore && !result.abortedEarly) {
-      // More data to fetch — chain to next invocation
+      // More data to fetch — chain to next invocation.
+      // Prefer VERCEL_PROJECT_PRODUCTION_URL: with Vercel Authentication on,
+      // VERCEL_URL points to a deployment-specific hostname that is 401'd
+      // by the edge SSO before our route handler even runs.
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+        || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null)
         || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
         || (process.env.VERCEL_BRANCH_URL ? `https://${process.env.VERCEL_BRANCH_URL}` : null)
         || 'http://localhost:3000';
