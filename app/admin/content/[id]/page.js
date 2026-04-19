@@ -737,7 +737,15 @@ export default function ContentEditorPage({ params }) {
       });
       clearInterval(timer);
 
-      const data = await res.json();
+      let data;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        if (!res.ok) throw new Error(res.status === 504 ? 'Server timed out — images may still be processing. Try again in a minute.' : text || `HTTP ${res.status}`);
+        data = { results: {} };
+      }
       if (!res.ok) throw new Error(data.error || 'Image generation failed');
 
       setImageProgress({ step: 'Done!', percent: 100 });

@@ -4,7 +4,7 @@ import { callModel, extractJSON } from '@/lib/ai-models'
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
 
-export const maxDuration = 120
+export const maxDuration = 300
 
 /**
  * POST /api/admin/content/[id]/images
