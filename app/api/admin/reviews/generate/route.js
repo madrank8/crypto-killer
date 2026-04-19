@@ -1,11 +1,9 @@
-import { revalidatePath } from 'next/cache'
 import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
-import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
-import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
-import { generateImageSet } from '@/lib/images'
+import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
+import { stripVerifyTags } from '@/lib/visual-generator'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -189,13 +187,17 @@ const STORAGE_UPLOAD_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/creative-images`  : ''
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// Multi-agent pipeline: source research + content generation + quality audit = 3 model calls
-// Each can take 30-60s, so we need 180s minimum. Vercel Pro supports up to 300s.
-export const maxDuration = 300
+// Phase A of the split pipeline: source research + content generation only.
+// Must fit inside the Vercel Hobby 60s limit. Visuals, audit and hero-image
+// generation happen in Phase B (/api/admin/reviews/[id]/polish) triggered by
+// the review editor after navigation.
+export const maxDuration = 60
 
 /** * POST /api/admin/reviews/generate
- * Generate a scam review article using Claude API — now with SSE progress streaming.
- * Full seo-blog-generator v3.1 + schema-markup-generator + ICP methodology.
+ * Phase A of the split review-generation pipeline.
+ * Runs source research → content writing → schema build → DB save, then
+ * returns with generation_status='content_generated'. Visuals, audit and
+ * hero/content images run in the /polish endpoint.
  * Body: { brand_id }
  */
 export async function POST(request) {
@@ -948,110 +950,10 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       ? existingByBrand
       : []
 
-          // ═══════════════════════════════════════════════════════════════
-          // PHASE 4.5: VISUAL GENERATION
-          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] from fullArticle
-          // and replace with actual rendered visuals (charts, diagrams, AI images)
-          // ═══════════════════════════════════════════════════════════════
-
-          send({ step: 'visuals', progress: 80, message: 'Phase 4.5/5: Generating visual assets...' })
-
-          let visualMeta = []
-          try {
-            const vizResult = await processVisuals(fullArticle, {
-              contentId: brand_id,
-              contentType: 'review',
-              aiHelpers: { callModel, extractJSON },
-              onProgress: (step, pct, msg) => send({ step, progress: pct, message: msg }),
-            })
-
-            if (vizResult.stats.total > 0) {
-              fullArticle = vizResult.html
-              visualMeta = vizResult.visuals
-              send({
-                step: 'visuals_done',
-                progress: 84,
-                message: `Visual generation: ${vizResult.stats.succeeded}/${vizResult.stats.total} visuals rendered`,
-              })
-            } else {
-              send({ step: 'visuals_skip', progress: 84, message: 'No visual placeholders found — skipping' })
-            }
-          } catch (vizErr) {
-            console.error('Visual generation phase failed:', vizErr.message)
-            send({ step: 'visuals_error', progress: 84, message: 'Visual generation failed — continuing without visuals' })
-          }
-
-          // Strip {{VERIFY:}}, {{RESEARCH NEEDED:}}, {{SOURCE NEEDED:}} tags from final HTML
+          // Strip {{VERIFY:}}, {{RESEARCH NEEDED:}}, {{SOURCE NEEDED:}} tags from final HTML.
+          // Visual placeholders ([CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED]) are
+          // intentionally left in-place — the /polish endpoint resolves them in phase B.
           fullArticle = stripVerifyTags(fullArticle)
-
-          // ═══════════════════════════════════════════════════════════════
-          // PHASE 5: QUALITY AUDIT (GPT-4o for fresh perspective, or Claude fallback)
-          // Runs 7 audit passes: anti-slop, E-E-A-T, source alignment, AI extractability,
-          // factual accuracy, tone & voice, schema-content parity
-          // ═══════════════════════════════════════════════════════════════
-          send({ step: 'audit', progress: 85, message: 'Phase 5/5: Quality audit...' })
-
-          let auditReport = null
-          let auditActualModel = null
-          try {
-            const auditPromptData = qualityAuditorPrompt()
-            // Build schema preview for parity check (schema built below, so we build a temp one)
-            const tempSchema = buildReviewSchema({
-              reviewContent,
-              brandData,
-              slug: slug || brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-              currentDate,
-              wordCount,
-              longevityDays,
-            })
-
-            const auditUserMsg = auditPromptData.userTemplate(
-              reviewContent,
-              brandData,
-              sourceLedger,
-              tempSchema
-            )
-
-            // Try GPT-4o first (fresh perspective), fall back to Claude Sonnet on any failure
-            const auditModels = availableModelsInfo.openai
-              ? ['gpt-5.4-mini', 'claude-sonnet']
-              : ['claude-sonnet']
-
-            let auditResult = null
-            for (const modelKey of auditModels) {
-              try {
-                auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
-                  jsonMode: true,
-                })
-                break // Success — stop trying
-              } catch (modelErr) {
-                console.error(`Audit model ${modelKey} failed:`, modelErr.message)
-                if (modelKey === auditModels[auditModels.length - 1]) {
-                  throw modelErr // Last model failed — rethrow
-                }
-                send({ step: 'audit_retry', progress: 86, message: `${modelKey} unavailable, retrying with fallback...` })
-              }
-            }
-
-            auditReport = extractJSON(auditResult.text)
-            auditActualModel = auditResult.usedFallback
-              ? `${auditResult.resolvedModel} (fallback from ${auditResult.fallbackFrom})`
-              : auditResult.label || auditResult.resolvedModel
-
-            const auditGrade = auditReport.grade || '?'
-            const auditScore = auditReport.overall_score || 0
-            const criticalCount = (auditReport.critical_fixes || []).length
-
-            send({
-              step: 'audit_done',
-              progress: 88,
-              message: `Audit complete: ${auditGrade} (${auditScore}/100) via ${auditResult.label} — ${criticalCount} critical fix${criticalCount !== 1 ? 'es' : ''}`,
-            })          } catch (auditError) {
-            // Audit failure is non-fatal — log and continue
-            console.error('Quality audit failed:', auditError.message)
-            auditActualModel = `failed (${auditError.message.slice(0, 100)})`
-            send({ step: 'audit_skip', progress: 88, message: `Quality audit skipped: ${auditError.message}` })
-          }
 
     // ─── BUILD JSON-LD SCHEMA (2026-compliant @graph pattern) ───
     // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo
@@ -1103,11 +1005,14 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
-      visual_meta: visualMeta.length > 0 ? visualMeta : null,
       verify_tags_count: reviewContent.verify_tags_count || 0,
       reddit_test_passed: reviewContent.reddit_test_passed || false,
       information_gain_summary: reviewContent.information_gain_summary || null,
       internal_links: reviewContent.internal_links || [],
+      // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
+      // once visuals/audit/hero-images are attached. UI polls on this field.
+      generation_status: 'content_generated',
+      polish_error: null,
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,
@@ -1115,15 +1020,13 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         investigation_period_days: longevityDays,
         data_source: 'SpyOwl Ad Surveillance',        evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
-        pipeline_version: 'multi-agent-v1.0',
+        pipeline_version: 'multi-agent-v1.1-split',
         source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
-        audit_model: auditActualModel || null,
-        audit_score: auditReport?.overall_score || null,
-        audit_grade: auditReport?.grade || null,
-        audit_critical_fixes: auditReport?.critical_fixes || [],
         verified_sources_count: sourceLedger.length,
+        // audit_model / audit_score / audit_grade / audit_critical_fixes
+        // are populated in phase B by /polish.
       },
     }
 
@@ -1166,68 +1069,27 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       }
     }
 
-    // ─── REVALIDATE CACHED PAGES ───
-    try {
-      revalidatePath(`/review/${slug}`)
-      revalidatePath('/')
-      revalidatePath('/scams')
-    } catch (revalError) {
-      console.error('Revalidation error (non-fatal):', revalError.message)
-    }
-
-    // ─── GENERATE HERO + CONTENT IMAGES (Unsplash → TinyPNG → Supabase) ───
-    let heroImageResult = null
-    let contentImagesResult = []
-    try {
-      send({ step: 'images_unsplash', progress: 93, message: 'Generating hero & content images (Unsplash → compress → upload)...' })
-      const imgSet = await generateImageSet(slug, { contentCount: 1 })
-      if (imgSet.hero) {
-        heroImageResult = imgSet.hero
-        const imgUpdate = {
-          hero_image_url: imgSet.hero.url,
-          hero_image_alt: imgSet.hero.alt,
-          hero_image_credit: imgSet.hero.credit,
-        }
-        if (imgSet.contentImages.length > 0) {
-          contentImagesResult = imgSet.contentImages
-          imgUpdate.content_images = imgSet.contentImages.map(img => ({
-            url: img.url, alt: img.alt, credit: img.credit,
-            creditUrl: img.creditUrl, placement: img.placement,
-          }))
-        }
-        await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
-          method: 'PATCH',
-          body: JSON.stringify(imgUpdate),
-          headers: { 'Prefer': 'return=minimal' },
-        })
-        send({ step: 'images_done', progress: 97, message: `Hero image + ${contentImagesResult.length} content image(s) generated & compressed` })
-      } else if (imgSet.errors.length > 0) {
-        send({ step: 'images_warn', progress: 97, message: `Image generation partial: ${imgSet.errors[0]}` })
-      }
-    } catch (imgError) {
-      console.error('[generate] Image pipeline error (non-fatal):', imgError.message)
-      send({ step: 'images_skip', progress: 97, message: `Image generation skipped: ${imgError.message}` })
-    }
+    // Revalidation is deferred to /polish — the public review page would just render a
+    // placeholder-riddled draft right now. No point flushing the cache yet.
 
           send({
             step: 'done',
             progress: 100,
-            message: 'Review generated successfully!',
+            message: 'Draft saved. Finishing visuals, audit & hero images…',
             result: {
               review_id: reviewId,
               brand_slug: slug,
               status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
+              generation_status: 'content_generated',
               word_count: wordCount,
               images_embedded: availableImages.length,
-              hero_image: heroImageResult?.url || null,
               schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList'],
-              pipeline_version: 'multi-agent-v1.0',
-              audit_grade: auditReport?.grade || 'skipped',
-              audit_score: auditReport?.overall_score || null,
+              pipeline_version: 'multi-agent-v1.1-split',
+              phase: 'content_generated',
+              polish_pending: true,
               models_used: {
                 sources: sourceResearchActualModel,
                 content: contentResult.resolvedModel || 'claude-opus',
-                audit: auditActualModel || 'skipped',
               },
             },
           })

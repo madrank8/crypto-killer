@@ -4,6 +4,7 @@ import { useAdmin } from '@/lib/admin-context';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { GenerateProgressOverlay, useGenerateWithProgress } from '@/components/GenerateProgress';
 
 /* ─── Geo flag helper ─── */
 function geoFlag(code) {
@@ -134,13 +135,24 @@ export default function BrandsPage() {
   );
 
   const [generatingId, setGeneratingId] = useState(null);
+  const [pendingReviewId, setPendingReviewId] = useState(null);
   const [toast, setToast] = useState(null);
   const [showStats, setShowStats] = useState(true);
+
+  // SSE-driven progress for phase-A /generate (the split pipeline's first leg).
+  const genProgress = useGenerateWithProgress(token);
 
   const showToast = (msg, type = 'error') => {
     setToast({ msg, type });
     if (type !== 'error') setTimeout(() => setToast(null), 3000);
   };
+
+  // Navigate to the editor once phase A is done — the editor will auto-fire /polish.
+  useEffect(() => {
+    if (genProgress.step === 'done' && pendingReviewId && !genProgress.error) {
+      router.push(`/admin/review/${pendingReviewId}?polish=auto`);
+    }
+  }, [genProgress.step, genProgress.error, pendingReviewId, router]);
 
   // ─── Fetch stats ───
   useEffect(() => {
@@ -209,6 +221,7 @@ export default function BrandsPage() {
 
   const handleOneClickGenerate = async (brandId) => {
     setGeneratingId(brandId);
+    setPendingReviewId(null);
     try {
       const createRes = await fetch('/api/admin/reviews/create', {
         method: 'POST',
@@ -218,25 +231,22 @@ export default function BrandsPage() {
 
       if (!createRes.ok) throw new Error('Create failed');
       const { review_id } = await createRes.json();
+      setPendingReviewId(review_id);
 
-      const genRes = await fetch('/api/admin/reviews/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ brand_id: brandId }),
-      });
-
-      if (genRes.ok) {
-        router.push(`/admin/review/${review_id}`);
-      } else {
-        showToast('AI generation failed. Opening empty draft.', 'warning');
-        router.push(`/admin/review/${review_id}`);
-      }
+      // Kick off phase A and let the overlay stream progress. The useEffect above
+      // navigates to the editor once the SSE stream emits step='done'.
+      await genProgress.generate(brandId);
     } catch (err) {
       console.error('Generate error:', err);
       showToast('Error creating review: ' + (err.message || 'unknown'));
     } finally {
       setGeneratingId(null);
     }
+  };
+
+  const handleProgressClose = () => {
+    genProgress.reset();
+    setPendingReviewId(null);
   };
 
   return (
@@ -563,6 +573,16 @@ export default function BrandsPage() {
             <button onClick={() => setToast(null)} className="text-current opacity-60 hover:opacity-100 text-lg leading-none shrink-0">&times;</button>
           </div>
         </div>
+      )}
+
+      {(genProgress.isGenerating || genProgress.step === 'done' || genProgress.error) && (
+        <GenerateProgressOverlay
+          progress={genProgress.progress}
+          step={genProgress.step}
+          message={genProgress.message}
+          error={genProgress.error}
+          onClose={handleProgressClose}
+        />
       )}
     </div>
   );

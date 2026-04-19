@@ -1,11 +1,16 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
-import { GenerateProgressOverlay, useGenerateWithProgress } from '@/components/GenerateProgress';
+import {
+  GenerateProgressOverlay,
+  useGenerateWithProgress,
+  usePolishWithProgress,
+  PolishProgressBanner,
+} from '@/components/GenerateProgress';
 import SeoAeoAudit from '@/components/SeoAeoAudit';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
@@ -383,6 +388,8 @@ export default function ReviewEditor({ params }) {
   const { id } = params;
   const { token } = useAdmin();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const polishQueryParam = searchParams.get('polish');
 
   const [review, setReview] = useState(null);
   const [brand, setBrand] = useState(null);
@@ -405,6 +412,11 @@ export default function ReviewEditor({ params }) {
   // AI Generate with progress tracking
   const gen = useGenerateWithProgress(token);
 
+  // Phase B polish (visuals + audit + hero images) — SSE-streamed.
+  const polishProgress = usePolishWithProgress(token);
+  const [polishBannerDismissed, setPolishBannerDismissed] = useState(false);
+  const [polishAutoTriggered, setPolishAutoTriggered] = useState(false);
+
   const [title, setTitle] = useState('');
   const [headline, setHeadline] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
@@ -417,36 +429,66 @@ export default function ReviewEditor({ params }) {
   const [activeTab, setActiveTab] = useState('article');
   const [editorKey, setEditorKey] = useState(0);
 
-  useEffect(() => {
-    if (!token) return;
-
-    const fetchReview = async () => {
-      try {
-        const res = await fetch(`/api/admin/reviews/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          setReview(data);
-          setBrand(data.brand || null);
-          setTitle(data.title || '');
-          setHeadline(data.headline || '');
-          setMetaDescription(data.meta_description || '');
-          setFullArticle(data.full_article || '');
-          setRedFlags(data.red_flags || []);
-          setFaqs(data.faq || []);
-          setVerdict(data.verdict || '');
-        }
-      } catch (err) {
-        console.error('Error fetching review:', err);
-      } finally {
-        setLoading(false);
+  const fetchReview = useCallback(async () => {
+    if (!token) return null;
+    try {
+      const res = await fetch(`/api/admin/reviews/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReview(data);
+        setBrand(data.brand || null);
+        setTitle(data.title || '');
+        setHeadline(data.headline || '');
+        setMetaDescription(data.meta_description || '');
+        setFullArticle(data.full_article || '');
+        setRedFlags(data.red_flags || []);
+        setFaqs(data.faq || []);
+        setVerdict(data.verdict || '');
+        return data;
       }
-    };
-
-    fetchReview();
+    } catch (err) {
+      console.error('Error fetching review:', err);
+    } finally {
+      setLoading(false);
+    }
+    return null;
   }, [token, id]);
+
+  useEffect(() => {
+    fetchReview();
+  }, [fetchReview]);
+
+  // Auto-fire /polish when the review lands in the editor with phase A just done.
+  // Triggers on: explicit ?polish=auto query param OR a stored generation_status
+  // that indicates work is still pending.
+  useEffect(() => {
+    if (!review || polishAutoTriggered || polishProgress.isPolishing) return;
+    const status = review.generation_status;
+    const shouldAutoPolish =
+      polishQueryParam === 'auto' ||
+      status === 'content_generated' ||
+      status === 'polishing'; // orphaned in-flight from a prior attempt
+    if (!shouldAutoPolish) return;
+    setPolishAutoTriggered(true);
+    setPolishBannerDismissed(false);
+    polishProgress.polish(id);
+  }, [review, polishQueryParam, polishAutoTriggered, polishProgress, id]);
+
+  // When the polish stream ends successfully, reload the review so the editor
+  // shows the rendered visuals, audit score, and hero image.
+  useEffect(() => {
+    if (polishProgress.step === 'done' && !polishProgress.error) {
+      fetchReview();
+    }
+  }, [polishProgress.step, polishProgress.error, fetchReview]);
+
+  const handleRetryPolish = useCallback(() => {
+    setPolishBannerDismissed(false);
+    polishProgress.reset();
+    polishProgress.polish(id);
+  }, [polishProgress, id]);
 
   // Parse evidence images from current article
   const evidenceImages = useMemo(() => parseEvidenceImages(fullArticle), [fullArticle]);
@@ -822,8 +864,34 @@ export default function ReviewEditor({ params }) {
     { key: 'meta', label: 'SEO' },
   ];
 
+  const showPolishBanner =
+    !polishBannerDismissed &&
+    (polishProgress.isPolishing ||
+      polishProgress.error ||
+      polishProgress.step === 'done' ||
+      review.generation_status === 'polish_failed');
+
+  const bannerStep = polishProgress.step || (
+    review.generation_status === 'polish_failed' ? 'error' : ''
+  );
+  const bannerError = polishProgress.error || (
+    review.generation_status === 'polish_failed' ? (review.polish_error || 'Polish failed') : null
+  );
+
   return (
     <div className="space-y-4">
+      {/* Phase-B polish banner (visuals + audit + hero images) */}
+      {showPolishBanner && (
+        <PolishProgressBanner
+          progress={polishProgress.progress}
+          step={bannerStep}
+          message={polishProgress.message || review.polish_error || ''}
+          error={bannerError}
+          onRetry={handleRetryPolish}
+          onDismiss={() => setPolishBannerDismissed(true)}
+        />
+      )}
+
       {/* Top Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
