@@ -44,6 +44,8 @@ function HtmlPreview({ html }) {
         [&_figure]:my-6 [&_figure]:text-center
         [&_figcaption]:text-slate-400 [&_figcaption]:text-sm [&_figcaption]:mt-2
         [&_img]:rounded-xl [&_img]:border [&_img]:border-slate-700 [&_img]:mx-auto [&_img]:max-w-full
+        [&_.article-hero-image]:mb-8 [&_.article-hero-image_img]:w-full [&_.article-hero-image_img]:h-auto
+        [&_.article-content-image]:my-8 [&_.article-content-image_img]:w-full [&_.article-content-image_img]:h-auto
         [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:text-white [&_h1]:mt-10 [&_h1]:mb-4
         [&_h2]:text-2xl [&_h2]:font-bold [&_h2]:text-white [&_h2]:mt-10 [&_h2]:mb-4
         [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:text-white [&_h3]:mt-8 [&_h3]:mb-3

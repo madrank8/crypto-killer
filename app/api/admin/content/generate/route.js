@@ -6,7 +6,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { generateArticleImages, generateImageSet } from '@/lib/images'
+import { generateArticleImages, generateImageSet, injectImagesIntoHtml } from '@/lib/images'
 
 export const maxDuration = 300
 
@@ -813,13 +813,21 @@ Return the COMPLETE corrected JSON object.`
                   creditUrl: img.creditUrl, placement: img.placement,
                 }))
               }
+
+              // Inject images into the article HTML body
+              const updatedArticleHtml = injectImagesIntoHtml(fullArticle, {
+                hero: imgSet.hero,
+                contentImages: imgSet.contentImages || [],
+              })
+              imgUpdate.full_article = updatedArticleHtml
+
               await supaFetch(`/content?id=eq.${content.id}`, {
                 method: 'PATCH',
                 headers: { Prefer: 'return=minimal' },
                 body: JSON.stringify(imgUpdate),
               })
               const queryInfo = imgSet.queries?.heroQuery ? ` (hero: "${imgSet.queries.heroQuery}")` : ''
-              send({ step: 'images_done', progress: 96, message: `Images compressed & uploaded${queryInfo}` })
+              send({ step: 'images_done', progress: 96, message: `Images compressed & uploaded — embedded in article${queryInfo}` })
             }
           } catch (imgErr) {
             console.error('[content/generate] Image pipeline error:', imgErr.message)

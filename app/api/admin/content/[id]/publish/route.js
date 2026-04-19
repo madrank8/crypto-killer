@@ -98,6 +98,12 @@ export async function POST(request, { params }) {
         content: { ...content, ...contentUpdates },
         topic,
       })
+    } else if (action === 'unpublish') {
+      // Notify live site to remove/unpublish the article
+      liveSync = await syncToLiveBlog({
+        content: { ...content, ...contentUpdates, _action: 'unpublish' },
+        topic,
+      })
     }
 
     try {

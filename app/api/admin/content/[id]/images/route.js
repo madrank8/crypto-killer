@@ -1,7 +1,7 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON } from '@/lib/ai-models'
-import { generateArticleImages } from '@/lib/images'
+import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
 
 export const maxDuration = 120
@@ -85,6 +85,15 @@ export async function POST(request, { params }) {
         }
 
         if (Object.keys(imgUpdate).length > 0) {
+          // Also inject images into the article HTML body
+          if (content.full_article) {
+            const updatedHtml = injectImagesIntoHtml(content.full_article, {
+              hero: imgSet.hero,
+              contentImages: imgSet.contentImages || [],
+            })
+            imgUpdate.full_article = updatedHtml
+          }
+
           imgUpdate.updated_at = new Date().toISOString()
           await supaFetch(`/content?id=eq.${id}`, {
             method: 'PATCH',

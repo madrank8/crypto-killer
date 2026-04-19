@@ -3,7 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
-import { generateArticleImages } from '@/lib/images'
+import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
 
 export const maxDuration = 300
@@ -548,6 +548,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           // ── Phase 4b: Hero + Content Images (AI queries → Unsplash → TinyPNG → Supabase) ──
           let heroImageData = null
+          let generatedContentImages = []
           try {
             send({ step: 'stock_images', progress: 83, message: 'Generating context-aware stock images...' })
             const imgSet = await generateArticleImages(
@@ -555,6 +556,8 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               { ...article, target_keyword: topic?.target_keyword },
               { contentCount: 2, aiHelpers: { callModel, extractJSON } }
             )
+            // Capture content images regardless of hero success
+            generatedContentImages = imgSet.contentImages || []
             if (imgSet.hero) {
               heroImageData = imgSet.hero
               const imgUpdate = {
@@ -579,6 +582,17 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           } catch (imgErr) {
             console.error('[content/fill] Image pipeline error:', imgErr.message)
             send({ step: 'stock_images_skip', progress: 84, message: `Stock images skipped: ${imgErr.message}` })
+          }
+
+          // ── Phase 4c: Inject images into article HTML ──
+          let fullArticleHtml = stripVerifyTags(buildArticleHtml(article, persona))
+
+          if (heroImageData?.url || generatedContentImages.length > 0) {
+            fullArticleHtml = injectImagesIntoHtml(fullArticleHtml, {
+              hero: heroImageData,
+              contentImages: generatedContentImages,
+            })
+            send({ step: 'images_injected', progress: 84, message: 'Images embedded in article body' })
           }
 
           // Quality audit
@@ -620,13 +634,12 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             model: personaMetadata.model,
           }
 
-          // Save full article
+          // Save full article (using pre-built HTML with images already injected)
           send({ step: 'saving', progress: 85, message: 'Saving full article...' })
 
           const articleSections = Array.isArray(article.sections) ? article.sections : sections
           const articleFaq = Array.isArray(article.faq) ? article.faq : content.faq || []
-          const fullArticle = stripVerifyTags(buildArticleHtml(article, persona))
-          const wordCount = fullArticle.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
+          const wordCount = fullArticleHtml.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
           await supaFetch(`/content?id=eq.${contentId}`, {
             method: 'PATCH',
@@ -636,7 +649,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               headline: article.headline || content.headline,
               meta_description: article.meta_description || content.meta_description,
               summary: article.summary || content.summary,
-              full_article: fullArticle,
+              full_article: fullArticleHtml,
               sections: articleSections,
               faq: articleFaq,              sources: article.sources || sourceLedger,
               internal_links: article.internal_links || content.internal_links || [],
