@@ -1,17 +1,11 @@
-import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-
 export const maxDuration = 60
 
 /**
  * GET /api/admin/images/test
- * Debug endpoint — tests each step of the image pipeline individually
+ * Temporary debug endpoint — tests each step of the image pipeline individually.
+ * No auth required (temporary, remove after debugging).
  */
-export async function GET(request) {
-  try {
-    verifyAdmin(request)
-  } catch {
-    return unauthorizedResponse()
-  }
+export async function GET() {
 
   const steps = {}
 
