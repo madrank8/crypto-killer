@@ -564,25 +564,31 @@ export default function ContentEditorPage({ params }) {
 
   /* -- Regenerate images -- */
   const [imageProgress, setImageProgress] = useState({ step: '', percent: 0 });
-  const regenerateImages = async (mode = 'all') => {
+  const regenerateImages = async (mode = 'all', target = '') => {
     setRegeneratingImages(true);
     setImageMsg('');
     setError('');
 
-    // Animated progress — spreads across ~3 min to match Midjourney timing
-    const steps = [
-      { step: 'Saving edits...', percent: 5, delay: 2000 },
-      { step: 'Generating AI search queries...', percent: 10, delay: 4000 },
-      { step: 'Sending to image generator...', percent: 15, delay: 6000 },
-      { step: 'Creating hero image (this takes ~1 min)...', percent: 25, delay: 15000 },
-      { step: 'Hero image rendering...', percent: 35, delay: 25000 },
-      { step: 'Section images generating in parallel...', percent: 45, delay: 40000 },
-      { step: 'Still generating — Midjourney needs ~60-90s...', percent: 55, delay: 60000 },
-      { step: 'Almost there — compressing images...', percent: 65, delay: 80000 },
-      { step: 'Uploading to storage...', percent: 75, delay: 100000 },
-      { step: 'Finalizing — embedding in article...', percent: 85, delay: 130000 },
-      { step: 'Wrapping up...', percent: 90, delay: 160000 },
-    ];
+    // Faster progress steps for single image mode
+    const isSingle = mode === 'single';
+    const steps = isSingle
+      ? [
+          { step: `Regenerating ${target === 'hero' ? 'hero' : 'section'} image...`, percent: 20, delay: 1000 },
+          { step: 'Generating with AI...', percent: 50, delay: 5000 },
+          { step: 'Compressing & uploading...', percent: 75, delay: 10000 },
+          { step: 'Almost done...', percent: 90, delay: 20000 },
+        ]
+      : [
+          { step: 'Saving edits...', percent: 5, delay: 2000 },
+          { step: 'Generating AI search queries...', percent: 10, delay: 4000 },
+          { step: 'Sending to image generator...', percent: 15, delay: 6000 },
+          { step: 'Creating hero image...', percent: 25, delay: 10000 },
+          { step: 'Section images generating in parallel...', percent: 45, delay: 20000 },
+          { step: 'Compressing images...', percent: 65, delay: 30000 },
+          { step: 'Uploading to storage...', percent: 75, delay: 40000 },
+          { step: 'Embedding in article...', percent: 85, delay: 50000 },
+          { step: 'Wrapping up...', percent: 90, delay: 55000 },
+        ];
     setImageProgress(steps[0]);
 
     const timers = steps.slice(1).map(s =>
@@ -591,12 +597,12 @@ export default function ContentEditorPage({ params }) {
 
     try {
       await save();
-      setImageProgress({ step: 'Generating AI prompts...', percent: 15 });
+      setImageProgress({ step: isSingle ? 'Generating...' : 'Generating AI prompts...', percent: 15 });
 
       const res = await fetch(`/api/admin/content/${id}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, ...(target ? { target } : {}) }),
       });
       timers.forEach(t => clearTimeout(t));
 
@@ -635,6 +641,13 @@ export default function ContentEditorPage({ params }) {
         if (data.results.refresh.failed > 0) {
           parts.push(`${data.results.refresh.failed} failed`);
         }
+      }
+      if (data.results?.single?.success) {
+        const t = data.results.single.target === 'hero' ? 'Hero' : `Section ${parseInt(data.results.single.target?.replace('content-',''),10)+1}`;
+        parts.push(`${t} image regenerated (${data.results.single.source || 'AI'})`);
+      }
+      if (data.results?.single && !data.results.single.success) {
+        parts.push(`Single image failed: ${data.results.single.error || 'unknown'}`);
       }
 
       setImageMsg(parts.length > 0 ? `\u2713 ${parts.join(' \u00b7 ')}` : 'No images generated');
@@ -1089,12 +1102,20 @@ export default function ContentEditorPage({ params }) {
 
               {/* Hero image preview */}
               {content.hero_image_url ? (
-                <div className="space-y-1">
+                <div className="group relative space-y-1">
                   <img
                     src={content.hero_image_url}
                     alt={content.hero_image_alt || 'Hero'}
                     className="w-full h-24 object-cover rounded-lg border border-gray-700"
                   />
+                  <button
+                    onClick={() => regenerateImages('single', 'hero')}
+                    disabled={regeneratingImages}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition text-[9px] px-1.5 py-0.5 rounded bg-black/70 text-white hover:bg-indigo-600 disabled:opacity-50"
+                    title="Regenerate hero image"
+                  >
+                    ↻ Hero
+                  </button>
                   <p className="text-[10px] text-gray-600 truncate">{content.hero_image_credit || ''}</p>
                 </div>
               ) : (
@@ -1103,11 +1124,30 @@ export default function ContentEditorPage({ params }) {
                 </div>
               )}
 
-              {/* Content images count */}
+              {/* Content images with individual regenerate */}
               {content.content_images?.length > 0 && (
-                <p className="text-xs text-gray-500">
-                  {content.content_images.length} section image{content.content_images.length > 1 ? 's' : ''}
-                </p>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Section Images</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {content.content_images.map((img, i) => (
+                      <div key={i} className="group relative">
+                        <img
+                          src={img.url}
+                          alt={img.alt || `Section ${i + 1}`}
+                          className="w-full h-16 object-cover rounded border border-gray-700"
+                        />
+                        <button
+                          onClick={() => regenerateImages('single', `content-${i}`)}
+                          disabled={regeneratingImages}
+                          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition text-[8px] px-1 py-0.5 rounded bg-black/70 text-white hover:bg-indigo-600 disabled:opacity-50"
+                          title={`Regenerate section ${i + 1} image`}
+                        >
+                          ↻
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Visual meta stats */}

@@ -1,7 +1,7 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON } from '@/lib/ai-models'
-import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
+import { generateArticleImages, generateImage, generateImageQueries, injectImagesIntoHtml, stripInjectedImages } from '@/lib/images'
 import { processVisuals, refreshVisualAssets, stripVerifyTags } from '@/lib/visual-generator'
 
 export const maxDuration = 60
@@ -14,11 +14,12 @@ export const maxDuration = 60
  *   1. Unsplash stock images (hero + 2 section images) via AI-generated queries
  *   2. AI-generated visuals (DALL-E, Mermaid, QuickChart) from visual placeholders
  *
- * Body: { mode?: 'all' | 'stock' | 'visuals' | 'refresh' }  (default: 'all')
+ * Body: { mode?: 'all' | 'stock' | 'visuals' | 'refresh' | 'single', target?: string }  (default: 'all')
  *   - 'all'     — run both pipelines
- *   - 'stock'   — only Unsplash hero + section images
+ *   - 'stock'   — only hero + section images (Imagen/Unsplash)
  *   - 'visuals' — only AI-generated visuals from placeholders
  *   - 'refresh' — re-upload existing visuals to Supabase + fix responsive styling
+ *   - 'single'  — regenerate ONE specific image. target: 'hero' | 'content-0' | 'content-1'
  */
 export async function POST(request, { params }) {
   try {
@@ -30,6 +31,7 @@ export async function POST(request, { params }) {
   const { id } = await params
   const body = await request.json().catch(() => ({}))
   const mode = body.mode || 'all'
+  const target = body.target || '' // for 'single' mode: 'hero' | 'content-0' | 'content-1'
 
   try {
     // Fetch content + topic
@@ -182,7 +184,100 @@ export async function POST(request, { params }) {
       }
     }
 
-    // ── Pipeline 3: Refresh existing visuals (re-upload + fix styling) ──
+    // ── Pipeline 3: Regenerate a single specific image ──
+    if (mode === 'single' && target) {
+      try {
+        const articleContext = {
+          title: content.title || content.headline,
+          summary: content.summary,
+          sections: Array.isArray(content.sections) ? content.sections : [],
+          target_keyword: topic?.target_keyword || '',
+          slug: content.slug,
+        }
+
+        // Generate a context-aware prompt for this specific image
+        const queries = await generateImageQueries(articleContext, { callModel, extractJSON })
+        const isHero = target === 'hero'
+        const contentIdx = isHero ? -1 : parseInt(target.replace('content-', ''), 10)
+
+        const prompt = isHero
+          ? queries.heroQuery
+          : (queries.sectionQueries?.[contentIdx] || '')
+        const altText = isHero
+          ? queries.heroAlt
+          : (queries.sectionAlts?.[contentIdx] || '')
+
+        const img = await generateImage({
+          type: isHero ? 'hero' : 'content',
+          seed: `${content.slug}-${target}`,
+          customQuery: prompt,
+          filename: `${target}-${content.slug}-${Date.now()}`,
+          maxMjWaitMs: 1,
+          maxMjRetries: 0,
+        })
+
+        if (altText) img.alt = altText
+
+        // Update DB
+        const dbUpdate = { updated_at: new Date().toISOString() }
+
+        if (isHero) {
+          dbUpdate.hero_image_url = img.url
+          dbUpdate.hero_image_alt = img.alt
+          dbUpdate.hero_image_credit = img.credit
+        } else {
+          // Update content_images array — replace specific index
+          const existing = Array.isArray(content.content_images) ? [...content.content_images] : []
+          const entry = {
+            url: img.url,
+            alt: img.alt,
+            credit: img.credit,
+            creditUrl: img.creditUrl,
+            placement: `section-${contentIdx + 1}`,
+          }
+          if (contentIdx < existing.length) {
+            existing[contentIdx] = entry
+          } else {
+            existing.push(entry)
+          }
+          dbUpdate.content_images = existing
+        }
+
+        // Re-inject all images into HTML
+        if (content.full_article) {
+          const heroData = isHero
+            ? img
+            : (content.hero_image_url ? { url: content.hero_image_url, alt: content.hero_image_alt, credit: content.hero_image_credit } : null)
+          const contentImgs = isHero
+            ? (Array.isArray(content.content_images) ? content.content_images : [])
+            : (dbUpdate.content_images || [])
+
+          dbUpdate.full_article = injectImagesIntoHtml(content.full_article, {
+            hero: heroData,
+            contentImages: contentImgs.map((ci, i) => ({ ...ci, sectionIndex: i })),
+          })
+        }
+
+        await supaFetch(`/content?id=eq.${id}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(dbUpdate),
+        })
+
+        results.single = {
+          success: true,
+          target,
+          url: img.url,
+          alt: img.alt,
+          credit: img.credit,
+          source: img.source,
+        }
+      } catch (err) {
+        results.single = { success: false, target, error: err.message }
+      }
+    }
+
+    // ── Pipeline 4: Refresh existing visuals (re-upload + fix styling) ──
     if (mode === 'refresh') {
       try {
         const fullArticle = content.full_article || ''
