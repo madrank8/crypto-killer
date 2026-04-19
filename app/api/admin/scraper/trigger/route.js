@@ -1,3 +1,4 @@
+import { waitUntil } from '@vercel/functions';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import {
   cleanupStaleJobs,
@@ -84,17 +85,21 @@ export async function POST(request) {
     const workerUrl = `${siteUrl}/api/cron/scrape?job=${job.id}&resume=0&chain=0`;
 
     // Fire-and-forget: start the chunked scrape via cron endpoint.
-    // NO AbortSignal here — the cron chunk takes ~80s to respond, and an
-    // abort on the initiator severs the connection, which Vercel treats as
-    // a client disconnect and can tear down the cron lambda mid-flight.
-    // We only need the TCP handshake to succeed; we don't care about the
-    // response body. Leaving the promise pending is fine — this route's
-    // maxDuration (300s via vercel.json) covers the worst case.
-    fetch(workerUrl, {
-      headers: { Authorization: `Bearer ${cronSecret}` },
-    }).catch(e => {
-      console.error('[trigger] Failed to start scrape worker:', e.message);
-    });
+    // Wrapped in waitUntil() because otherwise Vercel tears down this
+    // lambda the instant we send our 200 response — which happens before
+    // the outbound fetch to cron has even finished its TCP handshake,
+    // silently killing the worker. waitUntil tells the runtime to keep
+    // the instance alive until the promise settles. We also deliberately
+    // do NOT set an AbortSignal: cron's first chunk takes ~80s to return
+    // and an abort on this side would be treated as a client disconnect
+    // and could terminate cron mid-work.
+    waitUntil(
+      fetch(workerUrl, {
+        headers: { Authorization: `Bearer ${cronSecret}` },
+      }).catch((e) => {
+        console.error('[trigger] Failed to start scrape worker:', e.message);
+      }),
+    );
 
     console.log(`[trigger] Job ${job.id} created, delegated to worker`);
 

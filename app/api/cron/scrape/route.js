@@ -1,3 +1,4 @@
+import { waitUntil } from '@vercel/functions';
 import { supaFetch } from '@/lib/supabase';
 import {
   cleanupStaleJobs,
@@ -126,14 +127,18 @@ export async function GET(request) {
 
       const nextUrl = `${siteUrl}/api/cron/scrape?resume=${result.nextSkip}&job=${jobId}&chain=${chainCount + 1}`;
 
-      // NO AbortSignal — the next chunk also takes ~80s to respond and an
-      // abort on this side would tear down the downstream lambda mid-flight
-      // (see matching comment in /api/admin/scraper/trigger/route.js).
-      fetch(nextUrl, {
-        headers: { Authorization: `Bearer ${cronSecret}` },
-      }).catch(e => {
-        console.error('[cron] Failed to chain next chunk:', e.message);
-      });
+      // Fire-and-forget chain to the next chunk. Wrapped in waitUntil()
+      // so the outbound fetch survives this lambda's teardown — without
+      // it Vercel kills the outbound TCP handshake the moment we send our
+      // Response.json below. Also no AbortSignal (would tear down the
+      // downstream lambda mid-work).
+      waitUntil(
+        fetch(nextUrl, {
+          headers: { Authorization: `Bearer ${cronSecret}` },
+        }).catch((e) => {
+          console.error('[cron] Failed to chain next chunk:', e.message);
+        }),
+      );
 
       return Response.json({
         continuing: true,
