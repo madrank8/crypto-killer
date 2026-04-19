@@ -487,14 +487,24 @@ function ScrapeControl({ token, spyowlConnected }) {
       setTimeout(fetchHistory, 1500);
       setTimeout(fetchHistory, 3000);
 
-      // Wait for trigger to eventually return (could be 60+ seconds)
+      // Wait for trigger response (should be fast now — trigger returns immediately)
       const res = await triggerPromise;
       let data;
-      try { data = await res.json(); } catch { data = res.ok ? { success: true, message: 'Scrape completed' } : { error: `HTTP ${res.status}` }; }
+      try {
+        data = await res.json();
+      } catch {
+        data = res.ok
+          ? { success: true, message: 'Scrape started' }
+          : { error: `Request failed (HTTP ${res.status})` };
+      }
+      // Normalize: handle Vercel timeout responses like { code: "FUNCTION_INVOCATION_TIMEOUT" }
+      if (!data.success && !data.error) {
+        data.error = data.message || data.code || `Unexpected response (HTTP ${res.status})`;
+      }
       setTriggerResult(data);
       fetchHistory();
     } catch (e) {
-      setTriggerResult({ error: e.message });
+      setTriggerResult({ error: e.message || 'Network error — check your connection' });
     }
     setTriggering(false);
   };
@@ -625,8 +635,8 @@ function ScrapeControl({ token, spyowlConnected }) {
               : 'bg-red-500/10 border border-red-500/20 text-red-300'
           }`}>
             {triggerResult.success
-              ? `✓ Scrape initiated — ${triggerResult.message}`
-              : `✗ ${triggerResult.error}`}
+              ? `✓ ${triggerResult.message || 'Scrape initiated'}`
+              : `✗ ${triggerResult.error || triggerResult.message || triggerResult.code || 'Scrape failed — check logs'}`}
           </div>
         )}
 

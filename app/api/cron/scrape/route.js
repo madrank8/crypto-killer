@@ -7,18 +7,27 @@ import {
   createJob,
   failJob,
   runScrapeLoop,
+  rebuildBrands,
+  updateProgress,
 } from '@/lib/scraper';
 
-const BATCHES_PER_CHUNK = 80; // 80 × 500 = 40K creatives per invocation (~160s, within 300s timeout)
-const MAX_CHAINS = 500; // Safety limit — 500 × 40K = 20M creatives max
+/**
+ * Batches per chunk — how many 500-item API pages per invocation.
+ * At ~2s per batch (pipelined), 40 batches ≈ 80s, well within 300s timeout.
+ * 80k creatives / 500 / 40 = only 4 chained invocations.
+ */
+const BATCHES_PER_CHUNK = 40;
+const MAX_CHAINS = 50; // Safety limit (40 batches × 50 chains = 1M creatives max)
 
 /**
  * GET /api/cron/scrape
- * Vercel Cron Job — runs every 24 hours at midnight UTC
+ *
+ * Handles both:
+ *  - Vercel Cron (daily midnight UTC) — creates its own job
+ *  - Manual trigger delegation — picks up a pre-created job via ?job=ID
  *
  * Self-chaining: processes BATCHES_PER_CHUNK batches, then calls itself
  * with ?resume=SKIP&job=JOB_ID&chain=N to continue in a new invocation.
- * This keeps each function call within Vercel's timeout limits.
  */
 export async function GET(request) {
   try {
@@ -35,38 +44,30 @@ export async function GET(request) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // ─── Parse continuation params ───
+    // ─── Parse params ───
     const url = new URL(request.url);
     const resumeSkip = parseInt(url.searchParams.get('resume') || '0', 10);
-    const existingJobId = url.searchParams.get('job') || null;
+    const preCreatedJobId = url.searchParams.get('job') || null;
     const chainCount = parseInt(url.searchParams.get('chain') || '0', 10);
-    const isResume = resumeSkip > 0 && existingJobId;
+    const isResume = resumeSkip > 0;
 
     // Safety: prevent infinite chain loops
     if (chainCount >= MAX_CHAINS) {
       console.error(`[cron] Max chain limit (${MAX_CHAINS}) reached, aborting`);
-      if (existingJobId) {
-        await supaFetch(`/sync_runs?id=eq.${existingJobId}`, {
-          method: 'PATCH',
-          headers: { Prefer: 'return=minimal' },
-          body: JSON.stringify({
-            status: 'failed',
-            finished_at: new Date().toISOString(),
-            error_message: `Aborted: exceeded max chain limit of ${MAX_CHAINS} invocations`,
-          }),
-        }).catch(() => {});
+      if (preCreatedJobId) {
+        await failJob(preCreatedJobId, `Aborted: exceeded max chain limit of ${MAX_CHAINS} invocations`);
       }
       return Response.json({ error: 'Max chain limit reached' }, { status: 500 });
     }
 
-    // ─── SETUP (only on first invocation) ───
-    let jobId = existingJobId;
+    // ─── SETUP ───
+    let jobId = preCreatedJobId;
     let cookie;
 
-    if (!isResume) {
+    if (!isResume && !preCreatedJobId) {
+      // ── Normal cron: create everything from scratch ──
       await cleanupStaleJobs();
 
-      // Check for existing running job
       const active = await getActiveJob();
       if (active) {
         return Response.json({
@@ -76,23 +77,27 @@ export async function GET(request) {
         });
       }
 
-      // Validate SpyOwl
       cookie = await getSpyOwlCookie();
       const spyowlOk = await validateSpyOwl(cookie);
 
       if (!spyowlOk) {
-        // Log a failed job so it shows in history
         const failedJob = await createJob('scheduled');
         const msg = cookie ? 'SpyOwl API unreachable or cookie expired' : 'No SpyOwl cookie configured';
         await failJob(failedJob.id, msg);
         return Response.json({ success: false, error: msg }, { status: 503 });
       }
 
-      // Create the job
       const job = await createJob('scheduled');
       jobId = job.id;
+    } else if (!isResume && preCreatedJobId) {
+      // ── Pre-created job from trigger endpoint (first chunk) ──
+      cookie = await getSpyOwlCookie();
+      if (!cookie) {
+        await failJob(jobId, 'SpyOwl cookie not available');
+        return Response.json({ success: false, error: 'Cookie not available' }, { status: 503 });
+      }
     } else {
-      // Resuming — get cookie for continued scraping
+      // ── Resuming a chain ──
       cookie = await getSpyOwlCookie();
       if (!cookie) {
         await failJob(jobId, 'Cookie expired mid-scrape');
@@ -100,28 +105,30 @@ export async function GET(request) {
       }
     }
 
+    console.log(`[cron] Starting chunk: job=${jobId}, skip=${resumeSkip}, chain=${chainCount}`);
+
     // ─── RUN SCRAPE CHUNK ───
     const result = await runScrapeLoop({
       jobId,
       cookie,
       startSkip: resumeSkip,
       maxBatches: BATCHES_PER_CHUNK,
-      skipBrandRebuild: true, // We handle brand rebuild after all chunks
+      skipBrandRebuild: true, // Always skip — we rebuild after all chunks
     });
 
     // ─── CONTINUE OR FINALIZE ───
     if (result.hasMore && !result.abortedEarly) {
       // More data to fetch — chain to next invocation
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : 'http://localhost:3000';
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null)
+        || (process.env.VERCEL_BRANCH_URL ? `https://${process.env.VERCEL_BRANCH_URL}` : null)
+        || 'http://localhost:3000';
 
       const nextUrl = `${siteUrl}/api/cron/scrape?resume=${result.nextSkip}&job=${jobId}&chain=${chainCount + 1}`;
 
-      // Fire-and-forget: trigger next chunk
       fetch(nextUrl, {
         headers: { Authorization: `Bearer ${cronSecret}` },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(10000),
       }).catch(e => {
         console.error('[cron] Failed to chain next chunk:', e.message);
       });
@@ -135,11 +142,21 @@ export async function GET(request) {
       });
     }
 
-    // All data fetched (or aborted) — rebuild brands and finalize
-    // runScrapeLoop already finalized the job when hasMore=false and skipBrandRebuild=false
-    // But we set skipBrandRebuild=true, so we need to rebuild + finalize here
+    // ─── ALL DATA FETCHED — REBUILD BRANDS + FINALIZE ───
+    const globalTotal = result.nextSkip;
 
-    const { rebuildBrands } = await import('@/lib/scraper');
+    await updateProgress(jobId, {
+      phase: 'processing',
+      percent: 85,
+      message: `Rebuilding brand aggregates from ${globalTotal.toLocaleString()} creatives...`,
+      steps: [
+        { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
+        { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
+        { id: 'scan', label: `${globalTotal.toLocaleString()} creatives synced`, status: 'done', ts: new Date().toISOString() },
+        { id: 'brands', label: 'Rebuilding brands...', status: 'active', ts: new Date().toISOString() },
+      ],
+    });
+
     let brandsUpdated = 0;
     let brandError = null;
 
@@ -152,10 +169,8 @@ export async function GET(request) {
       console.error('[cron] Brand rebuild failed:', e.message);
     }
 
-    // Finalize the job
-    const globalTotal = result.nextSkip; // total creatives processed across all chunks
+    // ─── FINALIZE ───
     const finishedAt = new Date().toISOString();
-
     let finalStatus = 'completed';
     let errorMessage = null;
 
@@ -187,7 +202,8 @@ export async function GET(request) {
             ? `Done with warnings: ${globalTotal.toLocaleString()} creatives`
             : `Done! ${globalTotal.toLocaleString()} creatives, ${brandsUpdated.toLocaleString()} brands`,
           steps: [
-            { id: 'init', label: 'Cron triggered', status: 'done', ts: new Date().toISOString() },
+            { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
+            { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
             { id: 'scan', label: `${globalTotal.toLocaleString()} creatives synced`, status: result.abortedEarly ? 'warning' : 'done', ts: new Date().toISOString() },
             { id: 'brands', label: brandError ? 'Brand rebuild failed' : `${brandsUpdated.toLocaleString()} brands updated`, status: brandError ? 'warning' : 'done', ts: new Date().toISOString() },
             { id: 'done', label: errorMessage ? 'Completed with warnings' : 'Scrape complete', status: errorMessage ? 'warning' : 'done', ts: finishedAt },
@@ -196,10 +212,11 @@ export async function GET(request) {
       }),
     }).catch(e => console.error('[cron] finalize failed:', e.message));
 
+    console.log(`[cron] Job ${jobId} done: ${finalStatus}, ${globalTotal} creatives, ${brandsUpdated} brands, ${chainCount + 1} chains`);
+
     return Response.json({
       success: true,
       job_id: jobId,
-      trigger_type: 'scheduled',
       creatives_fetched: globalTotal,
       brands_updated: brandsUpdated,
       chains_used: chainCount + 1,
