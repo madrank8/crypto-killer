@@ -83,10 +83,15 @@ export async function POST(request) {
 
     const workerUrl = `${siteUrl}/api/cron/scrape?job=${job.id}&resume=0&chain=0`;
 
-    // Fire-and-forget: start the chunked scrape via cron endpoint
+    // Fire-and-forget: start the chunked scrape via cron endpoint.
+    // NO AbortSignal here — the cron chunk takes ~80s to respond, and an
+    // abort on the initiator severs the connection, which Vercel treats as
+    // a client disconnect and can tear down the cron lambda mid-flight.
+    // We only need the TCP handshake to succeed; we don't care about the
+    // response body. Leaving the promise pending is fine — this route's
+    // maxDuration (300s via vercel.json) covers the worst case.
     fetch(workerUrl, {
       headers: { Authorization: `Bearer ${cronSecret}` },
-      signal: AbortSignal.timeout(10000),
     }).catch(e => {
       console.error('[trigger] Failed to start scrape worker:', e.message);
     });

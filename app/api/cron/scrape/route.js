@@ -126,9 +126,11 @@ export async function GET(request) {
 
       const nextUrl = `${siteUrl}/api/cron/scrape?resume=${result.nextSkip}&job=${jobId}&chain=${chainCount + 1}`;
 
+      // NO AbortSignal — the next chunk also takes ~80s to respond and an
+      // abort on this side would tear down the downstream lambda mid-flight
+      // (see matching comment in /api/admin/scraper/trigger/route.js).
       fetch(nextUrl, {
         headers: { Authorization: `Bearer ${cronSecret}` },
-        signal: AbortSignal.timeout(10000),
       }).catch(e => {
         console.error('[cron] Failed to chain next chunk:', e.message);
       });
