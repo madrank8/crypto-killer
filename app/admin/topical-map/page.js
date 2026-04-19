@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+// ─── Color Systems ───
+
 const typeColors = {
   pillar_page: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
   guide: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
@@ -17,6 +19,14 @@ const typeColors = {
   glossary: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
 };
 
+const statusDot = {
+  planned: 'bg-gray-500',
+  in_progress: 'bg-blue-400',
+  draft: 'bg-amber-400',
+  review: 'bg-purple-400',
+  published: 'bg-green-400',
+};
+
 const statusColors = {
   planned: 'bg-gray-500/10 text-gray-400',
   in_progress: 'bg-blue-500/10 text-blue-400',
@@ -24,6 +34,8 @@ const statusColors = {
   review: 'bg-purple-500/10 text-purple-400',
   published: 'bg-green-500/10 text-green-400',
 };
+
+// ─── Data Helpers ───
 
 function groupChildrenByParent(topics) {
   const m = new Map();
@@ -53,6 +65,21 @@ function buildDescendantCountMap(byParent) {
   return { count: visit };
 }
 
+function collectDescendants(topicId, byParent) {
+  const result = [];
+  const visit = (id) => {
+    const children = byParent.get(id) || [];
+    for (const ch of children) {
+      result.push(ch);
+      visit(ch.id);
+    }
+  };
+  visit(topicId);
+  return result;
+}
+
+// ─── Micro Components ───
+
 function TypeBadge({ contentType }) {
   const cls = typeColors[contentType] || typeColors.educational;
   return (
@@ -71,6 +98,26 @@ function StatusBadge({ status }) {
   );
 }
 
+function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (percent / 100) * circumference;
+  return (
+    <svg width={size} height={size} className="transform -rotate-90">
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} />
+      <circle
+        cx={size / 2} cy={size / 2} r={radius} fill="none"
+        stroke={color} strokeWidth={stroke}
+        strokeDasharray={circumference} strokeDashoffset={offset}
+        strokeLinecap="round"
+        className="transition-all duration-700 ease-out"
+      />
+    </svg>
+  );
+}
+
+// ─── Topic Editor (inline) ───
+
 function TopicEditor({ topic, token, onCancel, onSaved }) {
   const [title, setTitle] = useState(topic.title || '');
   const [keyword, setKeyword] = useState(topic.target_keyword || '');
@@ -85,10 +132,7 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
     try {
       const res = await fetch(`/api/admin/topical-map/topics/${topic.id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           title,
           target_keyword: keyword || null,
@@ -109,203 +153,279 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
   };
 
   return (
-    <div className="mt-3 p-4 rounded-lg border border-gray-800/80 bg-dark-bg/80 space-y-3">
+    <div className="mt-2 p-4 rounded-lg border border-gray-700/60 bg-gray-900/80 space-y-3">
       {err && <p className="text-red-400 text-sm">{err}</p>}
-      <input
-        className="search-input w-full text-sm"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title"
-      />
-      <input
-        className="search-input w-full text-sm"
-        value={keyword}
-        onChange={(e) => setKeyword(e.target.value)}
-        placeholder="Target keyword"
-      />
-      <input
-        className="search-input w-full text-sm"
-        value={priority}
-        onChange={(e) => setPriority(e.target.value)}
-        placeholder="Priority score"
-        type="number"
-      />
-      <textarea
-        className="search-input w-full text-sm min-h-[72px]"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Notes"
-      />
+      <div className="grid grid-cols-2 gap-3">
+        <input className="search-input w-full text-sm col-span-2" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
+        <input className="search-input w-full text-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Target keyword" />
+        <input className="search-input w-full text-sm" value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="Priority" type="number" />
+      </div>
+      <textarea className="search-input w-full text-sm min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" />
       <div className="flex gap-2">
         <button type="button" onClick={save} disabled={saving} className="btn btn-primary text-sm px-3 py-1.5">
           {saving ? 'Saving\u2026' : 'Save'}
         </button>
-        <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-300">
-          Cancel
-        </button>
+        <button type="button" onClick={onCancel} className="text-sm text-gray-500 hover:text-gray-300">Cancel</button>
       </div>
     </div>
   );
 }
 
-function TopicTree({
-  topic,
-  byParent,
-  token,
-  onPatch,
-  onDelete,
-  onWriteArticle,
-  writingId,
-  editingId,
-  setEditingId,
-  descendantCountById,
-}) {
+// ─── Topic Row (leaf or nested) ───
+
+function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArticle, writingId, editingId, setEditingId, descendantCountById, statusFilter }) {
   const children = byParent.get(topic.id) || [];
   const isLeaf = children.length === 0;
   const editing = editingId === topic.id;
   const descendants = descendantCountById.get(topic.id) || 0;
+  const [expanded, setExpanded] = useState(depth < 1); // only auto-expand first level
 
-  const inner = (
-    <div className="flex flex-wrap items-start gap-2 py-2 pl-1">
-      <div className="flex-1 min-w-[200px]">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-white text-sm font-medium">{topic.title}</span>
-          <TypeBadge contentType={topic.content_type} />
-          <StatusBadge status={topic.content_status} />
-        </div>
-        <div className="text-xs text-gray-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
-          {topic.target_keyword && <span>kw: {topic.target_keyword}</span>}
-          {typeof topic.search_volume === 'number' && <span>vol: {topic.search_volume}</span>}
-          {typeof topic.keyword_difficulty === 'number' && <span>KD: {topic.keyword_difficulty}</span>}
-          <span>pri: {topic.priority_score ?? 0}</span>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="text-gray-500 hover:text-white p-1"
-          title="Edit"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setEditingId(editing ? null : topic.id);
-          }}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L7.5 21H3v-4.5L14.732 3.732z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          className="text-red-500/80 hover:text-red-400 p-1"
-          title={descendants > 0 ? `Delete (has ${descendants} subtopics)` : 'Delete topic'}
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onDelete(topic, descendants);
-          }}
-        >
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
-          </svg>
-        </button>
-        {topic.content_type === 'brand_review' ? (
-          <Link
-            href="/admin/brands"
-            className="text-xs px-2 py-1 rounded-lg border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
-          >
-            Generate review
-          </Link>
-        ) : (
-          <>
-            {topic.content_id ? (
-              <Link
-                href={`/admin/content/${topic.content_id}`}
-                className="text-xs px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/60"
-                onClick={(e) => e.stopPropagation()}
-              >
-                Edit article
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onWriteArticle(topic);
-                }}
-                disabled={writingId === topic.id}
-                className="text-xs px-2 py-1 rounded-lg border border-green-500/30 text-green-300 hover:text-white hover:border-green-400/60 disabled:opacity-50"
-              >
-                {writingId === topic.id ? 'Opening\u2026' : 'Write article'}
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
+  // Filter children if status filter is active
+  const filteredChildren = useMemo(() => {
+    if (!statusFilter) return children;
+    return children.filter(ch => {
+      if (ch.content_status === statusFilter) return true;
+      // Keep parent if any descendant matches
+      const desc = collectDescendants(ch.id, byParent);
+      return desc.some(d => d.content_status === statusFilter);
+    });
+  }, [children, statusFilter, byParent]);
 
-  if (isLeaf) {
+  // Status filter: hide this topic if it doesn't match and has no matching descendants
+  // (only applied at depth > 0, roots are always shown if they have matching descendants)
+
+  const isPillar = topic.content_type === 'pillar_page';
+  const isCluster = !isPillar && !isLeaf;
+
+  // Pillar-level rendering: prominent card
+  if (isPillar && depth === 0) {
+    const childStatuses = collectDescendants(topic.id, byParent);
+    const pubCount = childStatuses.filter(d => d.content_status === 'published').length + (topic.content_status === 'published' ? 1 : 0);
+    const totalCount = childStatuses.length + 1;
+    const pubPercent = totalCount > 0 ? Math.round((pubCount / totalCount) * 100) : 0;
+
     return (
-      <div className="border-b border-gray-800/40 last:border-0">
-        {inner}
+      <div className="rounded-2xl border border-gray-700/50 bg-gradient-to-b from-gray-900/80 to-gray-900/40 overflow-hidden">
+        {/* Pillar header */}
+        <div
+          className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-white/[0.02] transition"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <div className="relative flex-shrink-0">
+            <ProgressRing percent={pubPercent} size={44} stroke={3.5} color="#a855f7" />
+            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-purple-300">
+              {pubPercent}%
+            </span>
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2.5">
+              <span className="text-white font-semibold text-base truncate">{topic.title}</span>
+              <TypeBadge contentType={topic.content_type} />
+              <StatusBadge status={topic.content_status} />
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
+              {topic.target_keyword && <span className="text-gray-400">{topic.target_keyword}</span>}
+              <span>{totalCount} topics</span>
+              <span className="text-green-400/70">{pubCount} published</span>
+              {typeof topic.search_volume === 'number' && <span>vol: {topic.search_volume.toLocaleString()}</span>}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <TopicActions
+              topic={topic}
+              descendants={descendants}
+              editingId={editingId}
+              setEditingId={setEditingId}
+              onDelete={onDelete}
+              onWriteArticle={onWriteArticle}
+              writingId={writingId}
+            />
+            <ChevronToggle expanded={expanded} />
+          </div>
+        </div>
+
         {editing && (
-          <TopicEditor
-            topic={topic}
-            token={token}
-            onCancel={() => setEditingId(null)}
-            onSaved={() => {
-              setEditingId(null);
-              onPatch();
-            }}
-          />
+          <div className="px-5 pb-4">
+            <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {/* Children */}
+        {expanded && filteredChildren.length > 0 && (
+          <div className="border-t border-gray-800/40">
+            {filteredChildren.map(ch => (
+              <TopicRow
+                key={ch.id} topic={ch} depth={depth + 1}
+                byParent={byParent} token={token} onPatch={onPatch} onDelete={onDelete}
+                onWriteArticle={onWriteArticle} writingId={writingId} editingId={editingId}
+                setEditingId={setEditingId} descendantCountById={descendantCountById}
+                statusFilter={statusFilter}
+              />
+            ))}
+          </div>
         )}
       </div>
     );
   }
 
-  return (
-    <details open className="border border-gray-800/60 rounded-xl bg-gray-900/40 mb-2">
-      <summary className="cursor-pointer list-none px-3 py-2 rounded-xl hover:bg-white/[0.03]">
-        <div className="flex flex-wrap items-center gap-2 [&::-webkit-details-marker]:hidden">
-          <span className="text-gray-500 text-xs mr-1">\u25b8</span>
-          {inner}
-        </div>
-      </summary>
-      {editing && (
-        <div className="px-3 pb-3">
-          <TopicEditor
+  // Cluster-level rendering: collapsible group with count badge
+  if (isCluster) {
+    return (
+      <div className={`${depth > 1 ? 'ml-4' : ''}`}>
+        <div
+          className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/[0.02] transition border-b border-gray-800/30"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <ChevronToggle expanded={expanded} size="sm" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-white text-sm font-medium truncate">{topic.title}</span>
+              <TypeBadge contentType={topic.content_type} />
+              <StatusBadge status={topic.content_status} />
+              <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
+            </div>
+            {topic.target_keyword && (
+              <p className="text-[11px] text-gray-500 mt-0.5 truncate">{topic.target_keyword}</p>
+            )}
+          </div>
+          <TopicActions
             topic={topic}
-            token={token}
-            onCancel={() => setEditingId(null)}
-            onSaved={() => {
-              setEditingId(null);
-              onPatch();
-            }}
-          />
-        </div>
-      )}
-      <div className="pl-4 pb-2 space-y-1 border-t border-gray-800/40">
-        {children.map((ch) => (
-          <TopicTree
-            key={ch.id}
-            topic={ch}
-            byParent={byParent}
-            token={token}
-            onPatch={onPatch}
+            descendants={descendants}
+            editingId={editingId}
+            setEditingId={setEditingId}
             onDelete={onDelete}
             onWriteArticle={onWriteArticle}
             writingId={writingId}
-            editingId={editingId}
-            setEditingId={setEditingId}
-            descendantCountById={descendantCountById}
           />
-        ))}
+        </div>
+
+        {editing && (
+          <div className="px-4 pb-3">
+            <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {expanded && (
+          <div className="ml-3 border-l border-gray-800/40">
+            {filteredChildren.map(ch => (
+              <TopicRow
+                key={ch.id} topic={ch} depth={depth + 1}
+                byParent={byParent} token={token} onPatch={onPatch} onDelete={onDelete}
+                onWriteArticle={onWriteArticle} writingId={writingId} editingId={editingId}
+                setEditingId={setEditingId} descendantCountById={descendantCountById}
+                statusFilter={statusFilter}
+              />
+            ))}
+          </div>
+        )}
       </div>
-    </details>
+    );
+  }
+
+  // Leaf-level rendering: compact single row
+  return (
+    <div className={`${depth > 1 ? 'ml-4' : ''}`}>
+      <div className="flex items-center gap-3 px-4 py-2 hover:bg-white/[0.02] transition border-b border-gray-800/20">
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot[topic.content_status] || statusDot.planned}`} title={topic.content_status} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-200 text-sm truncate">{topic.title}</span>
+            <TypeBadge contentType={topic.content_type} />
+          </div>
+          {topic.target_keyword && topic.target_keyword !== topic.title && (
+            <p className="text-[11px] text-gray-600 mt-0.5 truncate">{topic.target_keyword}</p>
+          )}
+        </div>
+        <TopicActions
+          topic={topic}
+          descendants={0}
+          editingId={editingId}
+          setEditingId={setEditingId}
+          onDelete={onDelete}
+          onWriteArticle={onWriteArticle}
+          writingId={writingId}
+          compact
+        />
+      </div>
+
+      {editing && (
+        <div className="px-4 pb-3">
+          <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+        </div>
+      )}
+    </div>
   );
 }
+
+// ─── Action Buttons ───
+
+function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact }) {
+  const editing = editingId === topic.id;
+  return (
+    <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <button
+        type="button" title="Edit"
+        className="text-gray-600 hover:text-white p-1 transition"
+        onClick={() => setEditingId(editing ? null : topic.id)}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L7.5 21H3v-4.5L14.732 3.732z" />
+        </svg>
+      </button>
+      {!compact && (
+        <button
+          type="button" title={descendants > 0 ? `Delete (${descendants} subtopics)` : 'Delete'}
+          className="text-gray-600 hover:text-red-400 p-1 transition"
+          onClick={() => onDelete(topic, descendants)}
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-7 0h8" />
+          </svg>
+        </button>
+      )}
+      {topic.content_type === 'brand_review' ? (
+        <Link
+          href="/admin/brands"
+          className="text-[11px] px-2 py-1 rounded-md border border-gray-700/60 text-gray-400 hover:text-white hover:border-gray-500 transition"
+        >
+          Review
+        </Link>
+      ) : topic.content_id ? (
+        <Link
+          href={`/admin/content/${topic.content_id}`}
+          className="text-[11px] px-2 py-1 rounded-md border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/50 transition"
+        >
+          Edit
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onWriteArticle(topic)}
+          disabled={writingId === topic.id}
+          className="text-[11px] px-2 py-1 rounded-md border border-green-500/30 text-green-300 hover:text-white hover:border-green-400/50 transition disabled:opacity-50"
+        >
+          {writingId === topic.id ? '\u2026' : 'Write'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ChevronToggle({ expanded, size = 'md' }) {
+  const cls = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4';
+  return (
+    <svg
+      className={`${cls} text-gray-500 transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
+  );
+}
+
+// ─── Main Page ───
 
 export default function TopicalMapPage() {
   const { token } = useAdmin();
@@ -317,6 +437,7 @@ export default function TopicalMapPage() {
   const [topics, setTopics] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
+  const [statusFilter, setStatusFilter] = useState('');
 
   const [genOpen, setGenOpen] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
@@ -333,82 +454,84 @@ export default function TopicalMapPage() {
 
   const loadMaps = useCallback(async () => {
     if (!token) return;
-    const res = await fetch('/api/admin/topical-map/maps', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setMaps(data.maps || []);
-    }
+    const res = await fetch('/api/admin/topical-map/maps', { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) { const data = await res.json(); setMaps(data.maps || []); }
   }, [token]);
 
-  const loadTopicsForMap = useCallback(
-    async (id) => {
-      if (!token || !id) {
-        setTopics([]);
-        return;
-      }
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/admin/topical-map/topics?map_id=${encodeURIComponent(id)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setTopics(data.topics || []);
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [token]
-  );
+  const loadTopicsForMap = useCallback(async (id) => {
+    if (!token || !id) { setTopics([]); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/admin/topical-map/topics?map_id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) { const data = await res.json(); setTopics(data.topics || []); }
+    } finally { setLoading(false); }
+  }, [token]);
 
   const loadTopics = useCallback(() => loadTopicsForMap(mapId), [loadTopicsForMap, mapId]);
 
-  useEffect(() => {
-    loadMaps();
-  }, [loadMaps]);
-
-  useEffect(() => {
-    loadTopics();
-  }, [loadTopics]);
+  useEffect(() => { loadMaps(); }, [loadMaps]);
+  useEffect(() => { loadTopics(); }, [loadTopics]);
 
   const byParent = useMemo(() => groupChildrenByParent(topics), [topics]);
   const roots = byParent.get('root') || [];
   const descendantCountById = useMemo(() => {
     const helper = buildDescendantCountMap(byParent);
     const m = new Map();
-    for (const t of topics) {
-      m.set(t.id, helper.count(t.id));
-    }
+    for (const t of topics) m.set(t.id, helper.count(t.id));
     return m;
   }, [byParent, topics]);
 
+  // Search + status filter
   const filteredRoots = useMemo(() => {
-    if (!search.trim()) return roots;
-    const q = search.toLowerCase();
-    const matchesTopic = (t) =>
-      t.title?.toLowerCase().includes(q) ||
-      t.target_keyword?.toLowerCase().includes(q) ||
-      t.content_type?.toLowerCase().includes(q);
-    const matchesTree = (id) => {
-      const children = byParent.get(id) || [];
-      for (const ch of children) {
-        if (matchesTopic(ch) || matchesTree(ch.id)) return true;
-      }
-      return false;
-    };
-    return roots.filter((r) => matchesTopic(r) || matchesTree(r.id));
-  }, [roots, byParent, search]);
+    let result = roots;
 
+    // Text search — keep root if it or any descendant matches
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchesTopic = (t) =>
+        t.title?.toLowerCase().includes(q) ||
+        t.target_keyword?.toLowerCase().includes(q) ||
+        t.content_type?.toLowerCase().includes(q);
+      const matchesTree = (id) => {
+        const children = byParent.get(id) || [];
+        for (const ch of children) {
+          if (matchesTopic(ch) || matchesTree(ch.id)) return true;
+        }
+        return false;
+      };
+      result = result.filter((r) => matchesTopic(r) || matchesTree(r.id));
+    }
+
+    // Status filter — keep root if it or any descendant has that status
+    if (statusFilter) {
+      result = result.filter(r => {
+        if (r.content_status === statusFilter) return true;
+        const desc = collectDescendants(r.id, byParent);
+        return desc.some(d => d.content_status === statusFilter);
+      });
+    }
+
+    return result;
+  }, [roots, byParent, search, statusFilter]);
+
+  // Stats
   const statusCounts = useMemo(() => {
     const c = { planned: 0, in_progress: 0, draft: 0, review: 0, published: 0 };
+    for (const t of topics) { if (c[t.content_status] !== undefined) c[t.content_status] += 1; }
+    return c;
+  }, [topics]);
+
+  const contentTypeCounts = useMemo(() => {
+    const c = {};
     for (const t of topics) {
-      if (c[t.content_status] !== undefined) c[t.content_status] += 1;
+      const ct = t.content_type || 'unknown';
+      c[ct] = (c[ct] || 0) + 1;
     }
     return c;
   }, [topics]);
+
+  const publishedPercent = topics.length > 0 ? Math.round((statusCounts.published / topics.length) * 100) : 0;
+  const withContent = topics.filter(t => t.content_id).length;
 
   const showToast = (msg, type = 'error') => {
     setToast({ msg, type });
@@ -418,19 +541,17 @@ export default function TopicalMapPage() {
   const handleMapChange = (id) => {
     setMapId(id);
     setEditingId(null);
+    setStatusFilter('');
+    setSearch('');
     const params = new URLSearchParams(searchParams.toString());
-    if (id) params.set('map_id', id);
-    else params.delete('map_id');
+    if (id) params.set('map_id', id); else params.delete('map_id');
     router.replace(`/admin/topical-map?${params.toString()}`);
   };
 
   const runGenerate = async (topicKeyword) => {
     if (!token) return;
     const keyword = String(topicKeyword || '').trim();
-    if (!keyword) {
-      setSeedError('Topic / keyword is required');
-      return;
-    }
+    if (!keyword) { setSeedError('Topic / keyword is required'); return; }
 
     setGenerating(true);
     setGenOpen(true);
@@ -447,7 +568,6 @@ export default function TopicalMapPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ topic_keyword: keyword }),
       });
-
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
         throw new Error(errData.error || `HTTP ${res.status}`);
@@ -456,14 +576,12 @@ export default function TopicalMapPage() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
@@ -471,9 +589,7 @@ export default function TopicalMapPage() {
               if (typeof data.progress === 'number') setGenProgress(data.progress);
               if (data.step) setGenStep(data.step);
               if (data.message) setGenMessage(data.message);
-              if (data.error) {
-                setGenError(data.message || 'Error');
-              }
+              if (data.error) setGenError(data.message || 'Error');
               if (data.result?.map_id) {
                 const newId = data.result.map_id;
                 setMapId(newId);
@@ -483,9 +599,7 @@ export default function TopicalMapPage() {
                 loadMaps();
                 loadTopicsForMap(newId);
               }
-            } catch {
-              /* ignore */
-            }
+            } catch { /* ignore */ }
           }
         }
       }
@@ -497,20 +611,13 @@ export default function TopicalMapPage() {
     }
   };
 
-  /**
-   * Write article: create blank content \u2192 redirect to editor
-   * Replaces the old generateContentForTopic SSE flow.
-   */
   const writeArticle = async (topic) => {
     if (!token || !topic?.id) return;
     setWritingId(topic.id);
     try {
       const res = await fetch('/api/admin/content/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ topic_id: topic.id }),
       });
       if (!res.ok) {
@@ -519,11 +626,7 @@ export default function TopicalMapPage() {
       }
       const data = await res.json();
       router.push(`/admin/content/${data.id}`);
-    } catch (e) {
-      showToast(e.message);
-    } finally {
-      setWritingId(null);
-    }
+    } catch (e) { showToast(e.message); } finally { setWritingId(null); }
   };
 
   const deleteTopic = async (topic, descendants = 0) => {
@@ -535,15 +638,11 @@ export default function TopicalMapPage() {
         : `Delete "${topic.title}"?`
     );
     if (!shouldDelete) return;
-
     try {
-      const res = await fetch(
-        `/api/admin/topical-map/topics/${topic.id}?cascade=${hasChildren ? 'true' : 'false'}`,
-        {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const res = await fetch(`/api/admin/topical-map/topics/${topic.id}?cascade=${hasChildren ? 'true' : 'false'}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.error || 'Delete failed');
@@ -551,76 +650,124 @@ export default function TopicalMapPage() {
       if (editingId === topic.id) setEditingId(null);
       await loadTopics();
       await loadMaps();
-    } catch (e) {
-      showToast(`Delete failed: ${e.message}`);
-    }
+    } catch (e) { showToast(`Delete failed: ${e.message}`); }
   };
 
-  if (!token) {
-    return <div className="text-gray-500 text-sm">Loading\u2026</div>;
-  }
+  if (!token) return <div className="text-gray-500 text-sm">Loading\u2026</div>;
+
+  const selectedMap = maps.find(m => m.id === mapId);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl">
+      {/* ── Header ── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Topical Map</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Pillars, clusters, and supporting topics for topical authority (Pipeline B).
+            Pillars, clusters & supporting topics for topical authority.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => {
-            setSeedError('');
-            setSeedOpen(true);
-          }}
+          onClick={() => { setSeedError(''); setSeedOpen(true); }}
           disabled={generating}
           className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition disabled:opacity-50"
         >
-          {generating ? 'Generating\u2026' : 'Generate map'}
+          {generating ? 'Generating\u2026' : '+ New Map'}
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-800/60 bg-gray-900/50 p-4">
-        <label className="text-sm text-gray-400">Map</label>
+      {/* ── Map Selector ── */}
+      <div className="flex items-center gap-3">
         <select
-          className="search-input text-sm min-w-[220px]"
+          className="search-input text-sm min-w-[240px]"
           value={mapId}
           onChange={(e) => handleMapChange(e.target.value)}
         >
           <option value="">Select a map\u2026</option>
           {maps.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.name}
-            </option>
+            <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
-        <span className="text-xs text-gray-600">
-          {maps.length} saved map{maps.length === 1 ? '' : 's'}
-        </span>
+        {selectedMap && (
+          <span className="text-xs text-gray-600">{topics.length} topics</span>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-3">
-          <p className="text-[11px] uppercase tracking-wide text-gray-500">Total</p>
-          <p className="text-xl font-semibold text-white">{topics.length}</p>
-        </div>
-        {Object.entries(statusCounts).map(([k, v]) => (
-          <div key={k} className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-3">
-            <p className="text-[11px] uppercase tracking-wide text-gray-500">{k.replace(/_/g, ' ')}</p>
-            <p className="text-xl font-semibold text-gray-200">{v}</p>
+      {/* ── Stats Dashboard ── */}
+      {mapId && topics.length > 0 && (
+        <div className="grid grid-cols-12 gap-3">
+          {/* Progress ring + key numbers */}
+          <div className="col-span-12 sm:col-span-4 lg:col-span-3 rounded-xl border border-gray-800/60 bg-gray-900/40 p-4 flex items-center gap-4">
+            <div className="relative flex-shrink-0">
+              <ProgressRing percent={publishedPercent} size={64} stroke={5} color="#22c55e" />
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-green-300">
+                {publishedPercent}%
+              </span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-gray-500">Progress</p>
+              <p className="text-sm text-gray-300">
+                <span className="text-white font-semibold">{statusCounts.published}</span> / {topics.length} published
+              </p>
+              <p className="text-xs text-gray-500">{withContent} with content</p>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Search / filter */}
+          {/* Status breakdown */}
+          <div className="col-span-12 sm:col-span-8 lg:col-span-5 rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-2.5">By Status</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(statusCounts).map(([status, count]) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setStatusFilter(statusFilter === status ? '' : status)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition border ${
+                    statusFilter === status
+                      ? 'border-white/20 bg-white/10 text-white'
+                      : 'border-gray-800/60 hover:border-gray-600 text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${statusDot[status]}`} />
+                  <span className="capitalize">{status.replace(/_/g, ' ')}</span>
+                  <span className="font-semibold text-gray-300 tabular-nums">{count}</span>
+                </button>
+              ))}
+              {statusFilter && (
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('')}
+                  className="text-[11px] text-gray-500 hover:text-red-400 px-2 py-1.5 transition"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Content type breakdown */}
+          <div className="col-span-12 lg:col-span-4 rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-2.5">By Type</p>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(contentTypeCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([type, count]) => (
+                  <span key={type} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border ${typeColors[type] || typeColors.educational}`}>
+                    {type.replace(/_/g, ' ')}
+                    <span className="font-semibold">{count}</span>
+                  </span>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Search ── */}
       {mapId && topics.length > 0 && (
         <div className="relative">
           <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            type="text" value={search} onChange={(e) => setSearch(e.target.value)}
             placeholder="Search topics, keywords, types\u2026"
             className="search-input w-full pl-9 text-sm"
           />
@@ -635,13 +782,14 @@ export default function TopicalMapPage() {
         </div>
       )}
 
+      {/* ── Loading / Empty States ── */}
       {loading && <div className="text-gray-500 text-sm">Loading topics\u2026</div>}
 
       {!loading && mapId && roots.length === 0 && (
         <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-6 text-center">
           <p className="text-lg mb-1">{'\ud83c\udf31'}</p>
           <p className="text-white font-medium mb-1">No topics yet</p>
-          <p>Click "Generate map" above to create a topical map from a seed keyword.</p>
+          <p>Click "+ New Map" above to create a topical map from a seed keyword.</p>
         </div>
       )}
 
@@ -655,31 +803,31 @@ export default function TopicalMapPage() {
 
       {!loading && mapId && filteredRoots.length === 0 && roots.length > 0 && (
         <div className="text-gray-500 text-sm rounded-xl border border-gray-800/60 bg-gray-900/30 p-4">
-          No topics match "{search}". <button type="button" onClick={() => setSearch('')} className="text-red-400 hover:text-red-300 underline">Clear search</button>
+          No topics match your filters.{' '}
+          <button type="button" onClick={() => { setSearch(''); setStatusFilter(''); }} className="text-red-400 hover:text-red-300 underline">
+            Clear all
+          </button>
         </div>
       )}
 
+      {/* ── Topic Tree ── */}
       {!loading && mapId && filteredRoots.length > 0 && (
-        <div className="space-y-2">
-          {filteredRoots.map((r) => (
-            <TopicTree
-              key={r.id}
-              topic={r}
-              byParent={byParent}
-              token={token}
-              onPatch={loadTopics}
-              onDelete={deleteTopic}
-              onWriteArticle={writeArticle}
-              writingId={writingId}
-              editingId={editingId}
-              setEditingId={setEditingId}
-              descendantCountById={descendantCountById}
+        <div className="space-y-4">
+          {filteredRoots.map(r => (
+            <TopicRow
+              key={r.id} topic={r} depth={0}
+              byParent={byParent} token={token} onPatch={loadTopics} onDelete={deleteTopic}
+              onWriteArticle={writeArticle} writingId={writingId} editingId={editingId}
+              setEditingId={setEditingId} descendantCountById={descendantCountById}
+              statusFilter={statusFilter}
             />
           ))}
         </div>
       )}
 
-      {/* Map generation progress modal */}
+      {/* ── Modals ── */}
+
+      {/* Map generation progress */}
       {genOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
@@ -688,36 +836,14 @@ export default function TopicalMapPage() {
             </h3>
             <p className="text-gray-500 text-sm mt-1">{genMessage}</p>
             <div className="mt-4 h-2 bg-dark-bg rounded-full overflow-hidden border border-gray-800">
-              <div
-                className={`h-full rounded-full transition-all ${genError ? 'bg-red-500' : 'bg-red-600'}`}
-                style={{ width: `${genProgress}%` }}
-              />
+              <div className={`h-full rounded-full transition-all ${genError ? 'bg-red-500' : 'bg-red-600'}`} style={{ width: `${genProgress}%` }} />
             </div>
             {(genError || genStep === 'done' || (!generating && genStep === 'error')) && (
-              <button
-                type="button"
-                className="mt-4 w-full py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
-                onClick={() => {
-                  setGenOpen(false);
-                  setGenError(null);
-                }}
-              >
+              <button type="button" className="mt-4 w-full py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setGenOpen(false); setGenError(null); }}>
                 Close
               </button>
             )}
           </div>
-        </div>
-      )}
-
-      {/* Toast notification */}
-      {toast && (
-        <div className={`fixed bottom-6 right-6 z-40 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg text-sm ${
-          toast.type === 'error'
-            ? 'bg-red-900/90 border-red-600/40 text-red-200'
-            : 'bg-green-900/90 border-green-600/40 text-green-200'
-        }`}>
-          <span>{toast.msg}</span>
-          <button type="button" onClick={() => setToast(null)} className="text-current opacity-60 hover:opacity-100">{'\u2715'}</button>
         </div>
       )}
 
@@ -726,44 +852,30 @@ export default function TopicalMapPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
             <h3 className="text-white font-semibold text-lg">Seed Topic</h3>
-            <p className="text-gray-500 text-sm mt-1">
-              Enter the topic/keyword to build this topical map around.
-            </p>
-
+            <p className="text-gray-500 text-sm mt-1">Enter the topic/keyword to build this topical map around.</p>
             <input
-              type="text"
-              autoFocus
-              value={seedKeyword}
+              type="text" autoFocus value={seedKeyword}
               onChange={(e) => setSeedKeyword(e.target.value)}
               placeholder="e.g. pig butchering scam"
               className="search-input w-full mt-4"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') runGenerate(seedKeyword);
-              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') runGenerate(seedKeyword); }}
             />
-
             {seedError && <p className="text-red-400 text-sm mt-2">{seedError}</p>}
-
             <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white"
-                onClick={() => runGenerate(seedKeyword)}
-              >
-                Generate
-              </button>
-              <button
-                type="button"
-                className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
-                onClick={() => {
-                  setSeedOpen(false);
-                  setSeedError('');
-                }}
-              >
-                Cancel
-              </button>
+              <button type="button" className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white" onClick={() => runGenerate(seedKeyword)}>Generate</button>
+              <button type="button" className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setSeedOpen(false); setSeedError(''); }}>Cancel</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-40 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-lg text-sm ${
+          toast.type === 'error' ? 'bg-red-900/90 border-red-600/40 text-red-200' : 'bg-green-900/90 border-green-600/40 text-green-200'
+        }`}>
+          <span>{toast.msg}</span>
+          <button type="button" onClick={() => setToast(null)} className="text-current opacity-60 hover:opacity-100">{'\u2715'}</button>
         </div>
       )}
     </div>
