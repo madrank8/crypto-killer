@@ -706,25 +706,25 @@ export default function ContentEditorPage({ params }) {
     setImageMsg('');
     setError('');
 
-    // Animated progress steps
+    // Animated progress — spreads across ~3 min to match Midjourney timing
     const steps = [
-      { step: 'Saving edits...', percent: 5 },
-      { step: 'Generating AI prompts...', percent: 15 },
-      { step: 'Creating hero image...', percent: 30 },
-      { step: 'Compressing hero...', percent: 45 },
-      { step: 'Creating section images...', percent: 55 },
-      { step: 'Compressing & uploading...', percent: 70 },
-      { step: 'Embedding in article...', percent: 85 },
+      { step: 'Saving edits...', percent: 5, delay: 2000 },
+      { step: 'Generating AI search queries...', percent: 10, delay: 4000 },
+      { step: 'Sending to image generator...', percent: 15, delay: 6000 },
+      { step: 'Creating hero image (this takes ~1 min)...', percent: 25, delay: 15000 },
+      { step: 'Hero image rendering...', percent: 35, delay: 25000 },
+      { step: 'Section images generating in parallel...', percent: 45, delay: 40000 },
+      { step: 'Still generating — Midjourney needs ~60-90s...', percent: 55, delay: 60000 },
+      { step: 'Almost there — compressing images...', percent: 65, delay: 80000 },
+      { step: 'Uploading to storage...', percent: 75, delay: 100000 },
+      { step: 'Finalizing — embedding in article...', percent: 85, delay: 130000 },
+      { step: 'Wrapping up...', percent: 90, delay: 160000 },
     ];
-    let stepIdx = 0;
     setImageProgress(steps[0]);
 
-    const timer = setInterval(() => {
-      stepIdx++;
-      if (stepIdx < steps.length) {
-        setImageProgress(steps[stepIdx]);
-      }
-    }, 4000);
+    const timers = steps.slice(1).map(s =>
+      setTimeout(() => setImageProgress({ step: s.step, percent: s.percent }), s.delay)
+    );
 
     try {
       await save();
@@ -735,7 +735,7 @@ export default function ContentEditorPage({ params }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ mode }),
       });
-      clearInterval(timer);
+      timers.forEach(t => clearTimeout(t));
 
       let data;
       const contentType = res.headers.get('content-type') || '';
@@ -767,7 +767,7 @@ export default function ContentEditorPage({ params }) {
       setImageMsg(parts.length > 0 ? `\u2713 ${parts.join(' \u00b7 ')}` : 'No images generated');
       await reloadContent();
     } catch (e) {
-      clearInterval(timer);
+      timers.forEach(t => clearTimeout(t));
       setImageProgress({ step: '', percent: 0 });
       setError(`Image generation failed: ${e.message}`);
     } finally {
