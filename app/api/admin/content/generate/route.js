@@ -220,8 +220,8 @@ ${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}
     if (visualMap[i]) {
       for (const vp of visualMap[i]) {
         const vpText = String(vp)
-        // Parse placeholder: [TYPE NEEDED: description | Alt: alt text]
-        const match = vpText.match(/\[(\w+)\s+NEEDED:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
+        // Parse placeholder: [TYPE NEEDED: description | Alt: alt text] or [TYPE: description]
+        const match = vpText.match(/\[(\w+)(?:\s+NEEDED)?:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
         if (match) {
           const type = match[1].toLowerCase()
           const desc = match[2].trim()

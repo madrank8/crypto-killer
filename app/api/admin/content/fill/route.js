@@ -198,7 +198,7 @@ function buildArticleHtml(article, persona) {
 
     if (visualMap[i]) {
       for (const vp of visualMap[i]) {
-        const match = String(vp).match(/\[(\w+)\s+NEEDED:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
+        const match = String(vp).match(/\[(\w+)(?:\s+NEEDED)?:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
         if (match) {
           sectionHtml += `\n<figure class="visual-placeholder" data-type="${match[1].toLowerCase()}">
 <div class="placeholder-box" role="img" aria-label="${match[3]?.trim() || match[2].trim()}">[${match[1].toUpperCase()}: ${match[2].trim()}]</div>
