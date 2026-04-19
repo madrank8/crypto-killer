@@ -799,6 +799,7 @@ Return the COMPLETE corrected JSON object.`
             const imgSet = await generateArticleImages(content.slug, article, {
               contentCount: 2,
               aiHelpers: { callModel, extractJSON },
+              maxMjWaitMs: 30000,
             })
             if (imgSet.hero) {
               heroUrl = imgSet.hero.url

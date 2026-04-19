@@ -4,7 +4,7 @@ import { callModel, extractJSON } from '@/lib/ai-models'
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
 
-export const maxDuration = 300
+export const maxDuration = 60
 
 /**
  * POST /api/admin/content/[id]/images
@@ -62,10 +62,16 @@ export async function POST(request, { params }) {
           slug: content.slug,
         }
 
+        // Vercel Hobby plan = 60s function timeout.
+        // MJ takes 60-150s per image — it will NEVER finish in time.
+        // Give MJ only 30s to try, then fall back to Unsplash (which takes ~8s).
+        // 30s MJ + 20s Unsplash fallback + compress + upload = fits in 60s.
+        const MJ_TIMEOUT_MS = 30000
+
         const imgSet = await generateArticleImages(
           content.slug || `content-${id}`,
           articleContext,
-          { contentCount: 2, aiHelpers: { callModel, extractJSON } }
+          { contentCount: 2, aiHelpers: { callModel, extractJSON }, maxMjWaitMs: MJ_TIMEOUT_MS }
         )
 
         console.log('[images] generateArticleImages result:', JSON.stringify({
