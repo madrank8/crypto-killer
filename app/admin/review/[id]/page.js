@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { GenerateProgressOverlay, useGenerateWithProgress } from '@/components/GenerateProgress';
+import SeoAeoAudit from '@/components/SeoAeoAudit';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ssr: false,
@@ -1033,6 +1034,25 @@ export default function ReviewEditor({ params }) {
             regenerating={regeneratingImages}
           />
           <BrandIntelCard brand={brand} />
+          {/* SEO & AEO Audit */}
+          <SeoAeoAudit
+            contentType="review"
+            title={title}
+            headline={headline}
+            metaDescription={metaDescription}
+            fullArticle={fullArticle}
+            slug={review?.slug || ''}
+            keyword={review?.brand_name || brand?.name || ''}
+            sections={[]}
+            faq={faqs || []}
+            sources={review?.sources || []}
+            internalLinks={review?.internal_links || []}
+            heroImage={review?.hero_image_url || ''}
+            heroImageAlt={review?.hero_image_alt || ''}
+            wordCount={wordCount}
+            redFlags={redFlags}
+            verdict={verdict}
+          />
         </div>
       </div>
     </div>

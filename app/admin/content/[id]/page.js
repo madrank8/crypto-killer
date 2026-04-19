@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useAdmin } from '@/lib/admin-context';
+import SeoAeoAudit from '@/components/SeoAeoAudit';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), { ssr: false });
 
@@ -308,189 +309,7 @@ function FaqCard({ item, index, onUpdate, onRemove }) {
   );
 }
 
-/* -- SEO & AEO Checklist -- */
-function SeoChecklist({ content, topic, wordCount }) {
-  const fullArticle = content?.full_article || '';
-  const title = content?.title || '';
-  const headline = content?.headline || '';
-  const metaDesc = content?.meta_description || '';
-  const keyword = topic?.target_keyword || '';
-  const slug = content?.slug || '';
-  const heroImg = content?.hero_image_url || '';
-  const heroAlt = content?.hero_image_alt || '';
-  const faq = Array.isArray(content?.faq) ? content.faq : [];
-  const sources = Array.isArray(content?.sources) ? content.sources : [];
-  const internalLinks = Array.isArray(content?.internal_links) ? content.internal_links : [];
-  const sections = Array.isArray(content?.sections) ? content.sections : [];
-
-  const lowerArticle = fullArticle.toLowerCase();
-  const lowerKeyword = keyword.toLowerCase();
-
-  // ── Checks ──
-  const checks = [
-    // On-Page SEO
-    {
-      group: 'On-Page SEO',
-      items: [
-        {
-          label: 'Title tag \u2264 60 chars',
-          pass: title.length > 0 && title.length <= 60,
-          detail: title.length > 0 ? `${title.length} chars` : 'Missing',
-        },
-        {
-          label: 'Meta description 120-155 chars',
-          pass: metaDesc.length >= 120 && metaDesc.length <= 155,
-          detail: metaDesc.length > 0 ? `${metaDesc.length} chars` : 'Missing',
-        },
-        {
-          label: 'Target keyword in title',
-          pass: keyword && title.toLowerCase().includes(lowerKeyword),
-          detail: keyword || 'No keyword set',
-        },
-        {
-          label: 'Target keyword in meta description',
-          pass: keyword && metaDesc.toLowerCase().includes(lowerKeyword),
-          detail: '',
-        },
-        {
-          label: 'Keyword in slug',
-          pass: keyword && slug.includes(lowerKeyword.replace(/\s+/g, '-')),
-          detail: `/${slug}`,
-        },
-        {
-          label: 'H1 headline present',
-          pass: headline.length > 0,
-          detail: headline ? `${headline.length} chars` : 'Missing',
-        },
-        {
-          label: 'Word count \u2265 1,500',
-          pass: wordCount >= 1500,
-          detail: `${wordCount.toLocaleString()} words`,
-        },
-      ],
-    },
-    // Content Quality
-    {
-      group: 'Content & E-E-A-T',
-      items: [
-        {
-          label: 'Hero image with alt text',
-          pass: !!heroImg && !!heroAlt,
-          detail: heroImg ? (heroAlt ? 'Has alt' : 'Missing alt text') : 'No hero image',
-        },
-        {
-          label: 'Images in article body',
-          pass: /<img\s/i.test(fullArticle),
-          detail: (fullArticle.match(/<img\s/gi) || []).length + ' images found',
-        },
-        {
-          label: '\u2265 3 H2 sections',
-          pass: sections.length >= 3,
-          detail: `${sections.length} sections`,
-        },
-        {
-          label: 'FAQ section (\u2265 3 items)',
-          pass: faq.length >= 3,
-          detail: `${faq.length} FAQ items`,
-        },
-        {
-          label: 'Sources / references cited',
-          pass: sources.length >= 3,
-          detail: `${sources.length} sources`,
-        },
-        {
-          label: 'Internal links (\u2265 2)',
-          pass: internalLinks.length >= 2,
-          detail: `${internalLinks.length} links`,
-        },
-        {
-          label: 'Author bio present',
-          pass: /author-bio/i.test(fullArticle),
-          detail: '',
-        },
-      ],
-    },
-    // AEO (AI Engine Optimization)
-    {
-      group: 'AEO / AI Visibility',
-      items: [
-        {
-          label: 'FAQPage JSON-LD schema',
-          pass: /FAQPage/i.test(fullArticle),
-          detail: '',
-        },
-        {
-          label: 'BlogPosting JSON-LD schema',
-          pass: /BlogPosting/i.test(fullArticle),
-          detail: '',
-        },
-        {
-          label: 'Key takeaways block',
-          pass: /key-takeaways/i.test(fullArticle),
-          detail: '',
-        },
-        {
-          label: 'Question-format H2 headings',
-          pass: sections.filter(s => /^(what|how|why|when|where|is|can|do|should|are)\b/i.test(s.heading || '')).length >= 2,
-          detail: `${sections.filter(s => /^(what|how|why|when|where|is|can|do|should|are)\b/i.test(s.heading || '')).length} question H2s`,
-        },
-        {
-          label: 'Summary / extractive intro',
-          pass: /article-summary/i.test(fullArticle),
-          detail: '',
-        },
-        {
-          label: 'Structured data (tables/lists)',
-          pass: /<table\b/i.test(fullArticle) || (fullArticle.match(/<(ul|ol)\b/gi) || []).length >= 2,
-          detail: '',
-        },
-      ],
-    },
-  ];
-
-  const totalChecks = checks.reduce((sum, g) => sum + g.items.length, 0);
-  const passedChecks = checks.reduce((sum, g) => sum + g.items.filter(i => i.pass).length, 0);
-  const score = Math.round((passedChecks / totalChecks) * 100);
-  const scoreColor = score >= 85 ? 'text-green-400' : score >= 60 ? 'text-amber-400' : 'text-red-400';
-
-  return (
-    <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500">SEO Checklist</h3>
-        <span className={`text-sm font-bold ${scoreColor}`}>{score}%</span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${score >= 85 ? 'bg-green-500' : score >= 60 ? 'bg-amber-500' : 'bg-red-500'}`}
-          style={{ width: `${score}%` }}
-        />
-      </div>
-
-      {checks.map((group) => (
-        <div key={group.group}>
-          <p className="text-[10px] uppercase tracking-wider text-gray-600 mt-2 mb-1">{group.group}</p>
-          <div className="space-y-0.5">
-            {group.items.map((item, i) => (
-              <div key={i} className="flex items-start gap-1.5 text-xs">
-                <span className={`mt-0.5 flex-shrink-0 ${item.pass ? 'text-green-400' : 'text-red-400/70'}`}>
-                  {item.pass ? '\u2713' : '\u2717'}
-                </span>
-                <span className={item.pass ? 'text-gray-400' : 'text-gray-300'}>
-                  {item.label}
-                  {item.detail && (
-                    <span className="text-gray-600 ml-1">({item.detail})</span>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+/* SeoChecklist replaced by shared SeoAeoAudit component */
 
 /* ====================================================
  *  Main Content Editor Page
@@ -1285,10 +1104,21 @@ export default function ContentEditorPage({ params }) {
               </div>
             </div>
 
-            {/* SEO & AEO Checklist */}
-            <SeoChecklist
-              content={{ ...content, full_article: fullArticle, title, headline, meta_description: metaDescription, sections, faq }}
-              topic={topic}
+            {/* SEO & AEO Audit */}
+            <SeoAeoAudit
+              contentType="content"
+              title={title}
+              headline={headline}
+              metaDescription={metaDescription}
+              fullArticle={fullArticle}
+              slug={content.slug || ''}
+              keyword={topic?.target_keyword || ''}
+              sections={sections || []}
+              faq={faq || []}
+              sources={content.sources || []}
+              internalLinks={content.internal_links || []}
+              heroImage={content.hero_image_url || ''}
+              heroImageAlt={content.hero_image_alt || ''}
               wordCount={wordCount}
             />
 
