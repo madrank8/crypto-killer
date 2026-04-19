@@ -5,7 +5,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals } from '@/lib/visual-generator'
-import { generateImageSet } from '@/lib/images'
+import { generateArticleImages } from '@/lib/images'
 
 // Phase B of the split review-generation pipeline:
 //   visuals (Imagen) → audit → hero/content images → revalidate.
@@ -91,6 +91,7 @@ export async function POST(request, { params }) {
               contentId: review.brand_id,
               contentType: 'review',
               aiHelpers: { callModel, extractJSON },
+              imagenOnly: true, // Gemini/Imagen only — no DALL-E / Unsplash fallbacks.
               onProgress: (step, pct, msg) => {
                 // Map visual-generator's 0-100 scale into our 10-45 slice.
                 const mapped = 10 + Math.round((pct / 100) * 35)
@@ -200,10 +201,40 @@ export async function POST(request, { params }) {
             send({ step: 'audit_skip', progress: 70, message: `Audit skipped: ${auditError.message}` })
           }
 
-          // ─── PHASE B.3: HERO + CONTENT IMAGES ──────────────────────────
-          send({ step: 'images', progress: 75, message: 'Generating hero & content images…' })
+          // ─── PHASE B.3: HERO + CONTENT IMAGES (Imagen, article-aware) ──
+          // Prompts are AI-crafted from the actual article content so the
+          // hero and section images are contextually RELATED to this review,
+          // not generic crypto stock photography.
+          send({ step: 'images', progress: 75, message: 'Generating article-aware images via Imagen…' })
           try {
-            const imgSet = await generateImageSet(review.slug, { contentCount: 1 })
+            // Extract section headings from the rendered HTML so the prompt
+            // generator gets real structural context (not the raw JSON fields).
+            const sectionHeadings = Array.from(
+              fullArticle.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi),
+            )
+              .map((m) => m[1].replace(/<[^>]*>/g, '').trim())
+              .filter(Boolean)
+              .slice(0, 5)
+
+            const article = {
+              title: review.title || '',
+              headline: review.headline || '',
+              summary: review.summary || review.meta_description || '',
+              target_keyword: brandData.name || '',
+              slug: review.slug,
+              sections: sectionHeadings.length > 0
+                ? sectionHeadings.map((heading) => ({ heading }))
+                : (review.key_takeaways || []).slice(0, 4).map((kt) => ({
+                    heading: typeof kt === 'string' ? kt : (kt.title || kt.text || ''),
+                  })),
+            }
+
+            const imgSet = await generateArticleImages(review.slug, article, {
+              contentCount: 2,
+              aiHelpers: { callModel, extractJSON },
+              imagenOnly: true, // Imagen/Gemini only. No Unsplash, no DALL-E, no MJ.
+            })
+
             if (imgSet.hero) {
               heroImageResult = imgSet.hero
               contentImagesResult = imgSet.contentImages || []
@@ -211,10 +242,12 @@ export async function POST(request, { params }) {
               send({
                 step: 'images_done',
                 progress: 90,
-                message: `Hero + ${contentImagesResult.length} content image(s) ready`,
+                message: `Hero + ${contentImagesResult.length} content image(s) generated via Imagen`,
               })
             } else if (imgSet.errors?.length > 0) {
               send({ step: 'images_warn', progress: 90, message: `Image pipeline partial: ${imgSet.errors[0]}` })
+            } else {
+              send({ step: 'images_skip', progress: 90, message: 'Imagen returned no images' })
             }
           } catch (imgError) {
             console.error('[polish] Image pipeline failed:', imgError.message)
