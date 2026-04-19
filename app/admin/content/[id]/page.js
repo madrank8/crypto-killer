@@ -700,38 +700,74 @@ export default function ContentEditorPage({ params }) {
   };
 
   /* -- Regenerate images -- */
+  const [imageProgress, setImageProgress] = useState({ step: '', percent: 0 });
   const regenerateImages = async (mode = 'all') => {
     setRegeneratingImages(true);
     setImageMsg('');
     setError('');
+
+    // Animated progress steps
+    const steps = [
+      { step: 'Saving edits...', percent: 5 },
+      { step: 'Generating AI prompts...', percent: 15 },
+      { step: 'Creating hero image...', percent: 30 },
+      { step: 'Compressing hero...', percent: 45 },
+      { step: 'Creating section images...', percent: 55 },
+      { step: 'Compressing & uploading...', percent: 70 },
+      { step: 'Embedding in article...', percent: 85 },
+    ];
+    let stepIdx = 0;
+    setImageProgress(steps[0]);
+
+    const timer = setInterval(() => {
+      stepIdx++;
+      if (stepIdx < steps.length) {
+        setImageProgress(steps[stepIdx]);
+      }
+    }, 4000);
+
     try {
       await save();
+      setImageProgress({ step: 'Generating AI prompts...', percent: 15 });
+
       const res = await fetch(`/api/admin/content/${id}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ mode }),
       });
+      clearInterval(timer);
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Image generation failed');
 
+      setImageProgress({ step: 'Done!', percent: 100 });
+
       const parts = [];
       if (data.results?.stock?.success && data.results.stock.hero) {
-        parts.push(`Hero image: "${data.results.stock.queries?.heroQuery || 'generated'}"`);
+        parts.push(`Hero: "${data.results.stock.queries?.heroQuery || 'generated'}"`);
         if (data.results.stock.contentImages > 0) {
           parts.push(`${data.results.stock.contentImages} section images`);
         }
+      }
+      if (data.results?.stock && !data.results.stock.success) {
+        parts.push(`Stock failed: ${data.results.stock.error || 'unknown'}`);
       }
       if (data.results?.visuals?.success && data.results.visuals.total > 0) {
         parts.push(`${data.results.visuals.succeeded}/${data.results.visuals.total} AI visuals`);
       }
 
-      setImageMsg(parts.length > 0 ? `✓ ${parts.join(' · ')}` : 'No images generated');
+      setImageMsg(parts.length > 0 ? `\u2713 ${parts.join(' \u00b7 ')}` : 'No images generated');
       await reloadContent();
     } catch (e) {
+      clearInterval(timer);
+      setImageProgress({ step: '', percent: 0 });
       setError(`Image generation failed: ${e.message}`);
     } finally {
       setRegeneratingImages(false);
-      setTimeout(() => setImageMsg(''), 6000);
+      setTimeout(() => {
+        setImageMsg('');
+        setImageProgress({ step: '', percent: 0 });
+      }, 8000);
     }
   };
 
@@ -1200,6 +1236,19 @@ export default function ContentEditorPage({ params }) {
                 </p>
               )}
 
+              {/* Image generation progress */}
+              {regeneratingImages && imageProgress.step && (
+                <div className="space-y-1.5">
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-500 transition-all duration-1000 ease-out"
+                      style={{ width: `${imageProgress.percent}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-indigo-300 animate-pulse">{imageProgress.step}</p>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="flex flex-col gap-1.5">
                 <button
@@ -1207,7 +1256,7 @@ export default function ContentEditorPage({ params }) {
                   disabled={regeneratingImages}
                   className="w-full text-xs px-3 py-2 rounded-lg bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-600/20 transition disabled:opacity-50"
                 >
-                  {regeneratingImages ? 'Generating…' : '🖼️ Regenerate All Images'}
+                  {regeneratingImages ? 'Generating\u2026' : '\ud83d\uddbc\ufe0f Regenerate All Images'}
                 </button>
                 <div className="flex gap-1.5">
                   <button
