@@ -109,7 +109,9 @@ async function runFullScrape(jobId, cookie) {
     });
 
     const total = result?.nextSkip || result?.totalFetched || 0;
-    console.log(`[trigger] Scrape loop done: fetched=${total}, hasMore=${result?.hasMore}`);
+    const inserted = result?.totalInserted || 0;
+    const updated = result?.totalUpdated || 0;
+    console.log(`[trigger] Scrape loop done: fetched=${total} (inserted=${inserted}, updated=${updated}), hasMore=${result?.hasMore}`);
 
     if (result?.hasMore) {
       // Shouldn't happen with maxBatches=Infinity unless the loop aborted
@@ -125,17 +127,21 @@ async function runFullScrape(jobId, cookie) {
       steps: [
         { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
         { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
-        { id: 'scan', label: `${total.toLocaleString()} creatives synced`, status: 'done', ts: new Date().toISOString() },
+        { id: 'scan', label: `${total.toLocaleString()} creatives synced (${inserted.toLocaleString()} new, ${updated.toLocaleString()} updated)`, status: 'done', ts: new Date().toISOString() },
         { id: 'brands', label: 'Rebuilding brands...', status: 'active', ts: new Date().toISOString() },
       ],
     });
 
     let brandsUpdated = 0;
+    let brandsInserted = 0;
+    let brandsOrphaned = 0;
     let brandError = null;
     try {
       const brandResult = await rebuildBrands();
       brandsUpdated = brandResult?.brands_updated || 0;
-      console.log(`[trigger] Brands rebuilt: ${brandsUpdated}`);
+      brandsInserted = brandResult?.brands_inserted || 0;
+      brandsOrphaned = brandResult?.brands_orphaned || 0;
+      console.log(`[trigger] Brands rebuilt: ${brandsInserted} new, ${brandsUpdated} updated, ${brandsOrphaned} orphaned-zeroed`);
     } catch (e) {
       brandError = e.message;
       console.error(`[trigger] Brand rebuild failed:`, e.message);
@@ -148,7 +154,10 @@ async function runFullScrape(jobId, cookie) {
         status: brandError ? 'completed_with_errors' : 'completed',
         finished_at: new Date().toISOString(),
         creatives_synced: total,
+        new_creatives: inserted,
+        updated_creatives: updated,
         brands_updated: brandsUpdated,
+        new_brands: brandsInserted,
         error_message: brandError,
       },
       {
@@ -156,12 +165,12 @@ async function runFullScrape(jobId, cookie) {
         percent: 100,
         message: brandError
           ? `Done with brand rebuild errors: ${brandError}`
-          : `Done! ${total.toLocaleString()} creatives, ${brandsUpdated.toLocaleString()} brands`,
+          : `Done! ${total.toLocaleString()} creatives (${inserted.toLocaleString()} new), ${brandsUpdated.toLocaleString()} brands (${brandsInserted.toLocaleString()} new, ${brandsOrphaned.toLocaleString()} orphaned)`,
         steps: [
           { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
           { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
-          { id: 'scan', label: `${total.toLocaleString()} creatives synced`, status: 'done', ts: new Date().toISOString() },
-          { id: 'brands', label: `${brandsUpdated.toLocaleString()} brands rebuilt`, status: brandError ? 'error' : 'done', ts: new Date().toISOString() },
+          { id: 'scan', label: `${total.toLocaleString()} creatives synced (${inserted.toLocaleString()} new)`, status: 'done', ts: new Date().toISOString() },
+          { id: 'brands', label: `${brandsUpdated.toLocaleString()} brands rebuilt (${brandsInserted.toLocaleString()} new, ${brandsOrphaned.toLocaleString()} orphans zeroed)`, status: brandError ? 'error' : 'done', ts: new Date().toISOString() },
         ],
       },
     );

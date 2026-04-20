@@ -154,30 +154,51 @@ function SurgingTable({ brands }) {
 }
 
 /* ─── Recently Discovered ─── */
+// Emoji flag for an ISO-2 country code (e.g. "US" → 🇺🇸). Falls back to globe.
+function geoFlagEmoji(code) {
+  if (!code || code.length !== 2) return '🌐';
+  const OFFSET = 127397;
+  return String.fromCodePoint(...[...code.toUpperCase()].map((c) => c.charCodeAt(0) + OFFSET));
+}
+
 function RecentlyDiscovered({ brands }) {
   if (!brands || brands.length === 0) return null;
   return (
     <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
       <SectionHeader title="Recently Discovered" sub="Latest funnels entering the pipeline" />
       <div className="space-y-2 max-h-80 overflow-y-auto">
-        {brands.map((b) => (
-          <div key={b.id} className="flex items-center justify-between py-2 border-b border-gray-800/30 last:border-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className={`inline-flex items-center justify-center w-8 h-6 rounded text-xs font-bold ${
-                b.scam_score >= 70 ? 'text-red-400 bg-red-500/10' : b.scam_score >= 50 ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 bg-gray-500/10'
-              }`}>
-                {b.scam_score || '?'}
-              </span>
-              <span className="text-sm text-white truncate">{b.name}</span>
+        {brands.map((b) => {
+          const geos = Array.isArray(b.geo_list) ? b.geo_list.filter(Boolean) : [];
+          const visible = geos.slice(0, 4);
+          const extra = Math.max(0, (b.total_geos || geos.length) - visible.length);
+          return (
+            <div key={b.id} className="flex items-center justify-between gap-3 py-2 border-b border-gray-800/30 last:border-0">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <span className={`inline-flex items-center justify-center w-8 h-6 rounded text-xs font-bold shrink-0 ${
+                  b.scam_score >= 70 ? 'text-red-400 bg-red-500/10' : b.scam_score >= 50 ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 bg-gray-500/10'
+                }`}>
+                  {b.scam_score || '?'}
+                </span>
+                <span className="text-sm text-white truncate" title={b.name}>{b.name}</span>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-0.5" title={geos.join(', ') || 'No geo data'}>
+                  {visible.map((g) => (
+                    <span key={g} className="text-base leading-none" aria-label={g}>{geoFlagEmoji(g)}</span>
+                  ))}
+                  {extra > 0 && (
+                    <span className="text-[10px] text-gray-500 ml-0.5">+{extra}</span>
+                  )}
+                  {geos.length === 0 && <span className="text-xs text-gray-700">—</span>}
+                </div>
+                <span className="text-xs text-gray-500 tabular-nums w-14 text-right">{(b.total_creatives || 0).toLocaleString()} ads</span>
+                <span className="text-xs text-gray-600 w-14 text-right">
+                  {b.created_at ? new Date(b.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' }) : '—'}
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-4 shrink-0">
-              <span className="text-xs text-gray-500">{b.total_creatives} ads</span>
-              <span className="text-xs text-gray-600">
-                {b.created_at ? new Date(b.created_at).toLocaleDateString('en', { month: 'short', day: 'numeric' }) : '—'}
-              </span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
