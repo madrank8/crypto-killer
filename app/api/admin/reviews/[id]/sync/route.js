@@ -1,6 +1,29 @@
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 
+// Map our internal red_flag shape { flag, detail } → live-site shape
+// { title, description } while keeping the legacy keys for backwards
+// compatibility. Replit's `red_flags` table has a NOT NULL `title` column,
+// so the raw pass-through was failing with a 500 on publish.
+function shapeReviewForSync(review) {
+  if (!review) return review;
+  const red_flags = (review.red_flags || []).map((rf) => {
+    const src = rf || {};
+    const title = src.title || src.flag || '';
+    const description = src.description || src.detail || '';
+    return { ...src, title, description, flag: src.flag || title, detail: src.detail || description };
+  });
+  const faq = (review.faq || []).map((q) => {
+    const src = q || {};
+    return {
+      ...src,
+      question: src.question || src.q || src.title || '',
+      answer: src.answer || src.a || src.body || '',
+    };
+  });
+  return { ...review, red_flags, faq };
+}
+
 /**
  * POST /api/admin/reviews/[id]/sync
  * Manually sync a published review to the live site (Replit)
@@ -45,14 +68,14 @@ export async function POST(request, { params }) {
       );
     }
 
-    // Call Replit sync webhook
+    // Call Replit sync webhook — shape red_flags/faq to match live-site DB cols
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${syncSecret}`,
       },
-      body: JSON.stringify({ review, brand }),
+      body: JSON.stringify({ review: shapeReviewForSync(review), brand }),
       signal: AbortSignal.timeout(30000),
     });
 

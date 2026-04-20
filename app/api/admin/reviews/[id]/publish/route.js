@@ -2,6 +2,29 @@ import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
+// Map our internal red_flag shape { flag, detail } → live-site shape
+// { title, description } while keeping legacy keys for backwards compat.
+// Replit's `red_flags` table has a NOT NULL `title` column, so the raw
+// pass-through was 500'ing on publish. Same helper lives in the /sync route.
+function shapeReviewForSync(review) {
+  if (!review) return review
+  const red_flags = (review.red_flags || []).map((rf) => {
+    const src = rf || {}
+    const title = src.title || src.flag || ''
+    const description = src.description || src.detail || ''
+    return { ...src, title, description, flag: src.flag || title, detail: src.detail || description }
+  })
+  const faq = (review.faq || []).map((q) => {
+    const src = q || {}
+    return {
+      ...src,
+      question: src.question || src.q || src.title || '',
+      answer: src.answer || src.a || src.body || '',
+    }
+  })
+  return { ...review, red_flags, faq }
+}
+
 /**
  * POST /api/admin/reviews/[id]/publish
  * Publish or unpublish a review
@@ -78,8 +101,9 @@ export async function POST(request, { params }) {
           }
 
           if (brand) {
-            // Merge the updated fields into the review object for sync
-            const syncReview = { ...review, ...updates }
+            // Merge the updated fields into the review object for sync,
+            // then reshape red_flags/faq to match the live site's schema.
+            const syncReview = shapeReviewForSync({ ...review, ...updates })
 
             const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
               method: 'POST',
