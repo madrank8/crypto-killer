@@ -74,6 +74,32 @@ export async function POST(request, { params }) {
       }
     )
 
+    // Also mirror the publish state onto the linked scam_brand row.
+    // The Replit live-site sync runs a two-phase job: Phase A walks
+    // scam_brands and stamps each matching review's status from
+    // brand.review_status. If we only flip reviews.status here, Phase A
+    // will fight us on every cron tick and eventually win. Setting
+    // scam_brands.review_status in the same moment makes both phases
+    // agree. See the 2026-04-20 incident notes.
+    if (review?.brand_id) {
+      try {
+        await supaFetch(
+          `/scam_brands?id=eq.${review.brand_id}`,
+          {
+            method: 'PATCH',
+            headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({
+              review_status: action === 'publish' ? 'published' : 'pending',
+              updated_at: new Date().toISOString(),
+            }),
+          },
+        )
+      } catch (brandUpdateErr) {
+        // Non-fatal — the review itself is already flipped. Log and move on.
+        console.error('[publish] scam_brands.review_status mirror failed:', brandUpdateErr.message)
+      }
+    }
+
     // Revalidate cached pages so changes appear immediately
     try {
       if (reviewSlug) revalidatePath(`/review/${reviewSlug}`)
