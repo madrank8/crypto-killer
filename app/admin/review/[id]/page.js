@@ -933,20 +933,42 @@ export default function ReviewEditor({ params }) {
             {saving ? 'Saving...' : saved ? '✓ Saved' : 'Save'}
           </button>
 
-          {/* Publish / Unpublish + View Live + Sync */}
+          {/* View Live — always visible next to Save. Active only when published;
+             shown as disabled with a tooltip while the review is still a draft,
+             so authors can see where it will live and reach it in one click
+             once published. */}
+          {review.slug && review.status === 'published' ? (
+            <a
+              href={`https://cryptokiller.org/review/${review.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Open the live review on cryptokiller.org"
+              className="text-sm font-medium px-4 py-2 rounded-lg bg-green-600/10 text-green-400 hover:bg-green-600/20 border border-green-600/20 transition flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              View Live
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title={review.slug
+                ? `Not published yet — publish to make this link live at cryptokiller.org/review/${review.slug}`
+                : 'Slug not set — save the review to assign one'}
+              className="text-sm font-medium px-4 py-2 rounded-lg bg-gray-800/40 text-gray-500 border border-gray-800 cursor-not-allowed flex items-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              View Live
+            </button>
+          )}
+
+          {/* Publish / Unpublish + Sync */}
           {review.status === 'published' ? (
             <>
-              <a
-                href={`https://cryptokiller.org/review/${review.slug}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-medium px-4 py-2 rounded-lg bg-green-600/10 text-green-400 hover:bg-green-600/20 border border-green-600/20 transition flex items-center gap-1.5"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                View Live
-              </a>
               <button
                 onClick={handleSyncToLive}
                 disabled={syncing}
