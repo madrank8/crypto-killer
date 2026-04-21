@@ -4,6 +4,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
 import { stripVerifyTags } from '@/lib/visual-generator'
+import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -575,12 +576,23 @@ ${geoSections}`
     // All styles are inline. Uses <details>/<summary> for FAQ accordion (no JS).
     // Responsive 2-col layout via flexbox with flex-wrap.
 
-    // Helper: risk label based on score
-    const riskLabel = brandData.scam_score >= 90 ? 'Extreme Risk — Do Not Deposit'
-      : brandData.scam_score >= 80 ? 'Very High Risk — Avoid All Contact'
-      : brandData.scam_score >= 70 ? 'High Risk — Exercise Extreme Caution'
-      : 'Moderate Risk — Be Very Careful'
-    const badgeLabel = brandData.scam_score >= 80 ? '⚠️ CONFIRMED SCAM' : '⚠️ HIGH RISK'
+    // ── Threat classification (single source of truth — see lib/threat-score.js)
+    // Replaces the old `>=90/80/70` ladder that misclassified 99.5% of the
+    // dataset. The `scam_score` field is a weighted signal aggregate, not a
+    // probability; median is 1, p99 is 15. See lib/threat-score.js header.
+    const threat = classifyThreat(brandData.scam_score)
+    const riskLabel = threat.label
+    const badgeLabel = threat.badge
+
+    // ── Normalize celebrity_list to atomic names.
+    // Upstream SpyOwl data sometimes stores pairings as compound strings
+    // (e.g. "Nabela Qoser, Eddie Yue Wai-man" as one element). Dedupe so the
+    // prose, stat cards, and schema mentions[] all see clean individuals.
+    const cleanCelebrityList = dedupeCelebrityList(brandData.celebrity_list)
+    // Preserve the original on brandData but overlay a cleaned copy for the
+    // template. total_celebrities stays authoritative from scam_brands —
+    // cleanCelebrityList.length may differ; template uses total_celebrities.
+    brandData.celebrity_list = cleanCelebrityList
     const isStillActive = brandData.last_seen_at && (Math.round((new Date() - new Date(brandData.last_seen_at)) / 86400000) <= 14)
     const firstDetectedFmt = brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
     const lastActiveFmt = brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
@@ -671,7 +683,7 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <!-- INVESTIGATION SUMMARY -->
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} is a confirmed crypto investment scam with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${(brandData.total_creatives || 0).toLocaleString()} fraudulent advertisements</strong> detected across <strong style="color:#f8fafc">${brandData.total_geos || 0} countries</strong> over <strong style="color:#f8fafc">${longevityDays} days</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${brandData.total_celebrities ? ` The scheme impersonates <strong style="color:#f8fafc">${brandData.total_celebrities} real celebrities</strong> in paid advertisements${(brandData.celebrity_list || []).length > 0 ? `, including ${brandData.celebrity_list.slice(0, 5).map(c => escHtml(c)).join(', ')}` : ''}.` : ''}</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${brandData.total_celebrities ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(brandData.total_celebrities, 'real celebrity', 'real celebrities')}</strong> in paid advertisements${cleanCelebrityList.length > 0 ? `, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}` : ''}.` : ''}</p>
 <p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. SpyOwl's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
@@ -681,7 +693,7 @@ ${sectionH2('📄', 'Investigation Summary')}
 ${reviewContent.how_it_works ? (() => {
   const stageStyles = [
     { icon: '📢', label: 'Stage 1', title: 'Celebrity Impersonation & Geo-Targeted Advertising', bg: 'rgba(124,45,18,0.2)', border: 'rgba(194,65,12,0.4)', barColor: '#ea580c', labelColor: '#fb923c', iconBg: '#ea580c',
-      statValue: `${(brandData.total_creatives || 0).toLocaleString()} ads`, statSub: `impersonating ${brandData.total_celebrities || '?'} celebrities` },
+      statValue: `${pluralize(brandData.total_creatives || 0, 'ad')}`, statSub: brandData.total_celebrities ? `impersonating ${pluralize(brandData.total_celebrities, 'celebrity', 'celebrities')}` : 'celebrity identity data pending' },
     { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Success', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706',
       statValue: 'Instant', statSub: 'deposit confirmation' },
     { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Psychological Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626',
@@ -879,7 +891,7 @@ ${geoRegions}
 </div><p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
 <p style="margin:0 0 12px;color:#f87171;font-weight:700;font-size:14px">Do not deposit any money.</p>
 <div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
-<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${(brandData.total_creatives || 0).toLocaleString()} ad creatives across ${brandData.total_geos || 0} countries.</p>
+<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${pluralize(brandData.total_creatives || 0, 'ad creative', 'ad creatives')} across ${pluralize(brandData.total_geos || 0, 'country', 'countries')}.</p>
 </div>
 </div>
 
