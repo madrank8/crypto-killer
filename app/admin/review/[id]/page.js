@@ -864,15 +864,34 @@ export default function ReviewEditor({ params }) {
     { key: 'meta', label: 'SEO' },
   ];
 
+  // The polish banner surfaces whenever phase B hasn't reached 'polished'. We
+  // show it for:
+  //   - polishing in flight (live SSE stream from useEffect)
+  //   - polish errored (from SSE or from a watchdog sweep)
+  //   - polish completed (so the 'done' step renders before fetchReview reruns)
+  //   - polish_failed stored on the row (stale or watchdog-recovered)
+  //   - content_generated stored on the row (phase A done, phase B never ran —
+  //     author needs to click Retry so the SSE stream runs and lands visuals)
+  //   - polishing stored on the row (orphan from a prior tab that got closed
+  //     before the stream completed; click Retry to restart cleanly)
+  //
+  // We never show the banner once generation_status is 'polished' or when it
+  // is null/undefined (legacy reviews predating the split pipeline).
+  const unpolishedStates = new Set(['content_generated', 'polishing', 'polish_failed'])
+  const reviewNeedsPolish = review.generation_status && unpolishedStates.has(review.generation_status)
+
   const showPolishBanner =
     !polishBannerDismissed &&
     (polishProgress.isPolishing ||
       polishProgress.error ||
       polishProgress.step === 'done' ||
-      review.generation_status === 'polish_failed');
+      reviewNeedsPolish);
 
   const bannerStep = polishProgress.step || (
-    review.generation_status === 'polish_failed' ? 'error' : ''
+    review.generation_status === 'polish_failed' ? 'error'
+      : review.generation_status === 'content_generated' ? 'ready'
+      : review.generation_status === 'polishing' ? 'orphan'
+      : ''
   );
   const bannerError = polishProgress.error || (
     review.generation_status === 'polish_failed' ? (review.polish_error || 'Polish failed') : null

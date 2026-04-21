@@ -55,6 +55,10 @@ const POLISH_STEP_LABELS = {
   saving: 'Saving polished review',
   done: 'Polish complete',
   error: 'Error',
+  // Synthetic states set by the editor when reading generation_status from
+  // the saved row, not from a live SSE stream:
+  ready: 'Polish never ran — click Retry to generate hero image, visuals, and run the quality audit',
+  orphan: 'Polish was interrupted — click Retry to restart phase B cleanly',
 };
 
 /* ─── Pulsing dots for the AI thinking phase ─── */
@@ -208,6 +212,10 @@ export function PolishProgressBanner({ progress, step, message, error, onRetry, 
   const isDone = step === 'done';
   const isError = !!error;
   const isIdle = !step;
+  // Needs-action states are stored on the row (ready/orphan) rather than
+  // streamed from an in-flight SSE. We style them amber (informational) and
+  // expose the Retry button so the author can kick off phase B.
+  const needsAction = step === 'ready' || step === 'orphan';
   if (isIdle) return null;
 
   const label = POLISH_STEP_LABELS[step] || message || 'Polishing review';
@@ -218,43 +226,57 @@ export function PolishProgressBanner({ progress, step, message, error, onRetry, 
         ? 'bg-red-950/30 border-red-600/40'
         : isDone
           ? 'bg-green-950/30 border-green-600/40'
-          : 'bg-purple-950/20 border-purple-600/30'
+          : needsAction
+            ? 'bg-amber-950/30 border-amber-600/40'
+            : 'bg-purple-950/20 border-purple-600/30'
     }`}>
       <div className="flex items-center gap-3">
         <span className="text-lg">
-          {isError ? '❌' : isDone ? '✅' : (STEP_ICONS[step] || '⟳')}
+          {isError ? '❌' : isDone ? '✅' : needsAction ? '⚠️' : (STEP_ICONS[step] || '⟳')}
         </span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-3">
             <span className={`text-sm font-medium truncate ${
-              isError ? 'text-red-300' : isDone ? 'text-green-300' : 'text-purple-200'
+              isError ? 'text-red-300'
+                : isDone ? 'text-green-300'
+                : needsAction ? 'text-amber-200'
+                : 'text-purple-200'
             }`}>
-              {isError ? 'Polish failed' : isDone ? 'Polish complete — review is ready' : label}
+              {isError ? 'Polish failed'
+                : isDone ? 'Polish complete — review is ready'
+                : needsAction ? (step === 'ready' ? 'Polish pending' : 'Polish interrupted')
+                : label}
             </span>
-            <span className={`text-xs font-mono ${
-              isError ? 'text-red-400' : isDone ? 'text-green-400' : 'text-purple-400'
-            }`}>
-              {progress}%
-            </span>
+            {!needsAction && (
+              <span className={`text-xs font-mono ${
+                isError ? 'text-red-400' : isDone ? 'text-green-400' : 'text-purple-400'
+              }`}>
+                {progress}%
+              </span>
+            )}
           </div>
-          <p className="text-xs text-gray-400 mt-0.5 truncate">{message}</p>
-          <div className="h-1 bg-dark-bg rounded-full overflow-hidden mt-2">
-            <div
-              className={`h-full transition-all duration-500 ${
-                isError ? 'bg-red-500' : isDone ? 'bg-green-500' : 'bg-purple-500'
-              }`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
+          <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{needsAction ? label : message}</p>
+          {!needsAction && (
+            <div className="h-1 bg-dark-bg rounded-full overflow-hidden mt-2">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  isError ? 'bg-red-500' : isDone ? 'bg-green-500' : 'bg-purple-500'
+                }`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
         </div>
-        {(isError || isDone) && (
+        {(isError || isDone || needsAction) && (
           <div className="flex items-center gap-2 shrink-0">
-            {isError && onRetry && (
+            {(isError || needsAction) && onRetry && (
               <button
                 onClick={onRetry}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white transition"
+                className={`text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition ${
+                  isError ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'
+                }`}
               >
-                Retry polish
+                {needsAction ? 'Run polish' : 'Retry polish'}
               </button>
             )}
             {onDismiss && (
