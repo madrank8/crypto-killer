@@ -776,13 +776,48 @@ Return the COMPLETE corrected JSON object.`
               ai_audit: {
                 ...(audit || {}),
                 social_proof: article.social_proof || [],
-                writer_persona: { name: article.author_name || 'CryptoKiller Research Team', model: writerModelUsed },
+                writer_persona: {
+                  id: article.schema_enrichment?.author_persona_id || 'webb',
+                  name: article.author_name || 'CryptoKiller Research Team',
+                  model: writerModelUsed,
+                },
               },
               not_for_you: article.not_for_you || null,
               visual_meta: article.visual_placeholders || [],
               verify_tags_count: article.verify_tags_count || 0,
               reddit_test_passed: article.reddit_test_passed || false,
               information_gain_summary: article.information_gain_summary || null,
+              // ── Schema enrichment fields (added 2026-04) ──
+              // These back the JSON-LD @graph generator on the frontend (Replit).
+              // Maps 1:1 to columns added in migration add_schema_enrichment_fields_to_content.
+              author_persona_id: article.schema_enrichment?.author_persona_id || 'webb',
+              alternative_headline: article.schema_enrichment?.alternative_headline || null,
+              target_keyword: article.schema_enrichment?.target_keyword
+                || topic?.target_keyword
+                || null,
+              about_slugs: Array.isArray(article.schema_enrichment?.about_slugs)
+                ? article.schema_enrichment.about_slugs
+                : [],
+              mention_slugs: Array.isArray(article.schema_enrichment?.mention_slugs)
+                ? article.schema_enrichment.mention_slugs
+                : [],
+              speakable_selectors: Array.isArray(article.schema_enrichment?.speakable_selectors)
+                ? article.schema_enrichment.speakable_selectors
+                : ['.key-takeaways'],
+              citations: Array.isArray(article.schema_enrichment?.citations)
+                ? article.schema_enrichment.citations
+                : [],
+              dataset: article.schema_enrichment?.dataset || null,
+              item_list: Array.isArray(article.schema_enrichment?.item_list)
+                ? article.schema_enrichment.item_list
+                : [],
+              how_to: article.schema_enrichment?.how_to || null,
+              quotes: Array.isArray(article.schema_enrichment?.quotes)
+                ? article.schema_enrichment.quotes
+                : [],
+              claims: Array.isArray(article.schema_enrichment?.claims)
+                ? article.schema_enrichment.claims
+                : [],
               updated_at: new Date().toISOString(),
             }),
           })
