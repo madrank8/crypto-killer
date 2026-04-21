@@ -969,7 +969,9 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
           fullArticle = stripVerifyTags(fullArticle)
 
     // ─── BUILD JSON-LD SCHEMA (2026-compliant @graph pattern) ───
-    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo
+    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo.
+    // Pass `threat` so itemReviewed + reviewRating follow the tier classification from
+    // line 583 above, keeping schema polarity aligned with the prose framing (PR3).
     const schemaJsonLd = buildReviewSchema({
       reviewContent,
       brandData,
@@ -977,6 +979,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       currentDate,
       wordCount,
       longevityDays,
+      threat,
     })
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })
