@@ -5,6 +5,7 @@ import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
 import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
+import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -342,6 +343,20 @@ export async function POST(request) {
     const currentDate = new Date().toISOString().split('T')[0]
 
           // ═══════════════════════════════════════════════════════════════
+          // PRE-PHASE-2: Authoritative threat + deduped celebrity list
+          //
+          // Moved up from its historical location below. The downstream
+          // prose template, sidebar chips, and JSON-LD builder all consume
+          // these values. Computing them here lets us also pass them into
+          // the content writer prompt so the LLM sees the deduped count in
+          // its own input — no more "26 celebrities" in the body next to a
+          // list of 28 names (the Floventra bug).
+          // ═══════════════════════════════════════════════════════════════
+          const threat = classifyThreat(brandData.scam_score)
+          const cleanCelebrityList = dedupeCelebrityList(brandData.celebrity_list)
+          brandData.celebrity_list = cleanCelebrityList
+
+          // ═══════════════════════════════════════════════════════════════
           // PHASE 2: SOURCE RESEARCH (Gemini Flash with search grounding, or Claude fallback)          // ═══════════════════════════════════════════════════════════════
           send({ step: 'sources', progress: 30, message: 'Phase 2/5: Researching authoritative sources...' })
 
@@ -387,7 +402,7 @@ export async function POST(request) {
           // ═══════════════════════════════════════════════════════════════
           send({ step: 'ai', progress: 45, message: 'Phase 3/5: Generating review with Claude Opus (30-60s)...' })
 
-          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages)
+          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages, cleanCelebrityList, threat)
 
           // Use Claude Opus for content (best writing quality), fall back to Sonnet/Haiku
           const contentResult = await callModel('claude-opus', contentPrompt.system, contentPrompt.user, {
@@ -460,6 +475,62 @@ export async function POST(request) {
       reviewContent = JSON.parse(jsonStr)
     } catch (parseError) {
       throw new Error(`Failed to parse Claude response (stop_reason: ${anthropicData.stop_reason}, text length: ${responseText.length}): ${parseError.message}`)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NUMERIC CONSISTENCY VALIDATION (patch 07, wired 2026-04-22)
+    //
+    // Rewrite drifted numeric claims in-place so prose, stats, and schema
+    // all reference the same authoritative counts. See lib/review-consistency.js.
+    //
+    // The canonical values are pulled from the already-computed route state
+    // (cleanCelebrityList.length, brandData.total_creatives, etc.) — these
+    // are the SAME values that sync-shape.js ships to Replit, so the
+    // Replit-rendered page and the LLM prose will never contradict once this
+    // validator has run.
+    //
+    // mode='autofix' silently rewrites. drift[] is non-empty when corrections
+    // happened — surface the count in trust_indicators for ops observability.
+    // ═══════════════════════════════════════════════════════════════════════
+    let numericDrift = []
+    let redFlagAudit = { ok: true, duplicates: [], categorized: 0, totalFlags: 0 }
+    try {
+      const consistencyResult = enforceNumericConsistency(
+        reviewContent,
+        {
+          celebrities: cleanCelebrityList.length,
+          creatives: brandData.total_creatives || 0,
+          geos: brandData.total_geos || 0,
+          velocity: brandData.velocity_7d || 0,
+          longevity: longevityDays,
+        },
+        'autofix',
+      )
+      reviewContent = consistencyResult.content
+      numericDrift = consistencyResult.drift || []
+
+      redFlagAudit = validateRedFlagDistinctness(reviewContent.red_flags)
+
+      if (numericDrift.length > 0) {
+        send({
+          step: 'consistency',
+          progress: 76,
+          message: `Autofix: rewrote ${numericDrift.length} drifting numeric claim${numericDrift.length === 1 ? '' : 's'}`,
+        })
+      }
+      if (!redFlagAudit.ok && redFlagAudit.duplicates.length > 0) {
+        const dupes = redFlagAudit.duplicates.map((d) => d.category).join(', ')
+        send({
+          step: 'consistency_warn',
+          progress: 77,
+          message: `Red flag categories not distinct — duplicates in: ${dupes} (non-blocking)`,
+        })
+      }
+    } catch (consErr) {
+      // Validator is best-effort. If it throws for an unexpected reason (e.g.
+      // a malformed field the LLM invented), log and continue — we'd rather
+      // ship a slightly-off review than reject a complete generation.
+      console.error('consistency validator failed:', consErr.message)
     }
 
           send({ step: 'building', progress: 78, message: 'Building HTML article + schema markup...' })
@@ -580,19 +651,13 @@ ${geoSections}`
     // Replaces the old `>=90/80/70` ladder that misclassified 99.5% of the
     // dataset. The `scam_score` field is a weighted signal aggregate, not a
     // probability; median is 1, p99 is 15. See lib/threat-score.js header.
-    const threat = classifyThreat(brandData.scam_score)
+    //
+    // [MOVED 2026-04-22] threat + cleanCelebrityList are now computed in the
+    // PRE-PHASE-2 block above so the content-writer prompt can see the deduped
+    // count. This block retains only the downstream-only derivations.
     const riskLabel = threat.label
     const badgeLabel = threat.badge
 
-    // ── Normalize celebrity_list to atomic names.
-    // Upstream SpyOwl data sometimes stores pairings as compound strings
-    // (e.g. "Nabela Qoser, Eddie Yue Wai-man" as one element). Dedupe so the
-    // prose, stat cards, and schema mentions[] all see clean individuals.
-    const cleanCelebrityList = dedupeCelebrityList(brandData.celebrity_list)
-    // Preserve the original on brandData but overlay a cleaned copy for the
-    // template. total_celebrities stays authoritative from scam_brands —
-    // cleanCelebrityList.length may differ; template uses total_celebrities.
-    brandData.celebrity_list = cleanCelebrityList
     const isStillActive = brandData.last_seen_at && (Math.round((new Date() - new Date(brandData.last_seen_at)) / 86400000) <= 14)
     const firstDetectedFmt = brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
     const lastActiveFmt = brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
@@ -969,7 +1034,9 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
           fullArticle = stripVerifyTags(fullArticle)
 
     // ─── BUILD JSON-LD SCHEMA (2026-compliant @graph pattern) ───
-    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo
+    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo.
+    // Pass `threat` so itemReviewed + reviewRating follow the tier classification from
+    // line 583 above, keeping schema polarity aligned with the prose framing (PR3).
     const schemaJsonLd = buildReviewSchema({
       reviewContent,
       brandData,
@@ -977,6 +1044,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       currentDate,
       wordCount,
       longevityDays,
+      threat,
     })
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })
@@ -999,7 +1067,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       scam_score: brandData.scam_score || 0,
       status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
       ai_model: contentResult.model || 'claude-opus',
-      ai_prompt_version: 'multi-agent-v1.0-seo-v3.1-schema-v3-icp-v1',
+      ai_prompt_version: 'multi-agent-v1.2-enrichment',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
@@ -1022,6 +1090,27 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       reddit_test_passed: reviewContent.reddit_test_passed || false,
       information_gain_summary: reviewContent.information_gain_summary || null,
       internal_links: reviewContent.internal_links || [],
+
+      // ── Schema enrichment (migration 05: reviews_schema_enrichment_columns) ──
+      // These 12 columns ship verbatim to Replit via the sync webhook and
+      // drive the @graph enrichment nodes (Article.about/mentions/citation,
+      // ClaimReview, HowTo, ItemList, Dataset, Quotation, Speakable, Person
+      // author). Every field has a DB-level default so missing keys from the
+      // LLM output don't break the INSERT — worst case we ship a less-rich
+      // schema, not a failed save.
+      author_persona_id: reviewContent.author_persona_id || (threat.frameAsScam ? 'webb' : 'nair'),
+      alternative_headline: reviewContent.alternative_headline || null,
+      target_keyword: reviewContent.target_keyword || null,
+      about_slugs: Array.isArray(reviewContent.about_slugs) ? reviewContent.about_slugs : [],
+      mention_slugs: Array.isArray(reviewContent.mention_slugs) ? reviewContent.mention_slugs : [],
+      speakable_selectors: Array.isArray(reviewContent.speakable_selectors) ? reviewContent.speakable_selectors : [],
+      citations: Array.isArray(reviewContent.citations) ? reviewContent.citations : [],
+      dataset: reviewContent.dataset || null,
+      item_list: reviewContent.item_list || null,
+      how_to: reviewContent.how_to || null,
+      quotes: Array.isArray(reviewContent.quotes) ? reviewContent.quotes : [],
+      claims: Array.isArray(reviewContent.claims) ? reviewContent.claims : [],
+
       // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
       // once visuals/audit/hero-images are attached. UI polls on this field.
       generation_status: 'content_generated',
@@ -1029,15 +1118,46 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,
-        celebrities_identified: brandData.total_celebrities,
+        // celebrity_count_raw  = upstream aggregator count (may be inflated
+        //                        by accent/transliteration/honorific duplicates)
+        // celebrity_count_deduped = authoritative count after v2 dedupe — this
+        //                        is what renders in prose, stats, and schema
+        celebrity_count_raw: brandData.total_celebrities || 0,
+        celebrity_count_deduped: cleanCelebrityList.length,
+        celebrity_count_dedup_delta: Math.max(0, (brandData.total_celebrities || 0) - cleanCelebrityList.length),
+        celebrities_identified: cleanCelebrityList.length, // canonical going forward
         investigation_period_days: longevityDays,
-        data_source: 'SpyOwl Ad Surveillance',        evidence_images: availableImages.length,
+        data_source: 'SpyOwl Ad Surveillance',
+        evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
-        pipeline_version: 'multi-agent-v1.1-split',
+        pipeline_version: 'multi-agent-v1.2-enrichment',
         source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
         verified_sources_count: sourceLedger.length,
+        // Enrichment coverage telemetry
+        enrichment_fields_populated: [
+          reviewContent.author_persona_id ? 'author_persona_id' : null,
+          reviewContent.alternative_headline ? 'alternative_headline' : null,
+          reviewContent.target_keyword ? 'target_keyword' : null,
+          Array.isArray(reviewContent.about_slugs) && reviewContent.about_slugs.length ? 'about_slugs' : null,
+          Array.isArray(reviewContent.mention_slugs) && reviewContent.mention_slugs.length ? 'mention_slugs' : null,
+          Array.isArray(reviewContent.speakable_selectors) && reviewContent.speakable_selectors.length ? 'speakable_selectors' : null,
+          Array.isArray(reviewContent.citations) && reviewContent.citations.length ? 'citations' : null,
+          reviewContent.dataset ? 'dataset' : null,
+          reviewContent.item_list ? 'item_list' : null,
+          reviewContent.how_to ? 'how_to' : null,
+          Array.isArray(reviewContent.quotes) && reviewContent.quotes.length ? 'quotes' : null,
+          Array.isArray(reviewContent.claims) && reviewContent.claims.length ? 'claims' : null,
+        ].filter(Boolean),
+
+        // Consistency validator output (patch 07)
+        numeric_drift_count: numericDrift.length,
+        numeric_drift_fields: numericDrift.map((d) => d.field).slice(0, 10),
+        red_flags_distinct: redFlagAudit.ok,
+        red_flags_categorized: redFlagAudit.categorized,
+        red_flags_total: redFlagAudit.totalFlags,
+
         // audit_model / audit_score / audit_grade / audit_critical_fixes
         // are populated in phase B by /polish.
       },

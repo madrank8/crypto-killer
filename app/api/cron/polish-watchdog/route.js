@@ -41,13 +41,22 @@ const CONTENT_GENERATED_STUCK_MINUTES = 30
 export const maxDuration = 30
 
 export async function GET(request) {
-  // Accept Vercel Cron OR admin bearer token — both legitimate callers.
-  const isVercelCron = request.headers.get('x-vercel-cron') === '1'
+  // Vercel Cron sends Authorization: Bearer $CRON_SECRET on every scheduled
+  // invocation when CRON_SECRET is set in the project env (per
+  // https://vercel.com/docs/cron-jobs/manage-cron-jobs). The x-vercel-cron: 1
+  // header is present too but Vercel treats the Authorization header as the
+  // actual auth mechanism, so we match that. Manual admin curls work via
+  // either CRON_SECRET or the legacy ADMIN_SECRET for backward compat.
   const authHeader = request.headers.get('authorization') || ''
   const [scheme, token] = authHeader.split(' ')
-  const isAdmin = scheme === 'Bearer' && token === process.env.ADMIN_SECRET
+  const isCron = scheme === 'Bearer'
+    && !!process.env.CRON_SECRET
+    && token === process.env.CRON_SECRET
+  const isAdmin = scheme === 'Bearer'
+    && !!process.env.ADMIN_SECRET
+    && token === process.env.ADMIN_SECRET
 
-  if (!isVercelCron && !isAdmin) {
+  if (!isCron && !isAdmin) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
