@@ -94,6 +94,33 @@ vercel
 
 ---
 
+## Deployment History
+
+| Date | Commit | Deployment ID | Trigger | Status |
+|---|---|---|---|---|
+| 2026-04-23 19:10 | `8926748` | `dpl_aqb755536` | chore: .gitignore | ✅ Ready |
+| 2026-04-23 19:00 | `3c682a9` | `dpl_8dUKwG4Cmya` | PR #16 merge | ✅ Ready |
+| 2026-04-23 ~14:00 | `12be47f` | — | PR #15 merge | ✅ Ready |
+
+### Smoke Test — 2026-04-23 19:11 UTC
+
+Deployment `dpl_aqb755536` · commit `8926748` · 117 lambdas
+
+| Route | Method | Response | Result |
+|---|---|---|---|
+| `/` | GET | HTTP redirect (Next.js routing) | ✅ |
+| `/api/admin/reviews/list` | GET | `{"error":"Unauthorized"}` | ✅ |
+| `/api/admin/brands` | GET | `{"error":"Unauthorized"}` | ✅ |
+| `/api/admin/reviews/1` | GET | `{"error":"Unauthorized"}` | ✅ |
+| `/api/cron/scrape` | GET | `{"error":"Unauthorized"}` | ✅ |
+| `/api/cron/polish-watchdog` | GET | `{"error":"Unauthorized"}` | ✅ |
+| Build output | — | 117 lambdas, no import errors | ✅ |
+| Function logs | — | No runtime errors | ✅ |
+
+All auth gates responding correctly. POST-only routes (`/publish`, `/sync`, `/generate`) blocked at Vercel's deployment protection layer as expected — not reachable without `ADMIN_SECRET`.
+
+---
+
 ## Changelog
 
 ### 2026-04-23 — PR #16: Schema Enrichment Passthrough + PR2/PR3 Follow-up Patches
