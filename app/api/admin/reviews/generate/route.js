@@ -726,7 +726,7 @@ ${geoSections}`
 </div>
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⭐</div>
-<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${brandData.total_celebrities || 0}</p></div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${cleanCelebrityList.length}</p></div>
 </div>
 </div>
 </div>
@@ -748,7 +748,7 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <!-- INVESTIGATION SUMMARY -->
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${brandData.total_celebrities ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(brandData.total_celebrities, 'real celebrity', 'real celebrities')}</strong> in paid advertisements${cleanCelebrityList.length > 0 ? `, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}` : ''}.` : ''}</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(cleanCelebrityList.length, 'real celebrity', 'real celebrities')}</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
 <p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. SpyOwl's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
@@ -758,7 +758,7 @@ ${sectionH2('📄', 'Investigation Summary')}
 ${reviewContent.how_it_works ? (() => {
   const stageStyles = [
     { icon: '📢', label: 'Stage 1', title: 'Celebrity Impersonation & Geo-Targeted Advertising', bg: 'rgba(124,45,18,0.2)', border: 'rgba(194,65,12,0.4)', barColor: '#ea580c', labelColor: '#fb923c', iconBg: '#ea580c',
-      statValue: `${pluralize(brandData.total_creatives || 0, 'ad')}`, statSub: brandData.total_celebrities ? `impersonating ${pluralize(brandData.total_celebrities, 'celebrity', 'celebrities')}` : 'celebrity identity data pending' },
+      statValue: `${pluralize(brandData.total_creatives || 0, 'ad')}`, statSub: cleanCelebrityList.length > 0 ? `impersonating ${pluralize(cleanCelebrityList.length, 'celebrity', 'celebrities')}` : 'celebrity identity data pending' },
     { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Success', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706',
       statValue: 'Instant', statSub: 'deposit confirmation' },
     { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Psychological Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626',
@@ -921,7 +921,7 @@ ${evidenceGridHtml}
 <div style="border-top:1px solid #1e293b">
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Ad Creatives</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${(brandData.total_creatives || 0).toLocaleString()}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Countries</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_geos || 0}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_celebrities || 0}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${cleanCelebrityList.length}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.velocity_7d || 0} new</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Campaign Duration</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${longevityDays} days</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
@@ -1216,8 +1216,8 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               generation_status: 'content_generated',
               word_count: wordCount,
               images_embedded: availableImages.length,
-              schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList'],
-              pipeline_version: 'multi-agent-v1.1-split',
+              schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList', 'ItemList', 'Dataset', 'Quotation', 'Speakable'],
+              pipeline_version: 'multi-agent-v1.2-enrichment',
               phase: 'content_generated',
               polish_pending: true,
               models_used: {
