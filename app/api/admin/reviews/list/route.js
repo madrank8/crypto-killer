@@ -10,7 +10,11 @@ async function fetchAllReviews(pageSize = 1000) {
   let offset = 0
   while (true) {
     const data = await supabaseRequest(
-      `/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
+      // brand_id=not.is.null excludes orphaned reviews whose brand row was deleted
+      // or never existed. Those rows cannot be edited/regenerated (no brand context),
+      // so hiding them from the admin list is correct. If orphans need to be surfaced
+      // later for cleanup, add a separate /api/admin/reviews/orphans endpoint.
+      `/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&brand_id=not.is.null&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
     )
     if (!Array.isArray(data) || data.length === 0) break
     allRows.push(...data)
@@ -72,29 +76,38 @@ export async function GET(request) {
       }
     }
 
-    // Enrich reviews with brand data
-    const enriched = reviews.map((r) => {
-      const brand = brandMap[r.brand_id] || {}
-      return {
-        id: r.id,
-        brand_id: r.brand_id,
-        title: r.title,
-        slug: r.slug,
-        status: r.status || 'draft',
-        word_count: r.word_count || 0,
-        updated_at: r.updated_at,
-        published_at: r.published_at,
-        // Brand fields
-        brand_name: brand.name || 'Unknown Brand',
-        brand_slug: brand.slug || '',
-        scam_score: brand.scam_score || 0,
-        total_creatives: brand.total_creatives || 0,
-        total_geos: brand.total_geos || 0,
-        total_celebrities: brand.total_celebrities || 0,
-        velocity_7d: brand.velocity_7d || 0,
-        velocity_trend: brand.velocity_trend || 'stable',
-      }
-    })
+    // Enrich reviews with brand data.
+    // If the brand row is missing (deleted after the review was created), drop
+    // the review from the response entirely — the admin UI cannot do anything
+    // useful with it (no brand context = no regenerate, no edit). This is
+    // defense-in-depth: the SQL query already filters brand_id=null, so this
+    // only catches the edge case where brand_id is non-null but the brand row
+    // was deleted. Those orphans can be cleaned up via a dedicated endpoint.
+    const enriched = reviews
+      .map((r) => {
+        const brand = brandMap[r.brand_id]
+        if (!brand || !brand.name) return null
+        return {
+          id: r.id,
+          brand_id: r.brand_id,
+          title: r.title,
+          slug: r.slug,
+          status: r.status || 'draft',
+          word_count: r.word_count || 0,
+          updated_at: r.updated_at,
+          published_at: r.published_at,
+          // Brand fields
+          brand_name: brand.name,
+          brand_slug: brand.slug || '',
+          scam_score: brand.scam_score || 0,
+          total_creatives: brand.total_creatives || 0,
+          total_geos: brand.total_geos || 0,
+          total_celebrities: brand.total_celebrities || 0,
+          velocity_7d: brand.velocity_7d || 0,
+          velocity_trend: brand.velocity_trend || 'stable',
+        }
+      })
+      .filter(Boolean)
 
     const drafts = enriched.filter((r) => r.status === 'draft')
     const published = enriched.filter((r) => r.status === 'published')
