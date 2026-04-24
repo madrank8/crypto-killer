@@ -1,0 +1,19 @@
+-- Migration: 005c_drop_link_url_index.sql
+-- Path B hotfix applied during backfill (2026-04-24).
+--
+-- The creatives_link_url_normalized_offer_idx partial B-tree index
+-- from migration 005 fails with Postgres error 54000 ("Values larger
+-- than 1/3 of a buffer page cannot be indexed") on creatives whose
+-- link_url exceeds ~2.7 KB. SpyOwl routinely emits URLs with bloated
+-- Facebook tracking parameters that push past that limit.
+--
+-- rebuild_brands is only called once per scrape (~1/day), so a seq
+-- scan on 81k creative rows during the aggregation is fine — the
+-- index wasn't actually doing meaningful work, it just existed to
+-- speed up an already-fast aggregation. Drop it.
+--
+-- If aggregation throughput ever becomes a bottleneck, options are:
+--   * Add an expression index on md5(link_url) for exact lookups
+--   * Use a hash index on link_url (no length cap, but no ordering)
+-- Neither is needed today.
+DROP INDEX IF EXISTS public.creatives_link_url_normalized_offer_idx;
