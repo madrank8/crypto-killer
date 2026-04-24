@@ -7,10 +7,17 @@
     {
       "path": "/api/cron/polish-watchdog",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/archive-landing-pages",
+      "schedule": "30 2 * * *"
     }
   ],
   "functions": {
     "app/api/cron/scrape/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/cron/archive-landing-pages/route.js": {
       "maxDuration": 300
     },
     "app/api/admin/scraper/trigger/route.js": {

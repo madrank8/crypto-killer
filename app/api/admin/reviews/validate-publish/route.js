@@ -38,6 +38,7 @@ import { supabaseRequest } from '@/lib/supabase'
 import {
   normalizeDataset,
   normalizeClaims,
+  normalizeBrandLandingUrls,
 } from '@/lib/sync-shape'
 
 const PLACEHOLDER_RX =
@@ -223,13 +224,16 @@ export async function POST(req) {
 
   // ── 6. Schema enrichment sanity ──────────────────────────────
   // Load the brand row for observation-window dates (first_seen_at /
-  // last_seen_at live on scam_brands, not on reviews).
+  // last_seen_at live on scam_brands, not on reviews). Include
+  // landing_urls (migration 005) so normalizeClaims can fall back
+  // through the full 3-tier priority when brand_landing_pages isn't
+  // populated yet.
   let brand = null
   if (review.brand_id) {
     try {
       const rows = await supabaseRequest(
         `/scam_brands?id=eq.${encodeURIComponent(review.brand_id)}` +
-          `&select=first_seen_at,last_seen_at,name,slug,celebrity_list,geo_list,total_celebrities` +
+          `&select=id,first_seen_at,last_seen_at,name,slug,celebrity_list,geo_list,total_celebrities,landing_urls` +
           `&limit=1`
       )
       brand = Array.isArray(rows) ? rows[0] : null
@@ -238,6 +242,32 @@ export async function POST(req) {
       // brand row can't be loaded. Better than failing the whole run.
       brand = null
     }
+  }
+
+  // Pull Wayback snapshot URLs for this brand so the CLAIM_NO_APPEARANCE
+  // check reflects what would actually ship in the sync payload — not
+  // just the writer's raw null-appearance output. Soft-fail: if the
+  // fetch errors we fall through to brand.landing_urls (live URLs) so
+  // validation still runs with best-available data.
+  let landingUrlsForClaims = []
+  if (brand?.id) {
+    try {
+      const archiveRows = await supabaseRequest(
+        `/brand_landing_pages?brand_id=eq.${encodeURIComponent(brand.id)}` +
+          `&select=archive_url,archive_status,live_url,captured_at` +
+          `&order=captured_at.desc&limit=20`
+      )
+      landingUrlsForClaims = normalizeBrandLandingUrls(archiveRows)
+    } catch {
+      landingUrlsForClaims = []
+    }
+  }
+  // Final fallback: brand.landing_urls from migration 005 (live URLs).
+  // Only use when the archive fetch above returned nothing.
+  if (landingUrlsForClaims.length === 0 && Array.isArray(brand?.landing_urls)) {
+    landingUrlsForClaims = brand.landing_urls.filter(
+      (u) => typeof u === 'string' && u.startsWith('http')
+    )
   }
 
   const toIso = (v) => {
@@ -269,20 +299,24 @@ export async function POST(req) {
   if (Array.isArray(review.claims) && review.claims.length > 0) {
     const normalized = normalizeClaims(review.claims, {
       brandName: brand?.name,
-      // No ad creative URLs available until scam_brands or creatives
-      // gets a landing_url column. Pass empty — the normalizer will
-      // emit appearance:null and the schema builder drops the claim.
-      adCreativeUrls: [],
+      // Path B: feed the same archive-first URL list that shapeReviewForSync
+      // uses at publish time. The CLAIM_NO_APPEARANCE check now reflects
+      // what will actually ship in the public schema.
+      adCreativeUrls: landingUrlsForClaims,
     })
     normalized.forEach((c, i) => {
       if (!c.appearance) {
         const entry = {
           code: 'CLAIM_NO_APPEARANCE',
           field: `claims[${i}]`,
-          detail: `"${c.claimReviewed.slice(0, 60)}..." has no appearance URL — ClaimReview will be dropped from schema (not a Fact Check rich-result loss; dropping is correct behaviour when appearance unknown)`,
+          detail: `"${c.claimReviewed.slice(0, 60)}..." has no appearance URL — ClaimReview will be dropped from schema. ${
+            landingUrlsForClaims.length === 0
+              ? 'No Wayback snapshots or landing URLs exist for this brand yet; trigger the archive-landing-pages cron or re-run rebuild_brands after migration 005.'
+              : 'The writer emitted appearance:null explicitly and no fallback URL was selectable.'
+          }`,
         }
-        // Always a warning, never a hard failure — there's no data
-        // source for appearance URLs yet. See 05-appearance-remediation.md.
+        // Soft-warn for now (Path B B4 step). Once backfill lands across
+        // all brands we flip this to a hard failure.
         warnings.push(entry)
       }
     })

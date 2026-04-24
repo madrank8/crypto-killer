@@ -1,7 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { shapeReviewForSync } from '@/lib/sync-shape'
+import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 
 // Supabase → Replit shape transform lives in lib/sync-shape.js, shared
 // with the /sync route. That module handles field renames, funnel-stage
@@ -351,10 +351,34 @@ export async function POST(request, { params }) {
             brand = brands?.[0]
           }
 
+          // Fetch Wayback snapshot URLs for this brand so claims[].appearance
+          // cites archive URLs (zero traffic to scam domain, evidence
+          // persists through takedowns) rather than the live scam URL.
+          // Soft failure: if this errors or returns nothing, sync-shape
+          // falls back to brand.landing_urls (live URLs) automatically.
+          let landingUrls = []
+          if (brand?.id) {
+            try {
+              const rows = await supaFetch(
+                `/brand_landing_pages?brand_id=eq.${brand.id}` +
+                  `&select=archive_url,archive_status,live_url,captured_at` +
+                  `&order=captured_at.desc&limit=20`
+              )
+              landingUrls = normalizeBrandLandingUrls(rows)
+            } catch (e) {
+              console.error('[publish] brand_landing_pages fetch failed (non-fatal):', e?.message)
+              landingUrls = []
+            }
+          }
+
           if (brand) {
             // Merge the updated fields into the review object for sync,
             // then do the full Supabase→Replit shape transform.
-            const syncReview = shapeReviewForSync({ ...review, ...updates }, brand)
+            const syncReview = shapeReviewForSync(
+              { ...review, ...updates },
+              brand,
+              { landingUrls },
+            )
 
             const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
               method: 'POST',

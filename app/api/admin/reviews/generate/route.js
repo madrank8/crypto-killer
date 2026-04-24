@@ -6,6 +6,7 @@ import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompt
 import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
+import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -402,7 +403,35 @@ export async function POST(request) {
           // ═══════════════════════════════════════════════════════════════
           send({ step: 'ai', progress: 45, message: 'Phase 3/5: Generating review with Claude Opus (30-60s)...' })
 
-          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages, cleanCelebrityList, threat)
+          // Path B: pull archive-first landing URLs for this brand so the
+          // writer can cite them in claims[].appearance. Prefer Wayback
+          // snapshots (brand_landing_pages) over live URLs (scam_brands
+          // .landing_urls). Zero-fetch soft-fail: an empty list just
+          // leaves appearance=null across the output, which the
+          // downstream normalizer handles cleanly.
+          let verifiedLandingUrls = []
+          try {
+            const archiveRows = await supabaseRequest(
+              `/brand_landing_pages?brand_id=eq.${brandData.id}` +
+                `&select=archive_url,archive_status,live_url,captured_at` +
+                `&order=captured_at.desc&limit=20`
+            )
+            verifiedLandingUrls = normalizeBrandLandingUrls(archiveRows)
+          } catch (e) {
+            console.error('[generate] brand_landing_pages fetch failed (non-fatal):', e?.message)
+            verifiedLandingUrls = []
+          }
+          // Fallback to raw SpyOwl live URLs persisted by migration 005
+          // when the archive pipeline hasn't caught up on this brand yet.
+          // Better to ship a live URL than null — the writer still gets
+          // to cite a real page; the archive backfill can rewrite later.
+          if (verifiedLandingUrls.length === 0 && Array.isArray(brandData.landing_urls)) {
+            verifiedLandingUrls = brandData.landing_urls.filter(
+              (u) => typeof u === 'string' && u.startsWith('http')
+            )
+          }
+
+          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages, cleanCelebrityList, threat, verifiedLandingUrls)
 
           // Use Claude Opus for content (best writing quality), fall back to Sonnet/Haiku
           const contentResult = await callModel('claude-opus', contentPrompt.system, contentPrompt.user, {

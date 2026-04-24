@@ -1,6 +1,6 @@
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
-import { shapeReviewForSync } from '@/lib/sync-shape';
+import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape';
 
 /**
  * POST /api/admin/reviews/[id]/sync
@@ -51,6 +51,22 @@ export async function POST(request, { params }) {
       );
     }
 
+    // Wayback snapshots for claims[].appearance. Soft-fail: if the fetch
+    // errors or returns nothing, shapeReviewForSync's internal fallback
+    // picks up brand.landing_urls (live URLs) so sync still works.
+    let landingUrls = [];
+    try {
+      const rows = await supaFetch(
+        `/brand_landing_pages?brand_id=eq.${brand.id}` +
+          `&select=archive_url,archive_status,live_url,captured_at` +
+          `&order=captured_at.desc&limit=20`
+      );
+      landingUrls = normalizeBrandLandingUrls(rows);
+    } catch (e) {
+      console.error('[manual-sync] brand_landing_pages fetch failed (non-fatal):', e?.message);
+      landingUrls = [];
+    }
+
     // Call Replit sync webhook — shape Supabase review + brand into the
     // decomposed payload Replit's sync/review endpoint expects.
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
@@ -59,7 +75,10 @@ export async function POST(request, { params }) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${syncSecret}`,
       },
-      body: JSON.stringify({ review: shapeReviewForSync(review, brand), brand }),
+      body: JSON.stringify({
+        review: shapeReviewForSync(review, brand, { landingUrls }),
+        brand,
+      }),
       signal: AbortSignal.timeout(30000),
     });
 
