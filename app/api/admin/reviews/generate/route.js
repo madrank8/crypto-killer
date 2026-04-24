@@ -406,7 +406,7 @@ export async function POST(request) {
 
           // Use Claude Opus for content (best writing quality), fall back to Sonnet/Haiku
           const contentResult = await callModel('claude-opus', contentPrompt.system, contentPrompt.user, {
-            maxTokens: 8192,
+            maxTokens: 16384,
           })
           send({
             step: 'ai_done',
