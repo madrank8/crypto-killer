@@ -334,9 +334,9 @@ export async function POST(request, { params }) {
       console.error('Revalidation error (non-fatal):', revalError.message)
     }
 
-    // ─── SYNC TO LIVE SITE (on publish only) ───
+    // ─── SYNC TO LIVE SITE (publish + unpublish) ───
     let syncStatus = null
-    if (action === 'publish' && review) {
+    if ((action === 'publish' || action === 'unpublish') && review) {
       const replitUrl = process.env.REPLIT_SITE_URL
       const syncSecret = process.env.SYNC_SECRET
 

@@ -252,6 +252,26 @@ function parseEvidenceImages(html) {
   return images;
 }
 
+function buildDraftSnapshot({
+  title,
+  headline,
+  metaDescription,
+  fullArticle,
+  redFlags,
+  faqs,
+  verdict,
+}) {
+  return JSON.stringify({
+    title: title || '',
+    headline: headline || '',
+    meta_description: metaDescription || '',
+    full_article: fullArticle || '',
+    red_flags: Array.isArray(redFlags) ? redFlags : [],
+    faq: Array.isArray(faqs) ? faqs : [],
+    verdict: verdict || '',
+  });
+}
+
 /* ─── Midjourney / AI Images Card ─── */
 function MidjourneyImagesCard({ review, generating, message, progressMsg, onGenerate }) {
   const hasHero = !!review?.hero_image_url;
@@ -424,6 +444,7 @@ export default function ReviewEditor({ params }) {
   const [redFlags, setRedFlags] = useState([]);
   const [faqs, setFaqs] = useState([]);
   const [verdict, setVerdict] = useState('');
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState('');
 
   // viewMode now handled inside TipTapEditor (Edit/Preview/HTML toggle)
   const [activeTab, setActiveTab] = useState('article');
@@ -446,6 +467,15 @@ export default function ReviewEditor({ params }) {
         setRedFlags(data.red_flags || []);
         setFaqs(data.faq || []);
         setVerdict(data.verdict || '');
+        setLastSavedSnapshot(buildDraftSnapshot({
+          title: data.title,
+          headline: data.headline,
+          metaDescription: data.meta_description,
+          fullArticle: data.full_article,
+          redFlags: data.red_flags,
+          faqs: data.faq,
+          verdict: data.verdict,
+        }));
         return data;
       }
     } catch (err) {
@@ -497,6 +527,20 @@ export default function ReviewEditor({ params }) {
     .replace(/<[^>]*>/g, ' ')
     .split(/\s+/)
     .filter((w) => w).length;
+
+  const currentSnapshot = useMemo(
+    () => buildDraftSnapshot({
+      title,
+      headline,
+      metaDescription,
+      fullArticle,
+      redFlags,
+      faqs,
+      verdict,
+    }),
+    [title, headline, metaDescription, fullArticle, redFlags, faqs, verdict]
+  );
+  const hasUnsavedChanges = !!lastSavedSnapshot && currentSnapshot !== lastSavedSnapshot;
 
   /* -- AEO Fix -- */
   const handleAeoFix = async (fixIds) => {
@@ -565,15 +609,19 @@ export default function ReviewEditor({ params }) {
 
       if (res.ok) {
         setSaved(true);
+        setLastSavedSnapshot(currentSnapshot);
         setTimeout(() => setSaved(false), 2000);
+        return true;
       } else {
         setSaveError('Failed to save. Try again.');
         setTimeout(() => setSaveError(''), 4000);
+        return false;
       }
     } catch (err) {
       console.error('Save error:', err);
       setSaveError('Save failed: ' + (err.message || 'network error'));
       setTimeout(() => setSaveError(''), 4000);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -584,7 +632,11 @@ export default function ReviewEditor({ params }) {
     setSyncMsg('');
     setPublishing(true);
     try {
-      await handleSave();
+      const saveOk = await handleSave();
+      if (!saveOk) {
+        setPublishError('Save failed. Fix errors before publishing.');
+        return;
+      }
       const res = await fetch(`/api/admin/reviews/${id}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -616,7 +668,13 @@ export default function ReviewEditor({ params }) {
   const handleSyncToLive = async () => {
     setSyncing(true);
     setSyncMsg('');
+    setSaveError('');
     try {
+      const saveOk = await handleSave();
+      if (!saveOk) {
+        setSyncMsg('⚠ Save failed — not synced to live');
+        return;
+      }
       const res = await fetch(`/api/admin/reviews/${id}/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -636,6 +694,8 @@ export default function ReviewEditor({ params }) {
   };
 
   const handleUnpublish = async () => {
+    setPublishError('');
+    setSyncMsg('');
     try {
       const res = await fetch(`/api/admin/reviews/${id}/publish`, {
         method: 'POST',
@@ -643,7 +703,16 @@ export default function ReviewEditor({ params }) {
         body: JSON.stringify({ action: 'unpublish' }),
       });
       if (res.ok) {
+        const data = await res.json();
         setReview((r) => ({ ...r, status: 'draft' }));
+        if (data.live_sync?.success) {
+          setSyncMsg('✓ Unpublished and synced to live site');
+          setTimeout(() => setSyncMsg(''), 5000);
+        } else if (data.live_sync?.error) {
+          setSyncMsg(`⚠ Unpublished, but live sync failed: ${data.live_sync.error}`);
+        } else {
+          setSyncMsg('⚠ Unpublished in admin; live sync status unavailable');
+        }
       } else {
         setPublishError('Failed to unpublish');
         setTimeout(() => setPublishError(''), 4000);
@@ -691,7 +760,11 @@ export default function ReviewEditor({ params }) {
     setImageMsg('');
     try {
       // Save current article first so the API has the latest version
-      await handleSave();
+      const saveOk = await handleSave();
+      if (!saveOk) {
+        setImageMsg('Save failed — cannot regenerate images');
+        return;
+      }
 
       const res = await fetch(`/api/admin/reviews/${id}/images`, {
         method: 'POST',
@@ -930,6 +1003,11 @@ export default function ReviewEditor({ params }) {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {hasUnsavedChanges && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-amber-950/60 text-amber-300 border border-amber-700/40">
+              Unsaved changes
+            </span>
+          )}
           {/* AI Generate */}
           <button
             onClick={handleAIGenerate}
@@ -990,13 +1068,18 @@ export default function ReviewEditor({ params }) {
             <>
               <button
                 onClick={handleSyncToLive}
-                disabled={syncing}
-                className="text-sm font-medium px-4 py-2 rounded-lg bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border border-blue-600/20 transition flex items-center gap-1.5"
+                disabled={syncing || hasUnsavedChanges}
+                title={hasUnsavedChanges ? 'Save changes before syncing to live' : undefined}
+                className={`text-sm font-medium px-4 py-2 rounded-lg border transition flex items-center gap-1.5 ${
+                  syncing || hasUnsavedChanges
+                    ? 'bg-gray-800/40 text-gray-500 border-gray-800 cursor-not-allowed'
+                    : 'bg-blue-600/10 text-blue-400 hover:bg-blue-600/20 border-blue-600/20'
+                }`}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                {syncing ? 'Syncing...' : 'Sync to Live'}
+                {syncing ? 'Syncing...' : hasUnsavedChanges ? 'Save to Sync' : 'Sync to Live'}
               </button>
               <button
                 onClick={handleUnpublish}
