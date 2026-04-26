@@ -50,6 +50,9 @@ const HEAD_403_OK = new Set([
   'linkedin.com', 'www.linkedin.com',
   'youtube.com', 'www.youtube.com',
   'amazon.com', 'www.amazon.com',
+  // Trustpilot blocks automated HEAD requests while the public review page
+  // remains browser-verifiable.
+  'trustpilot.com', 'www.trustpilot.com',
 ])
 
 // Plural agreement errors that are almost never correct. Singular form
