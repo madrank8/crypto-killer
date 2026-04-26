@@ -420,17 +420,18 @@ export async function POST(request, { params }) {
               const expectedLen = Number(syncReview.full_article_length ?? 0)
               const receivedLen = Number(syncResult?.full_article_length ?? -1)
               const lengthMatches = receivedLen === expectedLen
+              const lengthOk = receivedLen < 0 || lengthMatches
               const expectedHash = String(syncReview.full_article_hash ?? '')
               const storedHash = String(syncResult?.full_article_hash ?? '')
               const incomingHash = String(syncResult?.incoming_full_article_hash ?? '')
-              let hashMatches
-              if (typeof syncResult?.full_article_hash_matches === 'boolean') {
-                hashMatches = syncResult.full_article_hash_matches
-              } else if (expectedHash.length === 64) {
-                hashMatches = expectedHash === storedHash || expectedHash === incomingHash
-              } else {
-                hashMatches = true
-              }
+              const liveSyncOk = syncResult?.ok === true
+              const explicitIntegrityFail = syncResult?.full_article_hash_matches === false
+              const rescueIntegrity =
+                expectedHash.length === 64 &&
+                incomingHash === expectedHash &&
+                lengthOk
+              const integrityOk = !explicitIntegrityFail || rescueIntegrity
+              const hashMatches = liveSyncOk && integrityOk
               syncStatus = {
                 success: hashMatches,
                 review_id: syncResult.review_id,
@@ -441,7 +442,13 @@ export async function POST(request, { params }) {
                 received_full_article_hash: storedHash,
                 received_incoming_full_article_hash: incomingHash,
                 full_article_hash_matches: hashMatches,
-                ...(hashMatches ? {} : { error: 'full_article hash mismatch on live sync' }),
+                ...(hashMatches
+                  ? {}
+                  : {
+                      error: !liveSyncOk
+                        ? 'live site sync response missing ok: true'
+                        : 'full_article hash mismatch on live sync',
+                    }),
               }
               console.log(`[publish] Synced to live site: ${reviewSlug}`)
             } else {
