@@ -80,6 +80,7 @@ export async function POST(request, { params }) {
         review: syncReview,
         brand,
         expected_full_article_length: syncReview.full_article_length ?? null,
+        expected_full_article_hash: syncReview.full_article_hash ?? null,
       }),
       signal: AbortSignal.timeout(30000),
     });
@@ -96,17 +97,23 @@ export async function POST(request, { params }) {
     const expectedLen = Number(syncReview.full_article_length ?? 0);
     const receivedLen = Number(syncResult?.full_article_length ?? -1);
     const lengthMatches = receivedLen === expectedLen;
+    const expectedHash = String(syncReview.full_article_hash ?? '');
+    const receivedHash = String(syncResult?.full_article_hash ?? '');
+    const hashMatches = expectedHash.length > 0 && expectedHash === receivedHash;
 
     return Response.json({
-      success: lengthMatches,
+      success: hashMatches,
       review_id: id,
       slug: review.slug,
       live_site: replitUrl,
       expected_full_article_length: expectedLen,
       received_full_article_length: receivedLen,
       full_article_length_matches: lengthMatches,
+      expected_full_article_hash: expectedHash,
+      received_full_article_hash: receivedHash,
+      full_article_hash_matches: hashMatches,
       sync_result: syncResult,
-      ...(lengthMatches ? {} : { error: 'full_article length mismatch on live sync' }),
+      ...(hashMatches ? {} : { error: 'full_article hash mismatch on live sync' }),
     });
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse();
