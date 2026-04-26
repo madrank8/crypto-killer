@@ -69,6 +69,7 @@ export async function POST(request, { params }) {
 
     // Call Replit sync webhook — shape Supabase review + brand into the
     // decomposed payload Replit's sync/review endpoint expects.
+    const syncReview = shapeReviewForSync(review, brand, { landingUrls });
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
       method: 'POST',
       headers: {
@@ -76,8 +77,9 @@ export async function POST(request, { params }) {
         Authorization: `Bearer ${syncSecret}`,
       },
       body: JSON.stringify({
-        review: shapeReviewForSync(review, brand, { landingUrls }),
+        review: syncReview,
         brand,
+        expected_full_article_length: syncReview.full_article_length ?? null,
       }),
       signal: AbortSignal.timeout(30000),
     });
@@ -91,13 +93,20 @@ export async function POST(request, { params }) {
     }
 
     const syncResult = await syncRes.json();
+    const expectedLen = Number(syncReview.full_article_length ?? 0);
+    const receivedLen = Number(syncResult?.full_article_length ?? -1);
+    const lengthMatches = receivedLen === expectedLen;
 
     return Response.json({
-      success: true,
+      success: lengthMatches,
       review_id: id,
       slug: review.slug,
       live_site: replitUrl,
+      expected_full_article_length: expectedLen,
+      received_full_article_length: receivedLen,
+      full_article_length_matches: lengthMatches,
       sync_result: syncResult,
+      ...(lengthMatches ? {} : { error: 'full_article length mismatch on live sync' }),
     });
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse();

@@ -69,6 +69,8 @@ const PLURAL_MISMATCH_PATTERNS = [
   { re: /\b1\s+victims\b/i, detail: '1 victim (singular)' },
 ]
 
+const MIN_FULL_ARTICLE_WORDS = 700
+
 /**
  * Collect every human-prose field on the review into one array so we
  * can run regex scans against the whole corpus at once. Keeps ordering
@@ -175,6 +177,24 @@ async function validateReviewReadyToPublish(review) {
       )
       break // one is enough
     }
+  }
+
+  // ─── (1b) full_article presence/quality gate ───────────────────
+  // Published reviews must carry the writer-emitted long-form body.
+  // Without this, Replit falls back to legacy template rendering.
+  const fullArticle =
+    typeof review.full_article === 'string' ? review.full_article.trim() : ''
+  const fullArticleWords = fullArticle
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean).length
+  if (fullArticleWords < MIN_FULL_ARTICLE_WORDS) {
+    errors.push(
+      `full_article is missing or too thin (words=${fullArticleWords}, min=${MIN_FULL_ARTICLE_WORDS}). ` +
+      `Run AI Generate/Fill, save, and retry publish.`
+    )
   }
 
   // ─── (2) Citation URL validation (HEAD + blocked-domain check) ─
@@ -386,13 +406,27 @@ export async function POST(request, { params }) {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${syncSecret}`,
               },
-              body: JSON.stringify({ review: syncReview, brand }),
+              body: JSON.stringify({
+                review: syncReview,
+                brand,
+                expected_full_article_length: syncReview.full_article_length ?? null,
+              }),
               signal: AbortSignal.timeout(30000),
             })
 
             if (syncRes.ok) {
               const syncResult = await syncRes.json()
-              syncStatus = { success: true, review_id: syncResult.review_id }
+              const expectedLen = Number(syncReview.full_article_length ?? 0)
+              const receivedLen = Number(syncResult?.full_article_length ?? -1)
+              const lengthMatches = receivedLen === expectedLen
+              syncStatus = {
+                success: lengthMatches,
+                review_id: syncResult.review_id,
+                expected_full_article_length: expectedLen,
+                received_full_article_length: receivedLen,
+                full_article_length_matches: lengthMatches,
+                ...(lengthMatches ? {} : { error: 'full_article length mismatch on live sync' }),
+              }
               console.log(`[publish] Synced to live site: ${reviewSlug}`)
             } else {
               const text = await syncRes.text().catch(() => '')
