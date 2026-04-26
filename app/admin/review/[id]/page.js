@@ -22,6 +22,28 @@ const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ),
 });
 
+/**
+ * Turn a failed admin API response into a human-readable message.
+ * Publish returns 422 with { errors[], reason } from the integrity gate.
+ */
+async function formatAdminApiError(res, fallbackLabel) {
+  const prefix = res.status ? `[HTTP ${res.status}] ` : '';
+  const raw = await res.text();
+  if (!raw) return `${prefix}${fallbackLabel}`;
+  try {
+    const j = JSON.parse(raw);
+    if (Array.isArray(j.errors) && j.errors.length > 0) {
+      const body = j.errors.join('\n');
+      return j.reason ? `${prefix}${j.reason}\n\n${body}` : `${prefix}${body}`;
+    }
+    if (j.error && j.reason) return `${prefix}${j.error}\n${j.reason}`;
+    if (j.error) return `${prefix}${j.error}`;
+  } catch {
+    /* not JSON */
+  }
+  return `${prefix}${raw.trim() || fallbackLabel}`;
+}
+
 /* ─── Quality Sidebar ─── */
 function QualityCard({ wordCount, redFlagCount, faqCount, status }) {
   const wordColor = wordCount >= 1800 ? 'text-green-400' : wordCount >= 1000 ? 'text-amber-400' : 'text-red-400';
@@ -656,10 +678,10 @@ export default function ReviewEditor({ params }) {
           setSyncMsg('⚠ Live sync skipped — REPLIT_SITE_URL not configured');
         }
       } else {
-        setPublishError('Error publishing');
+        setPublishError(await formatAdminApiError(res, 'Publish failed'));
       }
     } catch (err) {
-      setPublishError('Error publishing');
+      setPublishError(err?.message || 'Network error while publishing');
     } finally {
       setPublishing(false);
     }
@@ -714,8 +736,8 @@ export default function ReviewEditor({ params }) {
           setSyncMsg('⚠ Unpublished in admin; live sync status unavailable');
         }
       } else {
-        setPublishError('Failed to unpublish');
-        setTimeout(() => setPublishError(''), 4000);
+        setPublishError(await formatAdminApiError(res, 'Failed to unpublish'));
+        setTimeout(() => setPublishError(''), 12000);
       }
     } catch (err) {
       setPublishError('Unpublish failed: ' + (err.message || 'network error'));
@@ -1112,7 +1134,7 @@ export default function ReviewEditor({ params }) {
       )}
 
       {(publishError || saveError) && (
-        <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm">
+        <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
           {publishError || saveError}
         </div>
       )}
