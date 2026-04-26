@@ -30,7 +30,7 @@ import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 // UI can render; non-fatal drift goes in warnings[] and is allowed
 // through. The gate is skipped on unpublish.
 
-const PLACEHOLDER_RE = /\[\s*(CHART|DIAGRAM|IMAGE|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED/i
+const PLACEHOLDER_RE = /\[\s*(CHART|DIAGRAM|IMAGE|INFOGRAPHIC|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED/i
 
 // Domains we can't programmatically validate (block HEAD, hallucinate
 // easily, or don't have a stable public URL scheme). Listing one of
@@ -53,6 +53,9 @@ const HEAD_403_OK = new Set([
   // Trustpilot blocks automated HEAD requests while the public review page
   // remains browser-verifiable.
   'trustpilot.com', 'www.trustpilot.com',
+  // ScamAdviser frequently times out/blocks automated HEAD checks; the public
+  // page is still browser-verifiable and is acceptable as supporting evidence.
+  'scamadviser.com', 'www.scamadviser.com',
 ])
 
 // Plural agreement errors that are almost never correct. Singular form
@@ -151,6 +154,7 @@ async function headCheckUrl(url) {
     if (res.status === 403 && HEAD_403_OK.has(host)) return { ok: true }
     return { ok: false, reason: `HTTP ${res.status}` }
   } catch (e) {
+    if (HEAD_403_OK.has(host)) return { ok: true }
     return { ok: false, reason: `network: ${e.message || 'unknown error'}` }
   }
 }

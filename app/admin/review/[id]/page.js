@@ -45,15 +45,12 @@ async function formatAdminApiError(res, fallbackLabel) {
 }
 
 const VISUAL_PLACEHOLDER_RE =
-  /\[\s*(CHART|DIAGRAM|IMAGE|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED:[^\]]*\]/gi;
+  /\[\s*(CHART|DIAGRAM|IMAGE|INFOGRAPHIC|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED[^\]]*\]/gi;
 
 function scrubVisualPlaceholders(text) {
   if (typeof text !== 'string') return text;
   return text
-    .replace(VISUAL_PLACEHOLDER_RE, (_, kind) => {
-      const label = String(kind || 'visual').toLowerCase();
-      return `Editorial note: requested ${label} evidence was not available for publication, so this visual placeholder was removed before save.`;
-    })
+    .replace(VISUAL_PLACEHOLDER_RE, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
