@@ -449,6 +449,16 @@ export default function TopicalMapPage() {
   const [seedOpen, setSeedOpen] = useState(false);
   const [seedKeyword, setSeedKeyword] = useState('');
   const [seedError, setSeedError] = useState('');
+
+  // Phase 4 — free-form topic / content creation modal state
+  const [newOpen, setNewOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newContentType, setNewContentType] = useState('blog_post');
+  const [newTopicType, setNewTopicType] = useState('supporting');
+  const [newKeyword, setNewKeyword] = useState('');
+  const [newAttachToMap, setNewAttachToMap] = useState(false);
+  const [newError, setNewError] = useState('');
+  const [newCreating, setNewCreating] = useState(false);
   const [search, setSearch] = useState('');
   const [toast, setToast] = useState(null);
 
@@ -611,6 +621,51 @@ export default function TopicalMapPage() {
     }
   };
 
+  // Phase 4 — create a free-form topic + draft content via the dual-mode
+  // /api/admin/content/create endpoint, then navigate to the editor.
+  const createFreeForm = async () => {
+    if (!token) return;
+    const title = newTitle.trim();
+    if (!title) { setNewError('Title is required'); return; }
+    if (!newContentType) { setNewError('Content type is required'); return; }
+    setNewCreating(true);
+    setNewError('');
+    try {
+      const payload = {
+        title,
+        content_type: newContentType,
+        topic_type: newTopicType,
+        target_keyword: newKeyword.trim() || title,
+      };
+      // Optional: attach to currently selected map. Default off — user
+      // chose "free-form, default to standalone" in scoping.
+      if (newAttachToMap && mapId) payload.map_id = mapId;
+
+      const res = await fetch('/api/admin/content/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to create content');
+      }
+      const data = await res.json();
+      // Reset modal + navigate
+      setNewOpen(false);
+      setNewTitle('');
+      setNewKeyword('');
+      setNewContentType('blog_post');
+      setNewTopicType('supporting');
+      setNewAttachToMap(false);
+      router.push(`/admin/content/${data.id}`);
+    } catch (e) {
+      setNewError(e.message);
+    } finally {
+      setNewCreating(false);
+    }
+  };
+
   const writeArticle = async (topic) => {
     if (!token || !topic?.id) return;
     setWritingId(topic.id);
@@ -667,14 +722,23 @@ export default function TopicalMapPage() {
             Pillars, clusters & supporting topics for topical authority.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => { setSeedError(''); setSeedOpen(true); }}
-          disabled={generating}
-          className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition disabled:opacity-50"
-        >
-          {generating ? 'Generating\u2026' : '+ New Map'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setNewError(''); setNewOpen(true); }}
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition"
+          >
+            + New Content
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSeedError(''); setSeedOpen(true); }}
+            disabled={generating}
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition disabled:opacity-50"
+          >
+            {generating ? 'Generating\u2026' : '+ New Map'}
+          </button>
+        </div>
       </div>
 
       {/* ── Map Selector ── */}
@@ -848,6 +912,101 @@ export default function TopicalMapPage() {
       )}
 
       {/* Seed keyword modal */}
+      {/* Phase 4 — free-form Create Content modal */}
+      {newOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-lg mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg">Create new content</h3>
+            <p className="text-gray-500 text-sm mt-1">Write a blog post or page on any topic — no topical map required.</p>
+
+            <label className="block text-xs text-gray-400 mt-4 mb-1">Title</label>
+            <input
+              type="text" autoFocus value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="e.g. How to Spot a Crypto Recovery Scam in 2026"
+              className="search-input w-full"
+            />
+
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Content type</label>
+                <select
+                  className="search-input w-full text-sm"
+                  value={newContentType}
+                  onChange={(e) => setNewContentType(e.target.value)}
+                >
+                  <optgroup label="Blog">
+                    <option value="blog_post">Blog post</option>
+                    <option value="listicle">Listicle</option>
+                    <option value="comparison">Comparison</option>
+                    <option value="guide">Guide</option>
+                    <option value="educational">Educational</option>
+                    <option value="prevention">Prevention</option>
+                    <option value="recovery_guide">Recovery guide</option>
+                    <option value="glossary">Glossary</option>
+                  </optgroup>
+                  <optgroup label="Page">
+                    <option value="informational_page">Informational page</option>
+                    <option value="landing_page">Landing page</option>
+                    <option value="pillar_page">Pillar page</option>
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Topic role</label>
+                <select
+                  className="search-input w-full text-sm"
+                  value={newTopicType}
+                  onChange={(e) => setNewTopicType(e.target.value)}
+                >
+                  <option value="supporting">Supporting</option>
+                  <option value="cluster">Cluster</option>
+                  <option value="pillar">Pillar</option>
+                </select>
+              </div>
+            </div>
+
+            <label className="block text-xs text-gray-400 mt-3 mb-1">Target keyword (optional, defaults to title)</label>
+            <input
+              type="text" value={newKeyword}
+              onChange={(e) => setNewKeyword(e.target.value)}
+              placeholder="e.g. crypto recovery scam"
+              className="search-input w-full"
+            />
+
+            {mapId && (
+              <label className="flex items-center gap-2 mt-3 text-xs text-gray-400">
+                <input
+                  type="checkbox" checked={newAttachToMap}
+                  onChange={(e) => setNewAttachToMap(e.target.checked)}
+                />
+                Attach to currently selected map
+              </label>
+            )}
+
+            {newError && <p className="text-red-400 text-sm mt-3">{newError}</p>}
+
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={newCreating}
+                className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm text-white disabled:opacity-50"
+                onClick={createFreeForm}
+              >
+                {newCreating ? 'Creating\u2026' : 'Create draft'}
+              </button>
+              <button
+                type="button"
+                className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
+                onClick={() => { setNewOpen(false); setNewError(''); }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {seedOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
