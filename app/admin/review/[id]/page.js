@@ -44,6 +44,36 @@ async function formatAdminApiError(res, fallbackLabel) {
   return `${prefix}${raw.trim() || fallbackLabel}`;
 }
 
+const VISUAL_PLACEHOLDER_RE =
+  /\[\s*(CHART|DIAGRAM|IMAGE|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED:[^\]]*\]/gi;
+
+function scrubVisualPlaceholders(text) {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(VISUAL_PLACEHOLDER_RE, (_, kind) => {
+      const label = String(kind || 'visual').toLowerCase();
+      return `Editorial note: requested ${label} evidence was not available for publication, so this visual placeholder was removed before save.`;
+    })
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function scrubRedFlagsForSave(items) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    flag: scrubVisualPlaceholders(item?.flag || ''),
+    detail: scrubVisualPlaceholders(item?.detail || item?.description || ''),
+  }));
+}
+
+function scrubFaqsForSave(items) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    question: scrubVisualPlaceholders(item?.question || ''),
+    answer: scrubVisualPlaceholders(item?.answer || ''),
+  }));
+}
+
 /* ─── Quality Sidebar ─── */
 function QualityCard({ wordCount, redFlagCount, faqCount, status }) {
   const wordColor = wordCount >= 1800 ? 'text-green-400' : wordCount >= 1000 ? 'text-amber-400' : 'text-red-400';
@@ -611,6 +641,14 @@ export default function ReviewEditor({ params }) {
     setSaved(false);
     setSaveError('');
     try {
+      const sanitizedFullArticle = scrubVisualPlaceholders(fullArticle);
+      const sanitizedRedFlags = scrubRedFlagsForSave(redFlags);
+      const sanitizedFaqs = scrubFaqsForSave(faqs);
+      const sanitizedVerdict = scrubVisualPlaceholders(verdict);
+      const sanitizedWordCount = (sanitizedFullArticle || '')
+        .replace(/<[^>]*>/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w).length;
       const res = await fetch(`/api/admin/reviews/${id}`, {
         method: 'PATCH',
         headers: {
@@ -621,17 +659,33 @@ export default function ReviewEditor({ params }) {
           title,
           headline,
           meta_description: metaDescription,
-          full_article: fullArticle,
-          red_flags: redFlags,
-          faq: faqs,
-          verdict,
-          word_count: wordCount,
+          full_article: sanitizedFullArticle,
+          red_flags: sanitizedRedFlags,
+          faq: sanitizedFaqs,
+          verdict: sanitizedVerdict,
+          word_count: sanitizedWordCount,
         }),
       });
 
       if (res.ok) {
+        if (sanitizedFullArticle !== fullArticle) {
+          setFullArticle(sanitizedFullArticle);
+          setEditorKey(k => k + 1);
+        }
+        setRedFlags(sanitizedRedFlags);
+        setFaqs(sanitizedFaqs);
+        if (sanitizedVerdict !== verdict) setVerdict(sanitizedVerdict);
+        const savedSnapshot = buildDraftSnapshot({
+          title,
+          headline,
+          metaDescription,
+          fullArticle: sanitizedFullArticle,
+          redFlags: sanitizedRedFlags,
+          faqs: sanitizedFaqs,
+          verdict: sanitizedVerdict,
+        });
         setSaved(true);
-        setLastSavedSnapshot(currentSnapshot);
+        setLastSavedSnapshot(savedSnapshot);
         setTimeout(() => setSaved(false), 2000);
         return true;
       } else {
