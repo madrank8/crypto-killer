@@ -421,8 +421,16 @@ export async function POST(request, { params }) {
               const receivedLen = Number(syncResult?.full_article_length ?? -1)
               const lengthMatches = receivedLen === expectedLen
               const expectedHash = String(syncReview.full_article_hash ?? '')
-              const receivedHash = String(syncResult?.full_article_hash ?? '')
-              const hashMatches = expectedHash.length > 0 && expectedHash === receivedHash
+              const storedHash = String(syncResult?.full_article_hash ?? '')
+              const incomingHash = String(syncResult?.incoming_full_article_hash ?? '')
+              let hashMatches
+              if (typeof syncResult?.full_article_hash_matches === 'boolean') {
+                hashMatches = syncResult.full_article_hash_matches
+              } else if (expectedHash.length === 64) {
+                hashMatches = expectedHash === storedHash || expectedHash === incomingHash
+              } else {
+                hashMatches = true
+              }
               syncStatus = {
                 success: hashMatches,
                 review_id: syncResult.review_id,
@@ -430,7 +438,8 @@ export async function POST(request, { params }) {
                 received_full_article_length: receivedLen,
                 full_article_length_matches: lengthMatches,
                 expected_full_article_hash: expectedHash,
-                received_full_article_hash: receivedHash,
+                received_full_article_hash: storedHash,
+                received_incoming_full_article_hash: incomingHash,
                 full_article_hash_matches: hashMatches,
                 ...(hashMatches ? {} : { error: 'full_article hash mismatch on live sync' }),
               }
