@@ -620,7 +620,7 @@ function ScrapeControl({ token, spyowlConnected }) {
                     Cancelling...
                   </>
                 ) : (
-                  <>\u25a0 Cancel Scrape</>
+                  <>■ Cancel Scrape</>
                 )}
               </button>
             ) : (
@@ -639,9 +639,9 @@ function ScrapeControl({ token, spyowlConnected }) {
                     Initiating...
                   </>
                 ) : !spyowlConnected ? (
-                  <>\ud83d\udd0c SpyOwl Disconnected</>
+                  <>🔌 SpyOwl Disconnected</>
                 ) : (
-                  <>\u25b6 Run Scrape Now</>
+                  <>▶ Run Scrape Now</>
                 )}
               </button>
             )}
