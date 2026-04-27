@@ -324,6 +324,10 @@ export default function ContentEditorPage({ params }) {
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  // Structured payload from the publish quality gate (422). Holds the
+  // reasons[] list so the user sees exactly which checks failed instead of
+  // a single opaque "Publish blocked by quality gate" string.
+  const [publishGate, setPublishGate] = useState(null);
   const [aeoFixing, setAeoFixing] = useState(false);
   const [aeoFixingId, setAeoFixingId] = useState(null);
   const [editorKey, setEditorKey] = useState(0);
@@ -463,6 +467,7 @@ export default function ContentEditorPage({ params }) {
     setPublishing(true);
     setError('');
     setMsg('');
+    setPublishGate(null);
     try {
       await save();
       const res = await fetch(`/api/admin/content/${id}/publish`, {
@@ -471,7 +476,21 @@ export default function ContentEditorPage({ params }) {
         body: JSON.stringify({ action }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `${action} failed`);
+      if (!res.ok) {
+        // Quality gate (422) returns a structured payload — surface every
+        // reason as a bullet so the user knows exactly what to fix.
+        if (res.status === 422 && Array.isArray(data?.reasons) && data.reasons.length > 0) {
+          setPublishGate({
+            action,
+            error: data.error || 'Publish blocked by quality gate',
+            reasons: data.reasons,
+            ai_model: data.ai_model || null,
+            slug: data.slug || null,
+          });
+          return;
+        }
+        throw new Error(data.error || `${action} failed`);
+      }
 
       setContent((prev) => ({ ...prev, status: data.status, published_at: data.published_at }));
 
@@ -861,6 +880,77 @@ export default function ContentEditorPage({ params }) {
       {(error || msg) && (
         <div className={`text-sm rounded-lg px-3 py-2 ${error ? 'bg-red-900/20 border border-red-600/30 text-red-400' : 'bg-green-900/20 border border-green-600/30 text-green-400'}`}>
           {error || msg}
+        </div>
+      )}
+
+      {/* Publish quality gate failure — renders the structured reasons[]
+          payload returned by /api/admin/content/[id]/publish (422). Without
+          this, the user only saw the bare 'Publish blocked by quality gate'
+          string and had no idea what to fix. Each reason maps to a specific
+          gate check (deterministic-fallback ai_model, skeleton openers,
+          taxonomy trailers, short sections, placeholder internal links,
+          author-name stutter). */}
+      {publishGate && (
+        <div className="rounded-lg border border-amber-600/40 bg-amber-900/10 px-4 py-3 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-300">
+                {publishGate.error}
+              </p>
+              <p className="text-xs text-amber-200/70 mt-0.5">
+                {publishGate.reasons.length} {publishGate.reasons.length === 1 ? 'check' : 'checks'} failed
+                {publishGate.ai_model ? (
+                  <>
+                    {' '}&middot;{' '}
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-black/40 border border-amber-700/40">
+                      ai_model: {publishGate.ai_model}
+                    </span>
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPublishGate(null)}
+              className="text-xs text-amber-300/60 hover:text-amber-200 px-2"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+
+          <ul className="text-xs text-amber-100/90 space-y-1 list-disc pl-5">
+            {publishGate.reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {/* Single-click recovery: most quality-gate failures (especially
+                ai_model='deterministic-fallback' and taxonomy-trailer hits)
+                are fixed by re-running the writer. */}
+            <button
+              type="button"
+              onClick={() => {
+                setPublishGate(null);
+                generateArticle();
+              }}
+              disabled={publishing || saving}
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+            >
+              Regenerate Article
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPublishGate(null);
+                setForcePhase('outline');
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-600/30 text-amber-200 hover:text-white hover:border-amber-500/60"
+            >
+              Edit Outline First
+            </button>
+          </div>
         </div>
       )}
 
