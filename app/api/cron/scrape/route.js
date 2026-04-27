@@ -4,47 +4,39 @@ import {
   getSpyOwlCookie,
   validateSpyOwl,
   getActiveJob,
+  getResumableJob,
   createJob,
   failJob,
   runScrapeLoop,
   rebuildBrands,
   updateProgress,
   updateJobState,
+  triggerContinuation,
+  MAX_BATCHES_PER_CHUNK,
 } from '@/lib/scraper';
 
-// Match the manual trigger's budget — the full scrape runs inline inside
-// this lambda's waitUntil window, no HTTP hop, no deployment-protected
-// self-chain. A populated SpyOwl account (~80k creatives) completes in
-// ~120s with pipelined prefetch; well inside the 300s maxDuration budget.
 export const maxDuration = 300;
 
 /**
  * GET /api/cron/scrape
  *
- * Vercel Cron daily midnight UTC. Creates a sync_runs job, validates SpyOwl,
- * then runs the full scrape inline via waitUntil() so the HTTP response
- * returns immediately while the worker executes in the background.
+ * Vercel Cron daily midnight UTC. Auto-resumes from the most recent failed
+ * job's progress.next_skip (within 24h). This means a chain that broke
+ * mid-flight yesterday will pick up where it left off today instead of
+ * restarting from skip=0 — fixing the "scheduled cron makes zero forward
+ * progress for days" pattern in the historical sync_runs data.
  *
- * Previously self-chained across invocations via fetch(nextUrl) — that path
- * died silently against Vercel's deployment protection SSO layer, which
- * intercepted the outbound chain request before our Authorization header
- * check could run. Result: chunk 0 completed, chunk 1 never started,
- * sync_runs stuck at ~20,000/~28% until the 1-hour stale-job cleanup
- * auto-failed it. Every scheduled run had the same symptom while manual
- * triggers (which already used inline waitUntil) worked in ~2 minutes.
- *
- * This route now mirrors /api/admin/scraper/trigger exactly — single lambda,
- * single waitUntil, no chaining.
+ * Architecture: same as /api/admin/scraper/trigger — runs the first chunk
+ * inline via waitUntil, chains to /api/admin/scraper/continue for the rest.
  */
 export async function GET(request) {
   try {
-    // ─── AUTH (required, never optional) ───
+    // ─── AUTH ───
     const cronSecret = process.env.CRON_SECRET;
     if (!cronSecret) {
       console.error('[cron] CRON_SECRET not configured');
       return Response.json({ error: 'Server misconfigured: CRON_SECRET not set' }, { status: 500 });
     }
-
     const authHeader = request.headers.get('Authorization') || '';
     const token = authHeader.replace('Bearer ', '').trim();
     if (token !== cronSecret) {
@@ -63,41 +55,51 @@ export async function GET(request) {
       });
     }
 
-    // Create the job first so we can record failure state if auth fails
-    const job = await createJob('scheduled');
+    // ─── Auto-resume from prior failed job? ───
+    let startSkip = 0;
+    let resumedFrom = null;
+    const resumable = await getResumableJob();
+    if (resumable) {
+      startSkip = resumable.next_skip;
+      resumedFrom = resumable.id;
+      console.log(`[cron] Resuming from job ${resumedFrom} at skip=${startSkip}`);
+    }
 
-    // Validate SpyOwl cookie
+    const job = await createJob('scheduled', null, startSkip);
+
+    // ─── SpyOwl auth ───
     const cookie = await getSpyOwlCookie();
-    const spyowlOk = await validateSpyOwl(cookie);
-
-    if (!spyowlOk) {
+    const cookieOk = await validateSpyOwl(cookie);
+    if (!cookieOk) {
       const msg = cookie ? 'SpyOwl API unreachable or cookie expired' : 'No SpyOwl cookie configured';
       await failJob(job.id, msg, job.progress?.steps || []);
       return Response.json({ success: false, job_id: job.id, error: msg }, { status: 503 });
     }
 
-    // Update progress to show auth passed
     await updateProgress(job.id, {
       phase: 'scanning',
       percent: 12,
-      message: 'SpyOwl authenticated — starting scheduled scrape...',
+      message: startSkip > 0
+        ? `Resuming scheduled scrape from ${startSkip.toLocaleString()} creatives...`
+        : 'SpyOwl authenticated — starting scheduled scrape...',
+      next_skip: startSkip,
       steps: [
-        { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
-        { id: 'auth', label: 'SpyOwl authenticated', status: 'done', ts: new Date().toISOString() },
+        { id: 'init', label: 'Job created',           status: 'done',   ts: new Date().toISOString() },
+        { id: 'auth', label: 'SpyOwl authenticated', status: 'done',   ts: new Date().toISOString() },
         { id: 'scan', label: 'Scraping creatives...', status: 'active', ts: new Date().toISOString() },
       ],
     });
 
-    console.log(`[cron] Job ${job.id} created — running full scrape inline via waitUntil`);
+    console.log(`[cron] Job ${job.id} created (resume_from=${resumedFrom}, startSkip=${startSkip}) — running first chunk inline`);
 
-    // Run the full scrape in the background. waitUntil keeps the lambda
-    // alive up to maxDuration after the response is sent.
-    waitUntil(runFullScrape(job.id, cookie));
+    waitUntil(runFirstChunk(job.id, cookie, startSkip));
 
     return Response.json({
       success: true,
       job_id: job.id,
-      message: 'Scheduled scrape started — processing in background',
+      resumed_from: resumedFrom,
+      start_skip: startSkip,
+      message: 'Scheduled scrape started — chunked execution in background',
     });
   } catch (error) {
     console.error('[cron] Fatal error:', error.message);
@@ -105,47 +107,54 @@ export async function GET(request) {
   }
 }
 
-/**
- * Run the whole scrape end-to-end: fetch all creatives, then rebuild brands.
- * Mirrors runFullScrape in /api/admin/scraper/trigger — errors are caught
- * and recorded on the job row so the admin UI can render a failure state;
- * this function never rethrows.
- */
-async function runFullScrape(jobId, cookie) {
+/** Mirrors the trigger route — first chunk + chain or finalize. */
+async function runFirstChunk(jobId, cookie, startSkip) {
   try {
-    console.log(`[cron] Scrape start for job ${jobId}`);
-
-    // maxBatches: Infinity — runScrapeLoop pipelines API pages and keeps
-    // pulling until SpyOwl says hasMore=false. Skip the brand rebuild here;
-    // we do it explicitly below after all creatives are ingested.
     const result = await runScrapeLoop({
       jobId,
       cookie,
-      startSkip: 0,
+      startSkip,
+      maxBatches: MAX_BATCHES_PER_CHUNK,
       skipBrandRebuild: true,
     });
 
-    const total = result?.nextSkip || result?.totalFetched || 0;
-    const inserted = result?.totalInserted || 0;
-    const updated = result?.totalUpdated || 0;
-    console.log(`[cron] Scrape loop done: fetched=${total} (inserted=${inserted}, updated=${updated}), hasMore=${result?.hasMore}, abortedEarly=${result?.abortedEarly}`);
-
-    if (result?.hasMore && !result?.abortedEarly) {
-      // Shouldn't happen with maxBatches=Infinity unless the loop hit a
-      // soft abort condition. Mark as failed with diagnostic info.
-      await failJob(jobId, `Loop exited with hasMore=true at skip=${result.nextSkip} (maxBatches reached?)`);
+    if (result?.cancelled) {
+      console.log(`[cron] Job ${jobId} cancelled during first chunk`);
       return;
     }
+
+    if (result?.abortedEarly) {
+      const cum = startSkip + (result.totalFetched || 0);
+      await failJob(
+        jobId,
+        `Aborted after 3 consecutive batch failures at skip=${result.nextSkip} (reached ${cum.toLocaleString()} creatives)`,
+      );
+      return;
+    }
+
+    if (result?.hasMore) {
+      const chained = await triggerContinuation(jobId, result.nextSkip);
+      if (!chained) {
+        console.error(`[cron] Job ${jobId} first chunk done but chain to ${result.nextSkip} failed; awaiting stale-cleanup recovery`);
+      }
+      return;
+    }
+
+    // Whole scrape fit in one chunk — finalize.
+    const totalCreatives = result.nextSkip;
+    const inserted = result.totalInserted || 0;
+    const updated  = result.totalUpdated  || 0;
 
     await updateProgress(jobId, {
       phase: 'processing',
       percent: 85,
-      message: `Rebuilding brand aggregates from ${total.toLocaleString()} creatives...`,
+      message: `Rebuilding brand aggregates from ${totalCreatives.toLocaleString()} creatives...`,
+      next_skip: result.nextSkip,
       steps: [
-        { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
-        { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
-        { id: 'scan', label: `${total.toLocaleString()} creatives synced (${inserted.toLocaleString()} new, ${updated.toLocaleString()} updated)`, status: result?.abortedEarly ? 'warning' : 'done', ts: new Date().toISOString() },
-        { id: 'brands', label: 'Rebuilding brands...', status: 'active', ts: new Date().toISOString() },
+        { id: 'init',   label: 'Job created',                                            status: 'done',   ts: new Date().toISOString() },
+        { id: 'auth',   label: 'Authenticated',                                          status: 'done',   ts: new Date().toISOString() },
+        { id: 'scan',   label: `${totalCreatives.toLocaleString()} creatives synced (${inserted.toLocaleString()} new, ${updated.toLocaleString()} updated)`, status: 'done', ts: new Date().toISOString() },
+        { id: 'brands', label: 'Rebuilding brands...',                                   status: 'active', ts: new Date().toISOString() },
       ],
     });
 
@@ -154,68 +163,50 @@ async function runFullScrape(jobId, cookie) {
     let brandsOrphaned = 0;
     let brandError = null;
     try {
-      const brandResult = await rebuildBrands();
-      brandsUpdated = brandResult?.brands_updated || 0;
-      brandsInserted = brandResult?.brands_inserted || 0;
-      brandsOrphaned = brandResult?.brands_orphaned || 0;
-      console.log(`[cron] Brands rebuilt: ${brandsInserted} new, ${brandsUpdated} updated, ${brandsOrphaned} orphaned-zeroed`);
+      const br = await rebuildBrands();
+      brandsUpdated  = br?.brands_updated  || 0;
+      brandsInserted = br?.brands_inserted || 0;
+      brandsOrphaned = br?.brands_orphaned || 0;
     } catch (e) {
       brandError = e.message;
       console.error(`[cron] Brand rebuild failed:`, e.message);
     }
 
-    // ─── FINALIZE ───
     const finishedAt = new Date().toISOString();
-    let finalStatus = 'completed';
-    let errorMessage = null;
-
-    if (total === 0) {
-      finalStatus = 'failed';
-      errorMessage = 'No creatives fetched';
-    } else if (result?.abortedEarly || brandError) {
-      finalStatus = brandError ? 'completed_with_errors' : 'completed';
-      const parts = [];
-      if (result?.abortedEarly) parts.push('Aborted after consecutive batch failures');
-      if (brandError) parts.push(`Brand rebuild failed: ${brandError}`);
-      errorMessage = parts.join('. ');
-    }
-
     await updateJobState(
       jobId,
       {
-        status: finalStatus,
+        status: brandError ? 'completed_with_errors' : 'completed',
         finished_at: finishedAt,
-        creatives_synced: total,
-        new_creatives: inserted,
+        creatives_synced:  totalCreatives,
+        new_creatives:     inserted,
         updated_creatives: updated,
-        brands_updated: brandsUpdated,
-        new_brands: brandsInserted,
-        total_api: result?.spyowlTotal || 0,
-        error_message: errorMessage,
+        brands_updated:    brandsUpdated,
+        new_brands:        brandsInserted,
+        error_message:     brandError,
       },
       {
         phase: 'done',
         percent: 100,
-        message: errorMessage
-          ? `Done with warnings: ${total.toLocaleString()} creatives, ${brandsUpdated.toLocaleString()} brands`
-          : `Done! ${total.toLocaleString()} creatives (${inserted.toLocaleString()} new), ${brandsUpdated.toLocaleString()} brands (${brandsInserted.toLocaleString()} new, ${brandsOrphaned.toLocaleString()} orphaned)`,
+        next_skip: result.nextSkip,
+        message: brandError
+          ? `Done with brand rebuild errors: ${brandError}`
+          : `Done! ${totalCreatives.toLocaleString()} creatives (${inserted.toLocaleString()} new), ${brandsUpdated.toLocaleString()} brands (${brandsInserted.toLocaleString()} new, ${brandsOrphaned.toLocaleString()} orphaned)`,
         steps: [
-          { id: 'init', label: 'Job created', status: 'done', ts: new Date().toISOString() },
-          { id: 'auth', label: 'Authenticated', status: 'done', ts: new Date().toISOString() },
-          { id: 'scan', label: `${total.toLocaleString()} creatives synced (${inserted.toLocaleString()} new)`, status: result?.abortedEarly ? 'warning' : 'done', ts: new Date().toISOString() },
-          { id: 'brands', label: brandError ? 'Brand rebuild failed' : `${brandsUpdated.toLocaleString()} brands rebuilt (${brandsInserted.toLocaleString()} new, ${brandsOrphaned.toLocaleString()} orphans zeroed)`, status: brandError ? 'error' : 'done', ts: new Date().toISOString() },
-          { id: 'done', label: errorMessage ? 'Completed with warnings' : 'Scrape complete', status: errorMessage ? 'warning' : 'done', ts: finishedAt },
+          { id: 'init',   label: 'Job created',                                            status: 'done',                          ts: finishedAt },
+          { id: 'auth',   label: 'Authenticated',                                          status: 'done',                          ts: finishedAt },
+          { id: 'scan',   label: `${totalCreatives.toLocaleString()} creatives synced`,    status: 'done',                          ts: finishedAt },
+          { id: 'brands', label: brandError ? 'Brand rebuild failed' : `${brandsUpdated.toLocaleString()} brands rebuilt`, status: brandError ? 'error' : 'done', ts: finishedAt },
+          { id: 'done',   label: brandError ? 'Completed with errors' : 'Scrape complete', status: brandError ? 'warning' : 'done', ts: finishedAt },
         ],
       },
     );
-
-    console.log(`[cron] Job ${jobId} finalized: ${finalStatus}, ${total} creatives, ${brandsUpdated} brands`);
   } catch (err) {
-    console.error(`[cron] Scrape aborted:`, err.message);
+    console.error(`[cron] runFirstChunk fatal:`, err.message);
     try {
-      await failJob(jobId, `Scheduled scrape aborted: ${err.message}`);
+      await failJob(jobId, `First chunk crashed: ${err.message}`);
     } catch (e) {
-      console.error(`[cron] Could not persist failure state:`, e.message);
+      console.error(`[cron] Could not persist failure:`, e.message);
     }
   }
 }

@@ -22,6 +22,9 @@
     },
     "app/api/admin/scraper/trigger/route.js": {
       "maxDuration": 300
+    },
+    "app/api/admin/scraper/continue/route.js": {
+      "maxDuration": 300
     }
   }
 }
