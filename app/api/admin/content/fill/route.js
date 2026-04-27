@@ -15,7 +15,7 @@ export const maxDuration = 300
  *
  * Phase transition: outline → article (full_article populated)
  * Uses the approved sections/faq as the structural skeleton.
- * 
+ *
  * PERSONA INTEGRATION:
  * - Randomly selects one of three writer personas (Webb/Nair/Ortiz)
  * - Each persona has distinct voice, system prompt, and user prompt template
@@ -135,33 +135,64 @@ function bodyToHtml(body) {
 
 /**
  * Build full HTML from structured article data.
- * Renders: Summary → Key Takeaways → Body sections with social proof →
- *          Not For You → FAQ with schema → Source Ledger → Related Investigations →
- *          Author bio → Article + FAQPage JSON-LD schemas
+ *
+ * Renders ONLY: Key Takeaways → Body sections (with social proof + visuals) →
+ *               Not For You → Related Investigations → Author bio.
+ *
+ * DOES NOT render: article.summary, FAQ section, Source Ledger, Article
+ * JSON-LD, FAQPage JSON-LD. Those are rendered by the Replit SSR layer
+ * (artifacts/crypto-review/server/prerender.ts -> renderBlogPost) from the
+ * structured `summary`, `faq`, `sources` columns and from the @graph
+ * builder. Rendering them inline here too produced visible duplicate
+ * intro paragraphs, two FAQ sections, two Source sections, and double
+ * structured data per page (the romance-scammer-red-flags incident).
+ *
+ * This mirrors the matching fix in app/api/admin/content/generate/route.js
+ * (commit 4822c58).
  */
 function buildArticleHtml(article, persona) {
   const sections = Array.isArray(article.sections) ? article.sections : []
-  const faq = Array.isArray(article.faq) ? article.faq : []
   const keyTakeaways = Array.isArray(article.key_takeaways) ? article.key_takeaways : []
   const notForYou = article.not_for_you || ''
   const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
-  const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
-  const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
-  // Normalize accessed_date to today — AI models return unreliable/identical dates
-  const todayDate = new Date().toISOString().slice(0, 10)
-  const sources = (Array.isArray(article.sources) ? article.sources : [])
-    .map(s => ({ ...s, accessed_date: todayDate }))
+
+  // Strip leading author name from bio if the model echoed it back. The
+  // renderer prepends "{authorName} — " around the bio, so a bio that
+  // starts with "P. Nair investigates ..." becomes "P. Nair — P. Nair
+  // investigates ...". Defensive strip at write time.
+  const rawBio = article.author_bio || `investigates cryptocurrency fraud at CryptoKiller.`
+  const escapedAuthor = authorName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const stutterStripRe = new RegExp(`^\\s*${escapedAuthor}\\s*[—\\-:,]?\\s*`, 'i')
+  const authorBio = String(rawBio).replace(stutterStripRe, '').trim() || rawBio
+
+  // Filter internal_links to entries with real slugs. The prompt forbids
+  // '#' / 'TBD' placeholders, but a defensive filter prevents broken links
+  // in the rendered HTML even if the model regresses or legacy drafts
+  // slip through. Drops the Related Investigations section entirely if
+  // nothing valid survives.
+  const internalLinks = (Array.isArray(article.internal_links) ? article.internal_links : [])
+    .filter((l) => {
+      const t = String(l?.target_slug || '').trim()
+      return t && t !== '#' && t !== 'TBD' && t.toLowerCase() !== 'todo' && t.length > 1
+    })
+
   const socialProof = Array.isArray(article.social_proof) ? article.social_proof : []
   const visualPlaceholders = Array.isArray(article.visual_placeholders) ? article.visual_placeholders : []
 
   const parts = []
 
-  if (article.summary) {
-    parts.push(`<p class="article-summary">${article.summary}</p>`)
-  }
+  // NOTE: article.summary is NOT rendered here. Replit SSR emits it as a
+  // <p class="article-summary"> between byline and body. Rendering it inline
+  // would produce the visible duplicate intro paragraph.
 
+  // Key Takeaways (BLUF) — Replit SSR does NOT render this, so we do.
   if (keyTakeaways.length > 0) {
-    parts.push(`<div class="key-takeaways">\n<h2>Key Takeaways</h2>\n<ul>\n${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}\n</ul>\n</div>`)
+    parts.push(`<div class="key-takeaways">
+<h2>Key Takeaways</h2>
+<ul>
+${keyTakeaways.map((t) => `<li>${t}</li>`).join('\n')}
+</ul>
+</div>`)
   }
 
   // Distribute social proof evenly — first quote appears by section 1, max 1 per section, no clustering
@@ -192,9 +223,31 @@ function buildArticleHtml(article, persona) {
     })
   }
 
+  // Defence-in-depth: strip the two patterns the writer prompt now forbids,
+  // in case a model regression slips one in. The publish quality gate also
+  // catches these but cleaning at render time keeps the rendered HTML safe.
+  //   1. "This section [verb]..." opener (description-of-section, not content)
+  //   2. "This topic relates to the broader area of '...'" trailer (taxonomy leak)
+  // Plus strip a leading echo of article.summary if the model repeats it
+  // at the start of the first section body — produces visible duplicate
+  // intro paragraphs on the published page.
+  const SKELETON_OPENER = /^\s*This\s+section\s+(?:explains|walks\s+through|defines|addresses|provides|details|covers|describes|outlines|introduces|presents|discusses|examines|explores|breaks\s+down)[^.]*\.\s*/i
+  const TAXONOMY_TRAILER = /\s*This\s+(?:topic|article|guide|page|section)\s+(?:relates\s+to|is\s+part\s+of|falls\s+under|sits\s+under|belongs\s+to)\s+the\s+broader\s+(?:area|topic|category)\s+of\s+["“'][^"”']+["”']\.?\s*/gi
+
   for (let i = 0; i < sections.length; i++) {
     const s = sections[i]
-    let sectionHtml = `<h2>${s.heading || 'Section'}</h2>\n${bodyToHtml(s.body)}`
+    let cleanBody = String(s.body || '')
+    cleanBody = cleanBody.replace(SKELETON_OPENER, '')
+    cleanBody = cleanBody.replace(TAXONOMY_TRAILER, ' ')
+    if (i === 0 && article.summary) {
+      const sumWords = String(article.summary).trim().split(/\s+/).slice(0, 12).join(' ')
+      if (sumWords.length > 30 && cleanBody.startsWith(sumWords)) {
+        cleanBody = cleanBody.slice(sumWords.length).replace(/^[^A-Z0-9]*/, '').trim()
+      }
+    }
+    cleanBody = cleanBody.trim()
+
+    let sectionHtml = `<h2>${s.heading || 'Section'}</h2>\n${bodyToHtml(cleanBody)}`
 
     if (visualMap[i]) {
       for (const vp of visualMap[i]) {
@@ -224,51 +277,24 @@ function buildArticleHtml(article, persona) {
     parts.push(`<div class="not-for-you">\n<h2>When This Guide Does NOT Apply</h2>\n${bodyToHtml(notForYou)}\n</div>`)
   }
 
-  if (faq.length > 0) {
-    parts.push(`<div class="faq-section">\n<h2>Frequently Asked Questions</h2>\n${faq.map(f => `<details>\n<summary>${f.question}</summary>\n<p>${f.answer || ''}</p>\n</details>`).join('\n')}\n</div>`)
-    const faqSchema = {
-      '@context': 'https://schema.org',
-      '@type': 'FAQPage',
-      mainEntity: faq.map(f => ({
-        '@type': 'Question',
-        name: f.question,
-        acceptedAnswer: { '@type': 'Answer', text: f.answer || '' },
-      })),
-    }
-    parts.push(`<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`)
-  }
+  // FAQ — DO NOT render in fullArticle. Replit SSR (renderBlogPost) emits
+  // both the FAQ section and the FAQPage JSON-LD from row.faq. Inline
+  // render produced two FAQ sections per page and duplicate structured data.
 
-  // Source Ledger
-  if (sources.length > 0) {
-    parts.push(`<div class="source-ledger">\n<h3>Sources & References</h3>\n<ol>\n${sources.map(s => {
-      const typeLabel = s.type ? `[${s.type}]` : ''
-      const dateLabel = s.accessed_date ? ` (accessed ${s.accessed_date})` : ''
-      return `<li>${typeLabel} <a href="${s.url || '#'}" target="_blank" rel="noopener noreferrer">${s.title || s.url}</a>${dateLabel}</li>`
-    }).join('\n')}\n</ol>\n</div>`)
-  }
+  // Source Ledger — DO NOT render in fullArticle. Same reason: Replit SSR
+  // renders a single Sources section from row.sources. The structured
+  // `sources` column is the canonical store.
 
   if (internalLinks.length > 0) {
-    parts.push(`<div class="related-reading">\n<h3>Related Investigations</h3>\n<ul>\n${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}\n</ul>\n</div>`)
+    parts.push(`<div class="related-reading">\n<h3>Related Investigations</h3>\n<ul>\n${internalLinks.map((l) => `<li><a href="${l.target_slug}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}\n</ul>\n</div>`)
   }
 
   parts.push(`<div class="author-bio">\n<p><strong>${authorName}</strong> — ${authorBio}</p>\n</div>`)
 
-  // Article JSON-LD schema
-  const articleSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'BlogPosting',
-    headline: article.headline || article.title || '',
-    description: article.meta_description || article.summary || '',
-    author: { '@type': 'Person', name: authorName, description: authorBio },
-    publisher: { '@type': 'Organization', name: 'CryptoKiller', url: 'https://cryptokiller.org' },
-    datePublished: new Date().toISOString().slice(0, 10),
-    dateModified: new Date().toISOString().slice(0, 10),
-    mainEntityOfPage: { '@type': 'WebPage' },
-    ...(sources.length > 0 ? {
-      citation: sources.slice(0, 5).map(s => ({ '@type': 'CreativeWork', name: s.title || '', url: s.url || '' })),
-    } : {}),
-  }
-  parts.push(`<script type="application/ld+json">${JSON.stringify(articleSchema)}</script>`)
+  // Article JSON-LD — emitted by Replit SSR from the full @graph (with
+  // ClaimReview / Article / Speakable / citation[] / about / mentions).
+  // Don't emit a second BlogPosting here; duplicate structured-data
+  // downgrades the trust signal.
 
   return parts.join('\n\n')
 }
@@ -360,10 +386,11 @@ function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedg
     sections: filledSections,
     faq: filledFaq,
     sources: sourceLedger || [],
-    internal_links: [
-      { anchor_text: 'how crypto scam funnels work', target_topic: 'scam mechanics', context: 'Explaining persuasion stages.' },
-      { anchor_text: 'crypto scam recovery checklist', target_topic: 'recovery', context: 'Post-loss action sections.' },
-    ],
+    // internal_links intentionally empty in the deterministic fallback. The
+    // previous hardcoded entries used a `target_topic` field that the
+    // renderer ignores (it reads `target_slug`) — so they always rendered as
+    // broken `#` links. The publish quality gate would also reject them.
+    internal_links: [],
   }
 }
 
@@ -489,8 +516,9 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           const available = getAvailableModels()
           // Budget: opus 120 + sonnet 80 + gemini 50 = 250s, leaving ~50s for
           // visuals + audit + save + deterministic fallback inside maxDuration=300s.
-          // With effort:'low' on Claude 4.6, opus typically returns 6–8k-token
-          // articles in well under 90s; 120s is generous headroom.
+          // With effort:'low' on Claude 4.6 (now correctly placed under
+          // output_config — see lib/ai-models.js), opus typically returns
+          // 6–8k-token articles in well under 90s; 120s is generous headroom.
           const writeAttempts = [
             { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 120000, label: 'opus-primary' },
             { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 80000, label: 'sonnet-compact' },
@@ -662,7 +690,8 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               summary: article.summary || content.summary,
               full_article: fullArticleHtml,
               sections: articleSections,
-              faq: articleFaq,              sources: article.sources || sourceLedger,
+              faq: articleFaq,
+              sources: article.sources || sourceLedger,
               internal_links: article.internal_links || content.internal_links || [],
               not_for_you: article.not_for_you || null,
               information_gain_summary: article.information_gain_summary || null,
