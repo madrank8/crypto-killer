@@ -30,16 +30,34 @@ import {
 export const revalidate = 60
 export const dynamicParams = true
 
+// Build-time hardening — if Supabase is unhealthy when Vercel runs `next
+// build`, generateStaticParams hangs and `Collecting page data` aborts after
+// 60s, then again after 60s, killing the deploy. We saw this on incident
+// 2026-04-27 when a runaway scraper PATCH exhausted PostgREST's connection
+// pool: production was burning, the fix was committed, but the deploy that
+// would have shipped the fix couldn't build because the DB the build needed
+// was the DB the build was supposed to heal. To break the loop, we race the
+// Supabase call against a hard timeout — if the DB doesn't respond in 8s
+// we ship a dynamic-only build (every slug rendered at first request and
+// cached via revalidate=60). dynamicParams=true already covers this path.
+const STATIC_PARAMS_TIMEOUT_MS = 8000
+
 export async function generateStaticParams() {
   try {
-    const reviews = await supabaseRequest(
-      "/reviews?select=slug&status=eq.published"
-    )
-    return reviews.map((review) => ({
-      slug: review.slug,
-    }))
+    const reviews = await Promise.race([
+      supabaseRequest('/reviews?select=slug&status=eq.published'),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`generateStaticParams timeout after ${STATIC_PARAMS_TIMEOUT_MS}ms`)),
+          STATIC_PARAMS_TIMEOUT_MS
+        )
+      ),
+    ])
+    return (reviews || []).map((review) => ({ slug: review.slug }))
   } catch (error) {
-    console.error('Error generating static params:', error)
+    // Don't fail the build over this. Empty list + dynamicParams=true means
+    // every slug renders on first request instead of being prebuilt.
+    console.warn('[review/[slug]] generateStaticParams falling back to dynamic-only:', error.message)
     return []
   }
 }
