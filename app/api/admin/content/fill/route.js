@@ -487,11 +487,15 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           let writerModelUsed = 'deterministic-fallback'
 
           const available = getAvailableModels()
+          // Budget: opus 120 + sonnet 80 + gemini 50 = 250s, leaving ~50s for
+          // visuals + audit + save + deterministic fallback inside maxDuration=300s.
+          // With effort:'low' on Claude 4.6, opus typically returns 6–8k-token
+          // articles in well under 90s; 120s is generous headroom.
           const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 180000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 120000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 120000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 80000, label: 'sonnet-compact' },
             ...(available.google
-              ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, jsonMode: true, label: 'gemini-fallback' }]
+              ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 50000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
           ]
           for (let i = 0; i < writeAttempts.length; i++) {
