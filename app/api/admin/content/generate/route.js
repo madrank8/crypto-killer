@@ -153,8 +153,23 @@ function buildArticleHtml(article, persona) {
   const keyTakeaways = Array.isArray(article.key_takeaways) ? article.key_takeaways : []
   const notForYou = article.not_for_you || ''
   const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
-  const authorBio = article.author_bio || `${authorName} investigates cryptocurrency fraud at CryptoKiller.`
-  const internalLinks = Array.isArray(article.internal_links) ? article.internal_links : []
+  // Strip leading author name from bio if the model echoed it back. The renderer
+  // already prepends "{authorName} — " around the bio, so a bio like
+  // "P. Nair investigates ..." becomes "P. Nair — P. Nair investigates ...".
+  // Prevent that stutter at write time so it never reaches the published page.
+  const rawBio = article.author_bio || `investigates cryptocurrency fraud at CryptoKiller.`
+  const authorBio = String(rawBio)
+    .replace(new RegExp(`^\\s*${authorName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\s*[—\\-:,]?\\s*`, 'i'), '')
+    .trim() || rawBio
+  // Filter internal_links to entries with real slugs — the prompt forbids '#'
+  // placeholders, but we defend the renderer too. An entry with no usable
+  // target_slug becomes a broken link in the published HTML and a Google
+  // spam signal; drop it.
+  const internalLinks = (Array.isArray(article.internal_links) ? article.internal_links : [])
+    .filter(l => {
+      const t = String(l?.target_slug || '').trim()
+      return t && t !== '#' && t !== 'TBD' && t.length > 1
+    })
   // Normalize accessed_date to today — AI models return unreliable/identical dates
   const todayDate = new Date().toISOString().slice(0, 10)
   const sources = (Array.isArray(article.sources) ? article.sources : [])
@@ -164,10 +179,11 @@ function buildArticleHtml(article, persona) {
 
   const parts = []
 
-  // Summary / intro
-  if (article.summary) {
-    parts.push(`<p class="article-summary">${article.summary}</p>`)
-  }
+  // NOTE: Do NOT render `article.summary` here. The Replit SSR (prerender.ts
+  // renderBlogPost) already emits it once as a paragraph between the byline
+  // and the article body, sourced from row.summary. Rendering it here too
+  // produced the duplicate intro paragraph that appeared on every blog post
+  // before this fix.
 
   // Key Takeaways (BLUF)
   if (keyTakeaways.length > 0) {
@@ -212,7 +228,30 @@ ${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}
   // Body sections with integrated social proof and visual placeholders
   for (let i = 0; i < sections.length; i++) {
     const s = sections[i]
-    const bodyHtml = bodyToHtml(s.body)
+    // Defence in depth — strip the two most common leak patterns that the
+    // writer prompt now forbids, in case a model regression slips one in:
+    //   1. "This section [verb]..." opener (description of section, not content)
+    //   2. "This topic relates to the broader area of '...'" trailer (taxonomy leak)
+    // Also strip a leading echo of article.summary if the model repeats it
+    // at the start of the first section body — produces visible duplicate
+    // intro paragraphs on the published page.
+    let cleanBody = String(s.body || '')
+    cleanBody = cleanBody.replace(
+      /^\s*This\s+section\s+(?:explains|walks\s+through|defines|addresses|provides|details|covers|describes|outlines|introduces|presents|discusses|examines|explores|breaks\s+down)[^.]*\.\s*/i,
+      ''
+    )
+    cleanBody = cleanBody.replace(
+      /\s*This\s+(?:topic|article|guide|page|section)\s+(?:relates\s+to|is\s+part\s+of|falls\s+under|sits\s+under|belongs\s+to)\s+the\s+broader\s+(?:area|topic|category)\s+of\s+["“'][^"”']+["”']\.?\s*/gi,
+      ' '
+    )
+    if (i === 0 && article.summary) {
+      const sumWords = String(article.summary).trim().split(/\s+/).slice(0, 12).join(' ')
+      if (sumWords.length > 30 && cleanBody.startsWith(sumWords)) {
+        cleanBody = cleanBody.slice(sumWords.length).replace(/^[^A-Z0-9]*/, '').trim()
+      }
+    }
+    cleanBody = cleanBody.trim()
+    const bodyHtml = bodyToHtml(cleanBody)
 
     let sectionHtml = `<h2>${s.heading || 'Section'}</h2>\n${bodyHtml}`
 
@@ -259,52 +298,25 @@ ${bodyToHtml(notForYou)}
 </div>`)
   }
 
-  // FAQ with FAQPage schema markup
-  if (faq.length > 0) {
-    parts.push(`<div class="faq-section">
-<h2>Frequently Asked Questions</h2>
-${faq.map(f => `<details>
-<summary>${f.question}</summary>
-<p>${f.answer || ''}</p>
-</details>`).join('\n')}
-</div>`)
+  // FAQ — DO NOT render in fullArticle. The Replit SSR (renderBlogPost)
+  // emits the FAQ section AND the FAQPage JSON-LD from row.faq. If we render
+  // here too, the page shows two FAQ sections and the JSON-LD is duplicated.
+  // The FAQ data is persisted via the structured `faq` column (see the
+  // /content INSERT below) so the prerender has everything it needs.
 
-    // FAQPage JSON-LD schema
-    const faqSchema = {
-      '@context': 'https://schema.org',
-      '@type': 'FAQPage',
-      mainEntity: faq.map(f => ({
-        '@type': 'Question',
-        name: f.question,
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: f.answer || '',
-        },
-      })),
-    }
-    parts.push(`<script type="application/ld+json">${JSON.stringify(faqSchema)}</script>`)
-  }
+  // Source Ledger — DO NOT render in fullArticle. Same reason: the Replit
+  // SSR renders a single Sources section from row.sources. The structured
+  // `sources` column is the canonical store.
 
-  // Source Ledger section (rendered with clickable links)
-  if (sources.length > 0) {
-    parts.push(`<div class="source-ledger">
-<h3>Sources & References</h3>
-<ol>
-${sources.map(s => {
-  const typeLabel = s.type ? `[${s.type}]` : ''
-  const dateLabel = s.accessed_date ? ` (accessed ${s.accessed_date})` : ''
-  return `<li>${typeLabel} <a href="${s.url || '#'}" target="_blank" rel="noopener noreferrer">${s.title || s.url}</a>${dateLabel}</li>`
-}).join('\n')}
-</ol>
-</div>`)
-  }
-
-  // Internal links section (rendered as related reading)
+  // Internal links section (rendered as related reading). internalLinks is
+  // already filtered above to drop entries with empty/'#'/'TBD' target_slug,
+  // so any entry that survives has a real URL. If filtering left zero valid
+  // entries, omit the whole section rather than render an empty heading.
   if (internalLinks.length > 0) {
     parts.push(`<div class="related-reading">
 <h3>Related Investigations</h3>
 <ul>
-${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}
+${internalLinks.map(l => `<li><a href="${l.target_slug}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}
 </ul>
 </div>`)
   }
@@ -314,36 +326,12 @@ ${internalLinks.map(l => `<li><a href="${l.target_slug || '#'}">${l.anchor_text}
 <p><strong>${authorName}</strong> — ${authorBio}</p>
 </div>`)
 
-  // Article/BlogPosting JSON-LD schema
-  const articleSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'BlogPosting',
-    headline: article.headline || article.title || '',
-    description: article.meta_description || article.summary || '',
-    author: {
-      '@type': 'Person',
-      name: authorName,
-      description: authorBio,
-    },
-    publisher: {
-      '@type': 'Organization',
-      name: 'CryptoKiller',
-      url: 'https://cryptokiller.org',
-    },
-    datePublished: new Date().toISOString().slice(0, 10),
-    dateModified: new Date().toISOString().slice(0, 10),
-    mainEntityOfPage: {
-      '@type': 'WebPage',
-    },
-    ...(sources.length > 0 ? {
-      citation: sources.slice(0, 5).map(s => ({
-        '@type': 'CreativeWork',
-        name: s.title || '',
-        url: s.url || '',
-      })),
-    } : {}),
-  }
-  parts.push(`<script type="application/ld+json">${JSON.stringify(articleSchema)}</script>`)
+  // Article JSON-LD is emitted by the Replit SSR (renderBlogPost), built
+  // from the full @graph (Organization, Person, Article, FAQPage, citations,
+  // ItemList, HowTo, Dataset, Quotation, ClaimReview). Emitting a second
+  // BlogPosting block inside fullArticle creates duplicate structured-data
+  // and downgrades the trust signal. Strip from fullArticle. The Replit
+  // prerender also defensively strips any <script> baked into row.fullArticle.
 
   return parts.join('\n\n')
 }
