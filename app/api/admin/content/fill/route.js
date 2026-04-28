@@ -512,6 +512,12 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
 
           let article = null
           let writerModelUsed = 'deterministic-fallback'
+          // Per-attempt diagnostic log — captures full error/model/duration/tokens for
+          // every writer try (success or failure). Surfaced via `audit.writer_attempts`
+          // in the saved row, so when the writer pipeline silently falls back we can
+          // see exactly what Anthropic/OpenAI/Google returned without grepping Vercel
+          // runtime logs (which truncate the message after ~80 chars).
+          const writerAttempts = []
 
           const available = getAvailableModels()
           // Budget: opus 120 + sonnet 80 + gemini 50 = 250s, leaving ~50s for
@@ -531,6 +537,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             if (i > 0) {
               send({ step: 'writing', progress: 35 + i * 10, message: `Retrying writer (${attempt.label})...` })
             }
+            const startedAt = Date.now()
             try {
               const res = await callModel(attempt.model, systemPrompt, attempt.user, {
                 maxTokens: 8192,
@@ -539,14 +546,42 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
               })
               article = extractJSON(res.text)
               writerModelUsed = res.resolvedModel || attempt.model
+              writerAttempts.push({
+                label: attempt.label,
+                model: attempt.model,
+                timeoutMs: attempt.timeoutMs,
+                durationMs: Date.now() - startedAt,
+                ok: true,
+                stopReason: res.stopReason || null,
+                inputTokens: res.inputTokens || null,
+                outputTokens: res.outputTokens || null,
+              })
               break
             } catch (e) {
+              const errMsg = String(e?.message || e || 'unknown error').slice(0, 1500)
+              writerAttempts.push({
+                label: attempt.label,
+                model: attempt.model,
+                timeoutMs: attempt.timeoutMs,
+                durationMs: Date.now() - startedAt,
+                ok: false,
+                error: errMsg,
+              })
               console.error(`Writer attempt failed [${attempt.label}]:`, e.message, '| model:', attempt.model, '| timeout:', attempt.timeoutMs)
             }
           }
 
           if (!article || !article.title) {
-            send({ step: 'writing', progress: 60, message: 'AI writer timed out, using deterministic fallback...' })
+            // Surface a structured failure event so the admin UI / SSE consumer
+            // can show the actual per-attempt errors. Also picked up by
+            // `audit.writer_attempts` on save for post-hoc inspection.
+            const firstError = writerAttempts.find((a) => !a.ok)?.error || 'unknown'
+            send({
+              step: 'writers_failed',
+              progress: 60,
+              message: `All ${writerAttempts.length} AI writers failed (first error: ${String(firstError).slice(0, 240)}). Falling back to deterministic outline-shape article.`,
+              writer_attempts: writerAttempts,
+            })
             article = buildDeterministicArticle(topic, parentTopic, sections, content.faq, sourceLedger)
             writerModelUsed = 'deterministic-fallback'
           }
@@ -663,7 +698,7 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           } catch {
             audit = null
           }
-          // ── ADD PERSONA METADATA TO AUDIT ──
+          // ── ADD PERSONA METADATA + WRITER ATTEMPTS TO AUDIT ──
           if (!audit) audit = {}
           audit.social_proof = article.social_proof || []
           audit.writer_persona = {
@@ -672,6 +707,10 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             title: personaMetadata.title,
             model: personaMetadata.model,
           }
+          // Per-attempt diagnostic log. Always saved, even when fallback fires —
+          // gives a permanent record of what Anthropic / OpenAI / Google returned.
+          // Inspect via: SELECT ai_audit->'writer_attempts' FROM content WHERE slug=...
+          audit.writer_attempts = writerAttempts
 
           // Save full article (using pre-built HTML with images already injected)
           send({ step: 'saving', progress: 85, message: 'Saving full article...' })
