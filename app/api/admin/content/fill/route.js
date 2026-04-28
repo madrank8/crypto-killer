@@ -629,6 +629,23 @@ export async function POST(request) {
           const articleFaq = Array.isArray(article.faq) ? article.faq : content.faq || []
           const wordCount = fullArticleHtml.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
+          // ── Unwrap schema_enrichment into dedicated columns ──
+          // The aux writer (lib/aux-writer.js) returns the schema fields wrapped in
+          // an article.schema_enrichment object. The blog_posts table on Supabase has
+          // dedicated columns for each of these (added per memory: '12 new columns on
+          // Vercel side' from the schema-enrichment work). Without this unwrap, the
+          // columns stay empty and Replit SSR's JSON-LD builder loses Article.about,
+          // Article.mentions, Speakable, and properly-typed citation[] data — the
+          // article ranks fine on prose but loses rich-result eligibility.
+          const schemaEnrichment = (article.schema_enrichment && typeof article.schema_enrichment === 'object') ? article.schema_enrichment : {}
+          const aboutSlugs = Array.isArray(schemaEnrichment.about_slugs) ? schemaEnrichment.about_slugs : []
+          const mentionSlugs = Array.isArray(schemaEnrichment.mention_slugs) ? schemaEnrichment.mention_slugs : []
+          const speakableSelectors = Array.isArray(schemaEnrichment.speakable_selectors) && schemaEnrichment.speakable_selectors.length > 0
+            ? schemaEnrichment.speakable_selectors
+            : ['.key-takeaways']
+          const citations = Array.isArray(schemaEnrichment.citations) ? schemaEnrichment.citations : []
+          const dataset = (schemaEnrichment.dataset && typeof schemaEnrichment.dataset === 'object') ? schemaEnrichment.dataset : null
+
           await supaFetch(`/content?id=eq.${contentId}`, {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
@@ -645,6 +662,12 @@ export async function POST(request) {
               not_for_you: article.not_for_you || null,
               information_gain_summary: article.information_gain_summary || null,
               verify_tags_count: typeof article.verify_tags_count === 'number' ? article.verify_tags_count : null,
+              // Schema enrichment columns — unwrapped from article.schema_enrichment
+              about_slugs: aboutSlugs,
+              mention_slugs: mentionSlugs,
+              speakable_selectors: speakableSelectors,
+              citations: citations,
+              dataset: dataset,
               word_count: wordCount,
               ai_model: writerModelUsed,
               ai_audit: audit,
