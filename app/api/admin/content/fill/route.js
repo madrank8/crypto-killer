@@ -520,16 +520,16 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
           const writerAttempts = []
 
           const available = getAvailableModels()
-          // Budget: opus 120 + sonnet 80 + gemini 50 = 250s, leaving ~50s for
+          // Budget: opus 200 + sonnet 60 + gemini 30 = 290s, leaving ~10s for
           // visuals + audit + save + deterministic fallback inside maxDuration=300s.
-          // With effort:'low' on Claude 4.6 (now correctly placed under
-          // output_config — see lib/ai-models.js), opus typically returns
-          // 6–8k-token articles in well under 90s; 120s is generous headroom.
+          // Empirical data from `ai_audit.writer_attempts` showed previous budgets
+          // (120/80/50) fully timing out on this prompt shape, so we bias budget
+          // toward opus and keep retries intentionally shorter.
           const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 120000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 80000, label: 'sonnet-compact' },
+            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 200000, label: 'opus-primary' },
+            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, label: 'sonnet-compact' },
             ...(available.google
-              ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 50000, jsonMode: true, label: 'gemini-fallback' }]
+              ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 30000, jsonMode: true, label: 'gemini-fallback' }]
               : []),
           ]
           for (let i = 0; i < writeAttempts.length; i++) {
