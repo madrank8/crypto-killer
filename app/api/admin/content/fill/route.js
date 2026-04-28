@@ -6,6 +6,7 @@ import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/v
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
 import { runArticlePipeline } from '@/lib/article-pipeline'
+import { resolveArticleEnrichment } from '@/lib/schema-enrichment-resolver'
 
 export const maxDuration = 300
 
@@ -629,22 +630,50 @@ export async function POST(request) {
           const articleFaq = Array.isArray(article.faq) ? article.faq : content.faq || []
           const wordCount = fullArticleHtml.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length
 
-          // ── Unwrap schema_enrichment into dedicated columns ──
-          // The aux writer (lib/aux-writer.js) returns the schema fields wrapped in
-          // an article.schema_enrichment object. The blog_posts table on Supabase has
-          // dedicated columns for each of these (added per memory: '12 new columns on
-          // Vercel side' from the schema-enrichment work). Without this unwrap, the
-          // columns stay empty and Replit SSR's JSON-LD builder loses Article.about,
-          // Article.mentions, Speakable, and properly-typed citation[] data — the
-          // article ranks fine on prose but loses rich-result eligibility.
-          const schemaEnrichment = (article.schema_enrichment && typeof article.schema_enrichment === 'object') ? article.schema_enrichment : {}
+          // ── Schema enrichment v2 — resolve slugs to full Schema.org entities ──
+          // The aux writer (lib/aux-writer.js) emits high-level slug-based data:
+          //   schema_enrichment.about_slugs, .mention_slugs, .citations, .speakable_selectors, .dataset
+          // The resolver (lib/schema-enrichment-resolver.js) augments this with:
+          //   .about[]      — full Schema.org entities (Wikidata Q-IDs + Wikipedia + site-internal @id)
+          //   .mentions[]   — full Schema.org entities for body-mentioned things
+          //   .claims[]     — ClaimReview structures from {{VERIFY:...}} tags
+          //   .how_to       — HowTo structure if a section has step-pattern H3s
+          //   .item_list    — ItemList structure if the article is listicle-shaped
+          //   .quotes[]     — Quotation entities from blockquotes with attribution
+          // Plus diagnostic stats in resolution_stats (saved to ai_audit).
+          //
+          // This means the Replit renderer can stop running its own 23-entity
+          // registry filter — it just trusts the persisted entity data verbatim.
+          // Adding a new entity becomes a one-line change in lib/wikidata-registry.js
+          // on this side; no Replit deploy required.
+          const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://cryptokiller.org'
+          const enrichmentResult = resolveArticleEnrichment(article, {
+            slug: content.slug,
+            baseUrl,
+            topic,
+          })
+          // Merge the resolved enrichment back into the article object so any
+          // downstream rendering (e.g. /review preview, JSON-LD builders) sees
+          // the full data without re-running resolution.
+          article.schema_enrichment = enrichmentResult.schema_enrichment
+          audit.schema_resolution = enrichmentResult.resolution_stats
+
+          const schemaEnrichment = article.schema_enrichment
           const aboutSlugs = Array.isArray(schemaEnrichment.about_slugs) ? schemaEnrichment.about_slugs : []
           const mentionSlugs = Array.isArray(schemaEnrichment.mention_slugs) ? schemaEnrichment.mention_slugs : []
           const speakableSelectors = Array.isArray(schemaEnrichment.speakable_selectors) && schemaEnrichment.speakable_selectors.length > 0
             ? schemaEnrichment.speakable_selectors
-            : ['.key-takeaways']
+            : ['.key-takeaways', '.section-summary']
           const citations = Array.isArray(schemaEnrichment.citations) ? schemaEnrichment.citations : []
           const dataset = (schemaEnrichment.dataset && typeof schemaEnrichment.dataset === 'object') ? schemaEnrichment.dataset : null
+          // v2 — full Schema.org entity arrays (NEW columns)
+          const about = Array.isArray(schemaEnrichment.about) ? schemaEnrichment.about : []
+          const mentions = Array.isArray(schemaEnrichment.mentions) ? schemaEnrichment.mentions : []
+          // v2 — rich-result structures (existing columns, were unused before)
+          const claims = Array.isArray(schemaEnrichment.claims) ? schemaEnrichment.claims : []
+          const howTo = (schemaEnrichment.how_to && typeof schemaEnrichment.how_to === 'object') ? schemaEnrichment.how_to : null
+          const itemList = (schemaEnrichment.item_list && typeof schemaEnrichment.item_list === 'object') ? schemaEnrichment.item_list : null
+          const quotes = Array.isArray(schemaEnrichment.quotes) ? schemaEnrichment.quotes : []
 
           await supaFetch(`/content?id=eq.${contentId}`, {
             method: 'PATCH',
@@ -662,12 +691,19 @@ export async function POST(request) {
               not_for_you: article.not_for_you || null,
               information_gain_summary: article.information_gain_summary || null,
               verify_tags_count: typeof article.verify_tags_count === 'number' ? article.verify_tags_count : null,
-              // Schema enrichment columns — unwrapped from article.schema_enrichment
+              // Schema enrichment columns (v1 — slug + simple shapes)
               about_slugs: aboutSlugs,
               mention_slugs: mentionSlugs,
               speakable_selectors: speakableSelectors,
               citations: citations,
               dataset: dataset,
+              // Schema enrichment v2 — full Schema.org entities and rich-result structures
+              about: about,
+              mentions: mentions,
+              claims: claims,
+              how_to: howTo,
+              item_list: itemList,
+              quotes: quotes,
               word_count: wordCount,
               ai_model: writerModelUsed,
               ai_audit: audit,
