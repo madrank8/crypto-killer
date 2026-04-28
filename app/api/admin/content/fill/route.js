@@ -5,6 +5,7 @@ import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
+import { runArticlePipeline } from '@/lib/article-pipeline'
 
 export const maxDuration = 300
 
@@ -357,43 +358,6 @@ async function fetchPublishedSlugs() {
   }
 }
 
-function buildDeterministicArticle(topic, parentTopic, sections, faq, sourceLedger) {
-  const topicTitle = topic?.title || 'Crypto Scam Guide'
-  const keyword = topic?.target_keyword || topicTitle
-  const parentTitle = parentTopic?.title
-
-  // Use the approved outline sections, fill body from description + key_points
-  const filledSections = (sections || []).map((s) => ({
-    heading: s.heading,
-    body: [
-      s.description || '',
-      ...(s.key_points || []).map((kp) => `${kp}.`),
-      parentTitle ? `This topic relates to the broader area of "${parentTitle}".` : '',
-    ]
-      .filter(Boolean)
-      .join(' '),
-  }))
-  const filledFaq = (faq || []).map((f) => ({
-    question: f.question,
-    answer: f.answer || f.answer_hint || `For questions about ${keyword}, verify claims independently and consult official sources before taking action.`,
-  }))
-
-  return {
-    title: topic?.title || `${topicTitle}: Safety Guide`,
-    headline: topic?.headline || `${topicTitle} — How to Verify Claims and Avoid Losses`,
-    meta_description: `Practical safety guide for ${keyword}. Learn red flags, verification steps, and what to do if targeted.`,
-    summary: `This guide explains how ${keyword} scams typically operate, how to verify claims before sending money, and what steps to take if you were targeted.`,
-    sections: filledSections,
-    faq: filledFaq,
-    sources: sourceLedger || [],
-    // internal_links intentionally empty in the deterministic fallback. The
-    // previous hardcoded entries used a `target_topic` field that the
-    // renderer ignores (it reads `target_slug`) — so they always rendered as
-    // broken `#` links. The publish quality gate would also reject them.
-    internal_links: [],
-  }
-}
-
 export async function POST(request) {
   try {
     verifyAdmin(request)
@@ -479,113 +443,56 @@ export async function POST(request) {
             approved_faq: content.faq || [],
           }
 
-          send({ step: 'writing', progress: 25, message: `Writing article using ${personaMetadata.name}...` })
+          send({ step: 'writing', progress: 22, message: `Writing article via 4-stage pipeline (skeleton -> sections -> faq + aux)...` })
 
-          // ── GET PERSONA PROMPTS (with platform intelligence + published slugs) ──
-          const personaPrompts = getPersonaPrompts(persona, enhancedTopic, parentTopic, sourceLedger, enhancedTopic.approved_outline, enhancedTopic.approved_faq, {
-            platformIntelligence,
+          // ── 4-STAGE ARTICLE PIPELINE ──
+          // Replaces the previous monolithic single-call writer. Stages:
+          //   A. Skeleton  (Haiku):   title, headline, meta, summary, key_takeaways
+          //   B. Sections  (Opus×N parallel, Sonnet retry, deterministic fallback):
+          //                full body for each outline section
+          //   C. FAQ       (Haiku):   all FAQ answers
+          //   D. Aux       (Haiku):   not_for_you, social_proof, visual_placeholders,
+          //                internal_links, schema_enrichment, author_bio
+          // Per-section retry isolation means one writer failure no longer kills the
+          // whole article. Wall clock ~75-90s typical (was 120-200s monolithic).
+          // Each stage's attempts are captured in pipelineStages and persisted to
+          // ai_audit.pipeline_stages (and also ai_audit.writer_attempts as a legacy
+          // alias for any consumer that hasn't migrated).
+          const pipelineResult = await runArticlePipeline({
+            topic,
+            parentTopic,
+            sections,
+            faq: content.faq || [],
+            sourceLedger,
+            persona,
             publishedSlugs,
+            platformIntelligence,
+            onProgress: (event) => send(event),
           })
-          const systemPrompt = personaPrompts.system
-          const baseUserPrompt = personaPrompts.user
 
-          // Augment the user prompt with the approved outline and FAQ
-          const outlineBlock = sections
-            .map((s, i) => {
-              const kp = (s.key_points || []).map((p) => `  - ${p}`).join('\n')
-              return `${i + 1}. ${s.heading} (~${s.target_word_count || 180} words)\n   ${s.description || ''}\n${kp}`
-            })
-            .join('\n\n')
-          const faqBlock = (content.faq || [])
-            .map((f, i) => `${i + 1}. Q: ${f.question}\n   Hint: ${f.answer || f.answer_hint || ''}`)
-            .join('\n')
+          const article = pipelineResult.article
+          const writerModelUsed = pipelineResult.writerModelUsed
+          const pipelineStages = pipelineResult.pipelineStages
 
-          const augmentedUserPrompt = `${baseUserPrompt}
-
-APPROVED OUTLINE (you MUST follow this structure exactly):
-${outlineBlock}
-
-APPROVED FAQ TOPICS (expand each into a full answer):
-${faqBlock}
-
-CRITICAL: Follow the outline section order and headings exactly. Expand each section to the target word count. Write full FAQ answers (40-90 words each).`
-
-          let article = null
-          let writerModelUsed = 'deterministic-fallback'
-          // Per-attempt diagnostic log — captures full error/model/duration/tokens for
-          // every writer try (success or failure). Surfaced via `audit.writer_attempts`
-          // in the saved row, so when the writer pipeline silently falls back we can
-          // see exactly what Anthropic/OpenAI/Google returned without grepping Vercel
-          // runtime logs (which truncate the message after ~80 chars).
-          const writerAttempts = []
-
-          const available = getAvailableModels()
-          // Budget: opus 200 + sonnet 60 + gemini 30 = 290s, leaving ~10s for
-          // visuals + audit + save + deterministic fallback inside maxDuration=300s.
-          // Empirical data from `ai_audit.writer_attempts` showed previous budgets
-          // (120/80/50) fully timing out on this prompt shape, so we bias budget
-          // toward opus and keep retries intentionally shorter.
-          const writeAttempts = [
-            { model: 'claude-opus', user: augmentedUserPrompt, timeoutMs: 200000, label: 'opus-primary' },
-            { model: 'claude-sonnet', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 60000, label: 'sonnet-compact' },
-            ...(available.google
-              ? [{ model: 'gemini-pro', user: `${augmentedUserPrompt}\n\nReturn compact JSON only.`, timeoutMs: 30000, jsonMode: true, label: 'gemini-fallback' }]
-              : []),
-          ]
-          for (let i = 0; i < writeAttempts.length; i++) {
-            const attempt = writeAttempts[i]
-            if (i > 0) {
-              send({ step: 'writing', progress: 35 + i * 10, message: `Retrying writer (${attempt.label})...` })
-            }
-            const startedAt = Date.now()
-            try {
-              const res = await callModel(attempt.model, systemPrompt, attempt.user, {
-                maxTokens: 8192,
-                timeoutMs: attempt.timeoutMs,
-                ...(attempt.jsonMode ? { jsonMode: true } : {}),
-              })
-              article = extractJSON(res.text)
-              writerModelUsed = res.resolvedModel || attempt.model
-              writerAttempts.push({
-                label: attempt.label,
-                model: attempt.model,
-                timeoutMs: attempt.timeoutMs,
-                durationMs: Date.now() - startedAt,
-                ok: true,
-                stopReason: res.stopReason || null,
-                inputTokens: res.inputTokens || null,
-                outputTokens: res.outputTokens || null,
-              })
-              break
-            } catch (e) {
-              const errMsg = String(e?.message || e || 'unknown error').slice(0, 1500)
-              writerAttempts.push({
-                label: attempt.label,
-                model: attempt.model,
-                timeoutMs: attempt.timeoutMs,
-                durationMs: Date.now() - startedAt,
-                ok: false,
-                error: errMsg,
-              })
-              console.error(`Writer attempt failed [${attempt.label}]:`, e.message, '| model:', attempt.model, '| timeout:', attempt.timeoutMs)
-            }
-          }
-
-          if (!article || !article.title) {
-            // Surface a structured failure event so the admin UI / SSE consumer
-            // can show the actual per-attempt errors. Also picked up by
-            // `audit.writer_attempts` on save for post-hoc inspection.
-            const firstError = writerAttempts.find((a) => !a.ok)?.error || 'unknown'
+          if (pipelineResult.overallDeterministic) {
+            // Every stage's AI calls failed — surface clearly, but the article still
+            // ships (per-stage deterministic fallbacks produce complete content).
+            // The publish quality gate will inspect section bodies separately.
+            const firstError = pipelineStages.find((s) => !s.ok)?.error || 'unknown'
             send({
-              step: 'writers_failed',
-              progress: 60,
-              message: `All ${writerAttempts.length} AI writers failed (first error: ${String(firstError).slice(0, 240)}). Falling back to deterministic outline-shape article.`,
-              writer_attempts: writerAttempts,
+              step: 'pipeline_all_fallback',
+              progress: 75,
+              message: `All AI stages hit deterministic fallback (first error: ${String(firstError).slice(0, 240)}). Article shippable from outline-derived content; review carefully before publish.`,
+              pipeline_stages: pipelineStages,
             })
-            article = buildDeterministicArticle(topic, parentTopic, sections, content.faq, sourceLedger)
-            writerModelUsed = 'deterministic-fallback'
+          } else if (pipelineResult.anyDeterministicFallback) {
+            send({
+              step: 'pipeline_partial_fallback',
+              progress: 75,
+              message: `${pipelineResult.sectionDeterministicCount} of ${sections.length} sections used deterministic fallback. Other stages succeeded; review the affected sections before publish.`,
+              pipeline_stages: pipelineStages,
+            })
           }
-
           // ── Phase 4: Visual Generation ──
           // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] placeholders
           // and replace with actual rendered visuals
@@ -707,10 +614,13 @@ CRITICAL: Follow the outline section order and headings exactly. Expand each sec
             title: personaMetadata.title,
             model: personaMetadata.model,
           }
-          // Per-attempt diagnostic log. Always saved, even when fallback fires —
-          // gives a permanent record of what Anthropic / OpenAI / Google returned.
-          // Inspect via: SELECT ai_audit->'writer_attempts' FROM content WHERE slug=...
-          audit.writer_attempts = writerAttempts
+          // Per-stage diagnostic log. Always saved, even when fallback fires —
+          // gives a permanent record of what every stage's writer attempt did.
+          // Inspect via: SELECT ai_audit->'pipeline_stages' FROM content WHERE slug=...
+          // `writer_attempts` is preserved as a legacy alias pointing to the same
+          // data so any UI or query that reads the old field keeps working.
+          audit.pipeline_stages = pipelineStages
+          audit.writer_attempts = pipelineStages
 
           // Save full article (using pre-built HTML with images already injected)
           send({ step: 'saving', progress: 85, message: 'Saving full article...' })
