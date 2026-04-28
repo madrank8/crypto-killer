@@ -22,26 +22,37 @@ const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ),
 });
 
+function formatPublishErrorPayload(payload, fallbackLabel, status) {
+  const prefix = status ? `[HTTP ${status}] ` : '';
+  if (!payload || typeof payload !== 'object') return `${prefix}${fallbackLabel}`;
+  if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+    const body = payload.errors.join('\n');
+    return payload.reason ? `${prefix}${payload.reason}\n\n${body}` : `${prefix}${body}`;
+  }
+  if (payload.error && payload.reason) return `${prefix}${payload.error}\n${payload.reason}`;
+  if (payload.error) return `${prefix}${payload.error}`;
+  return `${prefix}${fallbackLabel}`;
+}
+
 /**
- * Turn a failed admin API response into a human-readable message.
- * Publish returns 422 with { errors[], reason } from the integrity gate.
+ * Turn a failed admin API response into a human-readable message + structured issues.
+ * Publish returns 422 with { errors[], reason, issues[] } from the integrity gate.
  */
-async function formatAdminApiError(res, fallbackLabel) {
+async function parseAdminApiError(res, fallbackLabel) {
   const prefix = res.status ? `[HTTP ${res.status}] ` : '';
   const raw = await res.text();
-  if (!raw) return `${prefix}${fallbackLabel}`;
+  if (!raw) return { message: `${prefix}${fallbackLabel}`, issues: [] };
   try {
     const j = JSON.parse(raw);
-    if (Array.isArray(j.errors) && j.errors.length > 0) {
-      const body = j.errors.join('\n');
-      return j.reason ? `${prefix}${j.reason}\n\n${body}` : `${prefix}${body}`;
-    }
-    if (j.error && j.reason) return `${prefix}${j.error}\n${j.reason}`;
-    if (j.error) return `${prefix}${j.error}`;
+    return {
+      message: formatPublishErrorPayload(j, fallbackLabel, res.status),
+      issues: Array.isArray(j.issues) ? j.issues : [],
+      payload: j,
+    };
   } catch {
     /* not JSON */
   }
-  return `${prefix}${raw.trim() || fallbackLabel}`;
+  return { message: `${prefix}${raw.trim() || fallbackLabel}`, issues: [] };
 }
 
 const VISUAL_PLACEHOLDER_RE =
@@ -468,6 +479,8 @@ export default function ReviewEditor({ params }) {
   const [saveError, setSaveError] = useState('');
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
+  const [publishIssues, setPublishIssues] = useState([]);
+  const [autoFixing, setAutoFixing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
@@ -702,6 +715,7 @@ export default function ReviewEditor({ params }) {
 
   const handlePublish = async () => {
     setPublishError('');
+    setPublishIssues([]);
     setSyncMsg('');
     setPublishing(true);
     try {
@@ -719,6 +733,7 @@ export default function ReviewEditor({ params }) {
       if (res.ok) {
         const data = await res.json();
         setReview((r) => ({ ...r, status: 'published' }));
+        setPublishIssues([]);
         // Show live sync feedback
         if (data.live_sync?.success) {
           setSyncMsg('✓ Synced to live site');
@@ -729,12 +744,51 @@ export default function ReviewEditor({ params }) {
           setSyncMsg('⚠ Live sync skipped — REPLIT_SITE_URL not configured');
         }
       } else {
-        setPublishError(await formatAdminApiError(res, 'Publish failed'));
+        const parsed = await parseAdminApiError(res, 'Publish failed');
+        setPublishError(parsed.message);
+        setPublishIssues(parsed.issues || []);
       }
     } catch (err) {
       setPublishError(err?.message || 'Network error while publishing');
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handleAutoFixIssues = async (issuesToFix, republish = false, options = {}) => {
+    if (!Array.isArray(issuesToFix) || issuesToFix.length === 0) return;
+    setAutoFixing(true);
+    setPublishError('');
+    const citationFixMode = options?.citationFixMode === 'replace' ? 'replace' : 'remove';
+    try {
+      const res = await fetch(`/api/admin/reviews/${id}/auto-fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ issues: issuesToFix, citation_fix_mode: citationFixMode }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || `Auto-fix failed (${res.status})`);
+      }
+
+      const appliedCount = Array.isArray(data.applied) ? data.applied.length : 0;
+      const replacementCount = Array.isArray(data.applied)
+        ? data.applied
+            .filter((entry) => entry?.action === 'replace_with_vetted_source')
+            .reduce((sum, entry) => sum + ((entry?.replaced_with || []).length || 0), 0)
+        : 0;
+      setSyncMsg(
+        replacementCount > 0
+          ? `✓ Auto-fix applied ${appliedCount} change${appliedCount === 1 ? '' : 's'} (${replacementCount} citation replacement${replacementCount === 1 ? '' : 's'})`
+          : `✓ Auto-fix applied ${appliedCount} change${appliedCount === 1 ? '' : 's'}`
+      );
+      setPublishIssues([]);
+      await fetchReview();
+      if (republish) await handlePublish();
+    } catch (err) {
+      setPublishError(`Auto-fix failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setAutoFixing(false);
     }
   };
 
@@ -787,7 +841,8 @@ export default function ReviewEditor({ params }) {
           setSyncMsg('⚠ Unpublished in admin; live sync status unavailable');
         }
       } else {
-        setPublishError(await formatAdminApiError(res, 'Failed to unpublish'));
+        const parsed = await parseAdminApiError(res, 'Failed to unpublish');
+        setPublishError(parsed.message);
         setTimeout(() => setPublishError(''), 12000);
       }
     } catch (err) {
@@ -1042,6 +1097,8 @@ export default function ReviewEditor({ params }) {
   const bannerError = polishProgress.error || (
     review.generation_status === 'polish_failed' ? (review.polish_error || 'Polish failed') : null
   );
+  const placeholderIssues = publishIssues.filter((issue) => issue?.code === 'UNRESOLVED_VISUAL_PLACEHOLDER');
+  const citationIssues = publishIssues.filter((issue) => issue?.code === 'INVALID_CITATION_URL');
 
   return (
     <div className="space-y-4">
@@ -1187,6 +1244,67 @@ export default function ReviewEditor({ params }) {
       {(publishError || saveError) && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
           {publishError || saveError}
+        </div>
+      )}
+
+      {publishIssues.length > 0 && (
+        <div className="bg-amber-900/15 border border-amber-600/30 rounded-lg p-3 space-y-3">
+          <p className="text-sm text-amber-300 font-medium">
+            Auto-fix options for publish gate
+          </p>
+          <div className="space-y-2">
+            {publishIssues.map((issue, idx) => (
+              <div key={`${issue.code || 'ISSUE'}-${idx}`} className="text-xs text-amber-200/90 bg-black/20 rounded p-2">
+                <span className="font-semibold">{issue.code || 'ISSUE'}</span>
+                {issue.field ? ` in ${issue.field}` : ''}
+                {issue.url ? ` — ${issue.url}` : ''}
+                {issue.reason ? ` (${issue.reason})` : ''}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {placeholderIssues.length > 0 && (
+              <button
+                onClick={() => handleAutoFixIssues(placeholderIssues, false)}
+                disabled={autoFixing}
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-blue-600/15 text-blue-300 hover:bg-blue-600/25 border border-blue-500/30 transition"
+              >
+                Remove placeholders only
+              </button>
+            )}
+            {citationIssues.length > 0 && (
+              <button
+                onClick={() => handleAutoFixIssues(citationIssues, false)}
+                disabled={autoFixing}
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-blue-600/15 text-blue-300 hover:bg-blue-600/25 border border-blue-500/30 transition"
+              >
+                Remove invalid citations only
+              </button>
+            )}
+            {citationIssues.length > 0 && (
+              <button
+                onClick={() => handleAutoFixIssues(citationIssues, false, { citationFixMode: 'replace' })}
+                disabled={autoFixing}
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-green-600/15 text-green-300 hover:bg-green-600/25 border border-green-500/30 transition"
+              >
+                Replace invalid citations (vetted)
+              </button>
+            )}
+            <button
+              onClick={() => handleAutoFixIssues(publishIssues, false)}
+              disabled={autoFixing}
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-amber-600/15 text-amber-300 hover:bg-amber-600/25 border border-amber-500/30 transition"
+            >
+              {autoFixing ? 'Fixing…' : 'Auto-fix all issues'}
+            </button>
+            <button
+              onClick={() => handleAutoFixIssues(publishIssues, true)}
+              disabled={autoFixing || publishing}
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-red-600/20 text-red-300 hover:bg-red-600/30 border border-red-500/30 transition"
+            >
+              {autoFixing ? 'Fixing…' : 'Auto-fix and republish'}
+            </button>
+          </div>
         </div>
       )}
 

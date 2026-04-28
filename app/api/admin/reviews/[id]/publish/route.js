@@ -170,6 +170,7 @@ async function headCheckUrl(url) {
 async function validateReviewReadyToPublish(review) {
   const errors = []
   const warnings = []
+  const issues = []
 
   // ─── (1) Visual-placeholder leak check ─────────────────────────
   const fields = collectProseFields(review)
@@ -177,6 +178,12 @@ async function validateReviewReadyToPublish(review) {
     const m = text.match(PLACEHOLDER_RE)
     if (m) {
       const snippet = text.slice(m.index, m.index + 120).replace(/\s+/g, ' ')
+      issues.push({
+        code: 'UNRESOLVED_VISUAL_PLACEHOLDER',
+        field: label,
+        snippet,
+        auto_fix: ['remove_placeholder_text'],
+      })
       errors.push(
         `Unresolved visual placeholder in \`${label}\`: "${snippet}…" ` +
         `— polish pipeline did not substitute this placeholder before publish. ` +
@@ -208,11 +215,15 @@ async function validateReviewReadyToPublish(review) {
   const citations = Array.isArray(review.citations) ? review.citations : []
   const sources = Array.isArray(review.sources) ? review.sources : []
   const urlsToCheck = [
-    ...citations.map((c) => c?.url).filter(Boolean),
-    ...sources.map((s) => s?.url).filter(Boolean),
+    ...citations.map((c) => ({ url: c?.url, source: 'citations' })).filter((u) => Boolean(u.url)),
+    ...sources.map((s) => ({ url: s?.url, source: 'sources' })).filter((u) => Boolean(u.url)),
   ]
   // Dedupe within the review (same URL in both citations+sources is common)
-  const uniqueUrls = Array.from(new Set(urlsToCheck))
+  const uniqueUrls = Array.from(new Set(urlsToCheck.map((u) => u.url)))
+  const urlSources = uniqueUrls.reduce((acc, url) => {
+    acc[url] = urlsToCheck.filter((entry) => entry.url === url).map((entry) => entry.source)
+    return acc
+  }, {})
   if (uniqueUrls.length > 0) {
     const results = await Promise.allSettled(uniqueUrls.map((u) => headCheckUrl(u)))
     for (let i = 0; i < results.length; i++) {
@@ -223,6 +234,13 @@ async function validateReviewReadyToPublish(review) {
         continue
       }
       if (!r.value.ok) {
+        issues.push({
+          code: 'INVALID_CITATION_URL',
+          url,
+          reason: r.value.reason,
+          fields: Array.from(new Set(urlSources[url] || [])),
+          auto_fix: ['remove_citation_url', 'replace_with_vetted_source'],
+        })
         errors.push(`Citation URL invalid — ${url}: ${r.value.reason}`)
       }
     }
@@ -246,7 +264,7 @@ async function validateReviewReadyToPublish(review) {
     warnings.push('Possible self-contradiction: text claims "all N creatives target X exclusively" AND "creatives distributed outside X" in the same review.')
   }
 
-  return { errors, warnings }
+  return { errors, warnings, issues }
 }
 
 /**
@@ -300,6 +318,7 @@ export async function POST(request, { params }) {
             reason: 'Fix the issues below and retry publish. This gate exists to keep fabricated sources and unresolved visual placeholders off the live site.',
             errors: gate.errors,
             warnings: gate.warnings,
+            issues: gate.issues || [],
             review_id: id,
           },
           { status: 422 }
