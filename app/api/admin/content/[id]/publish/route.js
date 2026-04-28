@@ -90,8 +90,21 @@ function validateForPublish(content) {
 async function syncToLiveBlog({ content, topic }) {
   const replitUrl = process.env.REPLIT_SITE_URL
   const syncSecret = process.env.SYNC_SECRET
+
+  // Env-presence diagnostic — boolean only, never leaks secret values. Lets
+  // operators tell from the publish response or runtime logs which env var
+  // is missing without exposing the secret itself.
+  const envState = {
+    REPLIT_SITE_URL: replitUrl ? 'set' : 'unset',
+    SYNC_SECRET: syncSecret ? 'set' : 'unset',
+    REPLIT_SITE_URL_host: replitUrl ? new URL(replitUrl).host : null,
+    SYNC_SECRET_length: syncSecret ? syncSecret.length : 0,
+  }
+
   if (!replitUrl || !syncSecret) {
-    return { success: false, error: 'REPLIT_SITE_URL and SYNC_SECRET are not configured' }
+    const result = { success: false, error: 'REPLIT_SITE_URL and SYNC_SECRET are not configured', env: envState }
+    console.error('[publish/sync] env missing:', JSON.stringify(envState))
+    return result
   }
 
   const payload = {
@@ -102,9 +115,11 @@ async function syncToLiveBlog({ content, topic }) {
   }
 
   const endpoints = ['/api/sync/blog', '/api/sync/content', '/api/sync/post']
+  const attempts = []
 
   let lastErr = null
   for (const endpoint of endpoints) {
+    const startedAt = Date.now()
     try {
       const res = await fetch(`${replitUrl}${endpoint}`, {
         method: 'POST',
@@ -116,19 +131,34 @@ async function syncToLiveBlog({ content, topic }) {
         signal: AbortSignal.timeout(30000),
       })
 
+      const durationMs = Date.now() - startedAt
+
       if (res.ok) {
         const data = await res.json().catch(() => ({}))
-        return { success: true, endpoint, result: data }
+        attempts.push({ endpoint, status: res.status, durationMs, ok: true })
+        console.log('[publish/sync] success:', JSON.stringify({ endpoint, status: res.status, durationMs, slug: content.slug }))
+        return { success: true, endpoint, result: data, attempts, env: envState }
       }
 
       const text = await res.text().catch(() => '')
-      lastErr = `${endpoint} -> ${res.status} ${text}`
+      const truncated = text.length > 200 ? text.slice(0, 200) + '…' : text
+      lastErr = `${endpoint} -> ${res.status} ${truncated}`
+      attempts.push({ endpoint, status: res.status, durationMs, ok: false, body: truncated })
     } catch (e) {
+      const durationMs = Date.now() - startedAt
       lastErr = `${endpoint} -> ${e.message}`
+      attempts.push({ endpoint, status: null, durationMs, ok: false, error: e.message })
     }
   }
 
-  return { success: false, error: lastErr || 'Unknown sync failure' }
+  const result = { success: false, error: lastErr || 'Unknown sync failure', attempts, env: envState }
+  console.error('[publish/sync] all endpoints failed:', JSON.stringify({
+    error: lastErr,
+    env: envState,
+    attempts,
+    slug: content.slug,
+  }))
+  return result
 }
 
 /**
