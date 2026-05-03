@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import path from 'path'
 
-import { supaFetch } from '@/lib/supabase'
+import { supaFetch, supabaseCount } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
@@ -436,28 +436,47 @@ function buildDeterministicArticle(topic, parentTopic, sourceLedger) {
  */
 async function fetchPlatformIntelligence() {
   try {
-    // Total brands
-    const brandsCount = await supaFetch('/scam_brands?select=id&limit=1', {
-      headers: { Prefer: 'count=exact' },
-      rawResponse: true,
-    })
-    const totalBrands = parseInt(brandsCount?.headers?.get?.('content-range')?.split('/')?.[1] || '0', 10)
+    // Real totals via Prefer: count=exact. The previous code passed
+    // `rawResponse: true` to supaFetch which silently ignored it (the
+    // helper always returns parsed JSON), so totalBrands fell through
+    // to allBrands.length — capped at 10 by the top-N sample. Same for
+    // totalCreatives / celebrityAbuse, which were derived from the same
+    // top-10 slice. Net effect: writers were told the platform tracked
+    // ~10 brands and a few hundred creatives instead of ~9k brands and
+    // ~76k creatives.
+    const [totalBrands, totalCreatives, celebrityAbuse] = await Promise.all([
+      supabaseCount('/scam_brands?select=id&limit=1'),
+      supabaseCount('/creatives?select=id&limit=1'),
+      supabaseCount('/scam_brands?select=id&limit=1&total_celebrities=gt.0'),
+    ])
 
-    // Aggregate stats via RPC or direct queries
-    const topBrands = await supaFetch('/scam_brands?select=name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_trend&order=scam_score.desc&limit=10')
+    // avgScamScore from a wider, recency-ordered sample so it isn't biased
+    // by the top-10 score-ordered slice (which always averages ~95).
+    // velocity-trend mode and topScamScore intentionally come from the
+    // small score-ordered sample — those are "headline outlier" stats
+    // and the bias is editorially appropriate.
+    const [recentSample, topBrands] = await Promise.all([
+      supaFetch('/scam_brands?select=scam_score&order=updated_at.desc.nullslast&limit=500'),
+      supaFetch('/scam_brands?select=name,slug,scam_score,velocity_trend&order=scam_score.desc&limit=10'),
+    ])
+    const sampleArr = Array.isArray(recentSample) ? recentSample.filter(b => typeof b.scam_score === 'number') : []
+    const avgScamScore = sampleArr.length > 0
+      ? Math.round(sampleArr.reduce((s, b) => s + b.scam_score, 0) / sampleArr.length)
+      : 0
     const allBrands = Array.isArray(topBrands) ? topBrands : []
-
-    const totalCreatives = allBrands.reduce((sum, b) => sum + (b.total_creatives || 0), 0)
-    const totalGeos = new Set(allBrands.flatMap(b => b.total_geos || 0)).size || allBrands.length
-    const celebrityAbuse = allBrands.filter(b => (b.total_celebrities || 0) > 0).length
-    const avgScamScore = allBrands.length > 0 ? Math.round(allBrands.reduce((s, b) => s + (b.scam_score || 0), 0) / allBrands.length) : 0
     const velocities = allBrands.map(b => b.velocity_trend).filter(Boolean)
-    const topVelocityTrend = velocities.length > 0 ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0] : 'stable'
+    const topVelocityTrend = velocities.length > 0
+      ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0]
+      : 'stable'
 
+    // totalGeos previously read `new Set(allBrands.flatMap(b => b.total_geos || 0)).size`
+    // which flatMaps integers as integers — meaningless, and bounded by sample
+    // size. Supabase REST has no COUNT(DISTINCT) without a custom RPC, so we
+    // omit the field rather than feed the writer a wrong number. The downstream
+    // prompt fallbacks (`pi.totalGeos || 'multiple'`) handle the missing key.
     return {
-      totalBrands: totalBrands || allBrands.length,
+      totalBrands,
       totalCreatives,
-      totalGeos,
       avgScamScore,
       celebrityAbuse,
       topVelocityTrend,
