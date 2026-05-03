@@ -2,6 +2,13 @@ import { supaFetch, fetchAllRows } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { SPYOWL_API, getSpyOwlCookie } from '@/lib/scraper'
 
+// Default Vercel function timeout is 10s. This route does a SpyOwl
+// status check (5s timeout, can hang under SpyOwl slowness) plus
+// paginated Supabase fetches over scam_brands and creatives. 60s
+// matches the budget of the sister stats / brands routes so the
+// dashboard's parallel fetches succeed or fail together.
+export const maxDuration = 60
+
 async function getSpyOwlStatus() {
   try {
     // Get cookie + age info from settings
