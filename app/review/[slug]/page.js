@@ -59,16 +59,41 @@ async function fetchBrandNamesForReviews(reviewRows, supabaseRequest) {
   }
 }
 
+// Build-time pre-render budget. The page already has `dynamicParams = true`
+// and `revalidate = 60`, so any slug NOT in this list still renders fine
+// on first visit (ISR) — we just trade a little first-hit latency for
+// build reliability.
+//
+// Why not return all published rows: Vercel's static-page-generation step
+// runs `generateMetadata` (another Supabase fetch) per page and hits a
+// hard 60s collection-data timeout (default Next.js limit, see
+// https://nextjs.org/docs/messages/static-page-generation-timeout).
+// On 2026-05-03 a build errored with `Collecting page data for /review/[slug]
+// is still timing out after 2 attempts` because the Supabase pool was
+// contended (running scraper + a long-running review-generate). Limiting
+// to a small "top N" + a hard fetch timeout makes builds resilient to that.
+const STATIC_PARAMS_LIMIT = 50
+const STATIC_PARAMS_TIMEOUT_MS = 20_000
+
 export async function generateStaticParams() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), STATIC_PARAMS_TIMEOUT_MS)
   try {
     const reviews = await supabaseRequest(
-      "/reviews?select=slug&status=eq.published"
+      `/reviews?select=slug&status=eq.published&order=published_at.desc.nullslast&limit=${STATIC_PARAMS_LIMIT}`,
+      { signal: controller.signal },
     )
-    return reviews.map((review) => ({
+    clearTimeout(timer)
+    return (Array.isArray(reviews) ? reviews : []).map((review) => ({
       slug: review.slug,
     }))
   } catch (error) {
-    console.error('Error generating static params:', error)
+    clearTimeout(timer)
+    // Fall back to zero pre-rendered pages on Supabase slowness or any
+    // other failure. dynamicParams = true means everything still works
+    // at runtime via on-demand ISR; the build just stops blocking on
+    // upstream availability.
+    console.error('[generateStaticParams] falling back to [] —', error?.message || error)
     return []
   }
 }
