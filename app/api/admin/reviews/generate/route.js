@@ -1096,7 +1096,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       scam_score: brandData.scam_score || 0,
       status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
       ai_model: contentResult.model || 'claude-opus',
-      ai_prompt_version: 'multi-agent-v1.2-enrichment',
+      ai_prompt_version: 'multi-agent-v1.3-stat-tokens',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
@@ -1160,7 +1160,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         data_source: 'SpyOwl Ad Surveillance',
         evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
-        pipeline_version: 'multi-agent-v1.2-enrichment',
+        pipeline_version: 'multi-agent-v1.3-stat-tokens',
         source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
@@ -1248,7 +1248,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
               word_count: wordCount,
               images_embedded: availableImages.length,
               schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList', 'ItemList', 'Dataset', 'Quotation', 'Speakable'],
-              pipeline_version: 'multi-agent-v1.2-enrichment',
+              pipeline_version: 'multi-agent-v1.3-stat-tokens',
               phase: 'content_generated',
               polish_pending: true,
               models_used: {

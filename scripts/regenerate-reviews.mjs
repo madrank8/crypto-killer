@@ -1,19 +1,19 @@
 /**
  * scripts/regenerate-reviews.mjs
  *
- * Bulk regeneration helper for Path B / schema-enrichment backfill.
+ * Bulk regeneration helper for prompt-version backfills.
  *
  * Reposts each target brand_id to /api/admin/reviews/generate so the writer
- * runs through the latest prompt (currently multi-agent-v1.2-enrichment) and
- * the resulting review picks up: claims[] (ClaimReview entities with Wayback
- * appearance URLs), item_list (typed product list), quotes[] (Quotation
- * entities), author_persona_id, item_reviewed (typed entity), and the full
- * Phase 2 schema enrichment.
+ * runs through the latest prompt and the resulting review picks up: claims[]
+ * (ClaimReview entities with Wayback appearance URLs), item_list (typed
+ * product list), quotes[] (Quotation entities), author_persona_id,
+ * item_reviewed (typed entity), full Phase 2 schema enrichment, and (since
+ * `multi-agent-v1.3-stat-tokens`) the {{stat:KEY}} token system that keeps
+ * body prose in sync with live review_stats.
  *
- * Without this, reviews generated before the v1.2 prompt landed (2026-04-25)
- * still render via Replit's synthesized fallbacks — valid schema, but missing
- * the writer-emitted enrichment that unlocks Google Fact Check Explorer
- * visibility and item_list rich results.
+ * Without this, reviews generated before a prompt version landed still
+ * render via Replit's synthesized fallbacks — valid schema, but missing
+ * the writer-emitted enrichment.
  *
  * Usage:
  *   ADMIN_SECRET=... node scripts/regenerate-reviews.mjs
@@ -21,6 +21,13 @@
  *
  *   # Different host (preview / staging):
  *   ADMIN_SECRET=... ADMIN_BASE_URL=https://crypto-killer-git-... node scripts/regenerate-reviews.mjs
+ *
+ *   # Bulk modes:
+ *   ADMIN_SECRET=... node scripts/regenerate-reviews.mjs --all-published --dry-run
+ *   ADMIN_SECRET=... node scripts/regenerate-reviews.mjs --all-published \
+ *       --skip-version=multi-agent-v1.3-stat-tokens --limit=20 --confirm
+ *   ADMIN_SECRET=... node scripts/regenerate-reviews.mjs --all-published \
+ *       --skip-version=multi-agent-v1.3-stat-tokens --start-from=quantum-ai --confirm
  *
  * Env:
  *   ADMIN_SECRET                  Required. The admin Bearer token (same one
@@ -30,17 +37,38 @@
  *   NEXT_PUBLIC_SUPABASE_URL      Required unless present in .env.local.
  *   NEXT_PUBLIC_SUPABASE_ANON_KEY Required unless present in .env.local.
  *
- * Defaults to the 5 reviews on the older 'multi-agent-v1.0-seo-v3.1-schema-v3-icp-v1'
+ * Flags:
+ *   --all-published              Enumerate every Supabase review with status='published'.
+ *                                Cannot be combined with positional slug args.
+ *   --skip-version=<version>     Skip reviews already on this ai_prompt_version.
+ *                                Recommended for backfills so re-runs are idempotent.
+ *   --limit=<N>                  Stop after N regens (applied AFTER skip-version filter).
+ *   --start-from=<slug>          Skip targets alphabetically until <slug>, then start.
+ *                                Pairs with --limit for resumable batches.
+ *   --dry-run                    List the resolved targets and exit. No API calls.
+ *   --confirm                    Required when more than CONFIRM_THRESHOLD_TARGETS
+ *                                targets are queued OR estimated cost exceeds
+ *                                CONFIRM_THRESHOLD_USD. Forces an explicit ack
+ *                                of the production cost before regen starts.
+ *
+ * No-flag default: 5 reviews on the older 'multi-agent-v1.0-seo-v3.1-schema-v3-icp-v1'
  * prompt. Pass slugs as positional args to override.
  *
  * Throughput: sequential, ~3-6 minutes per review. The SSE stream is read end
  * to end before moving on, so a Ctrl+C aborts cleanly.
  *
  * Cost: each regen burns one Claude Opus call (~16k output tokens). At
- * Opus pricing that's ~$2-3 per review, ~$10-15 for the default set.
+ * Opus pricing that's ~$2-3 per review. The full ~1700-review backfill is
+ * ~$4,000-$6,000 and ~85-170 hours of wall time — pace it in batches with
+ * --limit and --start-from.
  */
 
 import { readFileSync } from 'node:fs';
+
+const SECONDS_PER_REGEN_ESTIMATE = 240; // 4 min average
+const USD_PER_REGEN_ESTIMATE = 2.5;
+const CONFIRM_THRESHOLD_TARGETS = 50;
+const CONFIRM_THRESHOLD_USD = 100;
 
 function loadLocalEnv() {
   try {
@@ -69,8 +97,6 @@ if (!ADMIN_SECRET) {
   process.exit(1);
 }
 
-// Default targets: the 5 reviews on the pre-v1.2 prompt as of 2026-04-26.
-// Override by passing slugs as positional args.
 const DEFAULT_SLUGS = [
   'quantum-ai',
   'primeaura',
@@ -88,6 +114,44 @@ if (!SUPABASE_URL || !SUPABASE_ANON) {
   process.exit(1);
 }
 
+function parseArgs(argv) {
+  const flags = {
+    allPublished: false,
+    skipVersion: null,
+    limit: null,
+    startFrom: null,
+    dryRun: false,
+    confirm: false,
+  };
+  const positional = [];
+  for (const a of argv) {
+    if (!a) continue;
+    if (a === '--all-published') flags.allPublished = true;
+    else if (a === '--dry-run') flags.dryRun = true;
+    else if (a === '--confirm') flags.confirm = true;
+    else if (a.startsWith('--skip-version=')) flags.skipVersion = a.slice('--skip-version='.length).trim() || null;
+    else if (a.startsWith('--limit=')) {
+      const n = Number.parseInt(a.slice('--limit='.length), 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        console.error(`ERROR: --limit must be a positive integer (got: ${a})`);
+        process.exit(1);
+      }
+      flags.limit = n;
+    }
+    else if (a.startsWith('--start-from=')) flags.startFrom = a.slice('--start-from='.length).trim() || null;
+    else if (a.startsWith('--')) {
+      console.error(`ERROR: unknown flag: ${a}`);
+      process.exit(1);
+    }
+    else positional.push(a);
+  }
+  if (flags.allPublished && positional.length > 0) {
+    console.error('ERROR: --all-published cannot be combined with positional slug args.');
+    process.exit(1);
+  }
+  return { flags, positional };
+}
+
 async function supaFetch(path) {
   const r = await fetch(SUPABASE_URL + '/rest/v1' + path, {
     headers: {
@@ -103,7 +167,6 @@ async function supaFetch(path) {
 }
 
 async function resolveBrandIds(slugs) {
-  // Look up brand_id for each slug via the reviews table (slug → brand_id)
   const out = [];
   for (const slug of slugs) {
     const rows = await supaFetch(
@@ -116,6 +179,61 @@ async function resolveBrandIds(slugs) {
     out.push(rows[0]);
   }
   return out;
+}
+
+// Paginated enumeration so we don't hit Supabase's default 1000-row response cap.
+async function enumerateAllPublished() {
+  const PAGE = 1000;
+  const all = [];
+  let offset = 0;
+  while (true) {
+    const rows = await supaFetch(
+      `/reviews?status=eq.published&select=id,brand_id,slug,title,ai_prompt_version&order=slug.asc&limit=${PAGE}&offset=${offset}`,
+    );
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
+function applyFilters(targets, flags) {
+  let out = targets;
+  if (flags.skipVersion) {
+    const before = out.length;
+    out = out.filter(t => t.ai_prompt_version !== flags.skipVersion);
+    console.log(`[filter] skip-version=${flags.skipVersion}: ${before} → ${out.length} (${before - out.length} skipped)`);
+  }
+  if (flags.startFrom) {
+    const before = out.length;
+    out = out.filter(t => t.slug >= flags.startFrom);
+    console.log(`[filter] start-from=${flags.startFrom}: ${before} → ${out.length}`);
+  }
+  if (flags.limit && out.length > flags.limit) {
+    console.log(`[filter] limit=${flags.limit}: ${out.length} → ${flags.limit}`);
+    out = out.slice(0, flags.limit);
+  }
+  return out;
+}
+
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}min`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return `${h}h${m ? ` ${m}min` : ''}`;
+}
+
+function previewTargets(targets) {
+  const max = 10;
+  const head = targets.slice(0, max);
+  for (const t of head) {
+    console.log(`  - ${t.slug.padEnd(40)} on ${t.ai_prompt_version || '(null)'}`);
+  }
+  if (targets.length > max) {
+    console.log(`  … and ${targets.length - max} more`);
+  }
 }
 
 async function regenerateOne(target) {
@@ -137,7 +255,6 @@ async function regenerateOne(target) {
     throw new Error(`HTTP ${r.status} from /api/admin/reviews/generate: ${text.slice(0, 200)}`);
   }
 
-  // Read SSE stream end-to-end. Each event: "data: <json>\n\n".
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -150,7 +267,6 @@ async function regenerateOne(target) {
     if (done) break;
     buf += decoder.decode(value, { stream: true });
 
-    // Process all complete events in the buffer
     let idx;
     while ((idx = buf.indexOf('\n\n')) !== -1) {
       const rawEvent = buf.slice(0, idx);
@@ -161,7 +277,6 @@ async function regenerateOne(target) {
       let evt;
       try { evt = JSON.parse(dataLine.slice(6)); } catch { continue; }
 
-      // Print progress only on step or major progress changes — keep noise down
       const step = evt.step || '';
       const prog = typeof evt.progress === 'number' ? evt.progress : null;
       if (step && (step !== lastStep || (prog !== null && prog - lastProgress >= 10))) {
@@ -194,17 +309,53 @@ async function regenerateOne(target) {
 }
 
 async function main() {
-  const argSlugs = process.argv.slice(2).filter(s => s && !s.startsWith('-'));
-  const slugs = argSlugs.length > 0 ? argSlugs : DEFAULT_SLUGS;
-  console.log(`[regen] base=${ADMIN_BASE_URL}`);
-  console.log(`[regen] target slugs: ${slugs.join(', ')}`);
+  const { flags, positional } = parseArgs(process.argv.slice(2));
 
-  const targets = await resolveBrandIds(slugs);
+  console.log(`[regen] base=${ADMIN_BASE_URL}`);
+
+  let targets;
+  if (flags.allPublished) {
+    console.log(`[regen] enumerating all published reviews from Supabase…`);
+    targets = await enumerateAllPublished();
+    console.log(`[regen] found ${targets.length} published reviews`);
+  } else {
+    const slugs = positional.length > 0 ? positional : DEFAULT_SLUGS;
+    console.log(`[regen] target slugs: ${slugs.join(', ')}`);
+    targets = await resolveBrandIds(slugs);
+  }
+
   if (targets.length === 0) {
     console.log('[regen] No targets resolved. Exiting.');
     return;
   }
-  console.log(`[regen] resolved ${targets.length} brand_ids`);
+
+  targets = applyFilters(targets, flags);
+  if (targets.length === 0) {
+    console.log('[regen] All targets filtered out. Nothing to do.');
+    return;
+  }
+
+  const estSeconds = targets.length * SECONDS_PER_REGEN_ESTIMATE;
+  const estUsd = targets.length * USD_PER_REGEN_ESTIMATE;
+  console.log(`[regen] queued ${targets.length} target(s)`);
+  console.log(`[regen] estimate: ~${formatDuration(estSeconds)} wall time, ~$${estUsd.toFixed(2)} in Claude calls`);
+
+  if (flags.dryRun) {
+    console.log('[regen] --dry-run, listing targets:');
+    previewTargets(targets);
+    console.log('[regen] dry run complete, no API calls made.');
+    return;
+  }
+
+  const needsConfirm = targets.length > CONFIRM_THRESHOLD_TARGETS || estUsd > CONFIRM_THRESHOLD_USD;
+  if (needsConfirm && !flags.confirm) {
+    console.error(`ERROR: ${targets.length} targets / ~$${estUsd.toFixed(2)} exceeds the safety threshold ` +
+                  `(${CONFIRM_THRESHOLD_TARGETS} targets / $${CONFIRM_THRESHOLD_USD}). ` +
+                  `Re-run with --confirm to proceed, or narrow with --limit / --start-from.`);
+    console.error('Preview of queued targets:');
+    previewTargets(targets);
+    process.exit(1);
+  }
 
   const results = [];
   for (let i = 0; i < targets.length; i++) {
@@ -215,7 +366,6 @@ async function main() {
       console.error(`  [crash] ${targets[i].slug}: ${e.message}`);
       results.push({ slug: targets[i].slug, ok: false, error: e.message });
     }
-    // Brief pause between regens to be kind to API limits
     if (i < targets.length - 1) {
       await new Promise(r => setTimeout(r, 5000));
     }
