@@ -13,7 +13,9 @@ scam_brands               Admin dashboard                  Public review pages
 9k+ brands                Review editor                    SEO / AI Overviews
 ```
 
-Full sync mapping documented in [`SYNC-ARCHITECTURE.md`](./SYNC-ARCHITECTURE.md).
+- Sync mapping (Supabase → Replit field-level): [`SYNC-ARCHITECTURE.md`](./SYNC-ARCHITECTURE.md)
+- Generation pipeline + AI model gotchas + schema enrichment + publish gate: [`docs/PIPELINE.md`](./docs/PIPELINE.md)
+- Companion repo for the public site rendering: [`madrank8/cryptokiller`](https://github.com/madrank8/cryptokiller) (with [`ARCHITECTURE.md`](https://github.com/madrank8/cryptokiller/blob/main/ARCHITECTURE.md) overview)
 
 ## Tech Stack
 
