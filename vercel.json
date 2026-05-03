@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/archive-landing-pages",
       "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/sync-platform-aggregates",
+      "schedule": "15 * * * *"
     }
   ],
   "functions": {
