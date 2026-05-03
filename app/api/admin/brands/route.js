@@ -1,6 +1,14 @@
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
+// Default Vercel function timeout is 10s. The brands list endpoint
+// pages through scam_brands and joins review status — under Supabase
+// contention (concurrent scraper, cron, etc.) it 500'd at 10s,
+// leaving the dashboard's brand list stuck. 60s matches the budget
+// of the sister stats route so the dashboard's parallel fetches
+// succeed or fail together rather than partially rendering.
+export const maxDuration = 60
+
 /**
  * GET /api/admin/brands
  * Returns brands sorted by triage priority with filtering and pagination

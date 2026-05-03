@@ -1,6 +1,16 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
+// Default Vercel function timeout is 10s. This route does ~13 sequential
+// Supabase round-trips (2 HEAD counts + 9 paginated GETs through ~9k
+// scam_brands at 1000/page + 2 paginated GETs through reviews). Under
+// Supabase contention (concurrent scraper, cron, etc.) it routinely
+// exceeded 10s and 500'd, leaving the dashboard stuck on skeleton
+// loaders. 60s gives 6× the historical envelope. Long-term fix: replace
+// fetchAllRows-then-filter-in-JS with proper count-exact aggregate
+// queries — drag less data over the wire.
+export const maxDuration = 60
+
 /**
  * Lightweight Supabase REST helper with Prefer: count=exact support
  */
