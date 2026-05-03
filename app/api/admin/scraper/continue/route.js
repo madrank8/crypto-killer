@@ -117,13 +117,27 @@ async function runChunk(jobId, cookie, startSkip) {
       return;
     }
 
-    if (result?.abortedEarly) {
-      // Three consecutive batch failures — give up on this scrape, but keep
-      // next_skip preserved so a future trigger can resume past the bad zone.
+    if (result?.authExpired) {
+      // Cookie died mid-scrape. Fail with a clear actionable message rather
+      // than burning the abort budget on more 401s. next_skip is preserved
+      // so resume works once the cookie is refreshed.
       const cum = startSkip + (result.totalFetched || 0);
       await failJob(
         jobId,
-        `Aborted after 3 consecutive batch failures at skip=${result.nextSkip} (reached ${cum.toLocaleString()} creatives)`,
+        `SpyOwl cookie expired mid-scrape (after ${cum.toLocaleString()} creatives) — refresh in Settings → SpyOwl Cookie and resume`,
+        [],
+      );
+      return;
+    }
+
+    if (result?.abortedEarly) {
+      // Sustained errors with no recent progress — give up on this scrape,
+      // but keep next_skip preserved so a future trigger can resume past
+      // the bad zone.
+      const cum = startSkip + (result.totalFetched || 0);
+      await failJob(
+        jobId,
+        `Aborted at skip=${result.nextSkip} after sustained errors (reached ${cum.toLocaleString()} creatives) — resume to continue from this point`,
         [],
       );
       return;

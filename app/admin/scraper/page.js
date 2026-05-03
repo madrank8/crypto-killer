@@ -483,11 +483,31 @@ function ScrapeControl({ token, spyowlConnected }) {
 
   useEffect(() => { fetchHistory(); }, [fetchHistory]);
 
-  // Poll for active job updates — also poll while triggering so we see the job appear
+  // Poll for active job updates — also poll while triggering so we see the job appear.
+  // Polling cadence relaxed from 3s → 8s (Tier 1 reliability, 2026-05-03):
+  // the previous cadence was hammering Supabase with ~1 read/sec just to
+  // animate a progress bar, contributing to admin-API contention during
+  // active scrapes. Heartbeat updates from the scraper itself land every
+  // ~7s, so 8s polling never misses an update by more than one tick.
+  // Page Visibility guard: pause polling when the tab is hidden — there's
+  // no UI to refresh; resumes immediately on visibility change.
   useEffect(() => {
     if (!history?.has_active && !triggering) return;
-    const interval = setInterval(fetchHistory, 3000);
-    return () => clearInterval(interval);
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+    const interval = setInterval(fetchHistory, 8000);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') fetchHistory();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    };
   }, [history?.has_active, triggering, fetchHistory]);
 
   const handleTrigger = async () => {
