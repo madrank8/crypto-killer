@@ -1,4 +1,4 @@
-import { supaFetch } from '@/lib/supabase'
+import { supaFetch, supabaseCount } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
@@ -306,17 +306,45 @@ ${keyTakeaways.map((t) => `<li>${t}</li>`).join('\n')}
  */
 async function fetchPlatformIntelligence() {
   try {
-    const topBrands = await supaFetch('/scam_brands?select=name,slug,scam_score,total_creatives,total_geos,total_celebrities,velocity_trend&order=scam_score.desc&limit=10')
+    // Real totals via Prefer: count=exact. The previous version derived
+    // totalBrands / totalCreatives / celebrityAbuse from a top-10
+    // score-ordered sample, capping every total at 10 — writers were
+    // told the platform tracked ~10 brands and a few hundred creatives
+    // instead of ~9k brands and ~76k creatives.
+    const [totalBrands, totalCreatives, celebrityAbuse] = await Promise.all([
+      supabaseCount('/scam_brands?select=id&limit=1'),
+      supabaseCount('/creatives?select=id&limit=1'),
+      supabaseCount('/scam_brands?select=id&limit=1&total_celebrities=gt.0'),
+    ])
+
+    // avgScamScore from a wider, recency-ordered sample so it isn't biased
+    // by the top-10 score-ordered slice (which always averages ~95).
+    // velocity-trend mode and topScamScore intentionally stay on the
+    // score-ordered sample — those are "headline outlier" stats.
+    const [recentSample, topBrands] = await Promise.all([
+      supaFetch('/scam_brands?select=scam_score&order=updated_at.desc.nullslast&limit=500'),
+      supaFetch('/scam_brands?select=name,slug,scam_score,velocity_trend&order=scam_score.desc&limit=10'),
+    ])
+    const sampleArr = Array.isArray(recentSample) ? recentSample.filter(b => typeof b.scam_score === 'number') : []
+    const avgScamScore = sampleArr.length > 0
+      ? Math.round(sampleArr.reduce((s, b) => s + b.scam_score, 0) / sampleArr.length)
+      : 0
     const allBrands = Array.isArray(topBrands) ? topBrands : []
-    const totalCreatives = allBrands.reduce((sum, b) => sum + (b.total_creatives || 0), 0)
-    const totalGeos = new Set(allBrands.flatMap(b => b.total_geos || 0)).size || allBrands.length
-    const celebrityAbuse = allBrands.filter(b => (b.total_celebrities || 0) > 0).length
-    const avgScamScore = allBrands.length > 0 ? Math.round(allBrands.reduce((s, b) => s + (b.scam_score || 0), 0) / allBrands.length) : 0
     const velocities = allBrands.map(b => b.velocity_trend).filter(Boolean)
-    const topVelocityTrend = velocities.length > 0 ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0] : 'stable'
+    const topVelocityTrend = velocities.length > 0
+      ? velocities.sort((a, b) => velocities.filter(v => v === b).length - velocities.filter(v => v === a).length)[0]
+      : 'stable'
+
+    // totalGeos: previously `new Set(allBrands.flatMap(b => b.total_geos || 0)).size`
+    // which flatMaps integers as integers — meaningless. Supabase REST has no
+    // COUNT(DISTINCT), so we omit the field rather than mislead the writer.
+    // Prompt fallbacks (`pi.totalGeos || 'multiple'`) cover the missing key.
     return {
-      totalBrands: allBrands.length,
-      totalCreatives, totalGeos, avgScamScore, celebrityAbuse, topVelocityTrend,
+      totalBrands,
+      totalCreatives,
+      avgScamScore,
+      celebrityAbuse,
+      topVelocityTrend,
       topScamScore: allBrands[0] ? { name: allBrands[0].name, score: allBrands[0].scam_score } : null,
     }
   } catch (err) {
