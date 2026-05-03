@@ -191,11 +191,21 @@ const STORAGE_UPLOAD_BASE = SUPABASE_URL
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Phase A of the split pipeline: source research + content generation only.
-// Requires Vercel Pro (300s cap) — source research + Claude Opus content gen
-// collectively can run 60-150s. Visuals, audit and hero-image generation
-// happen in Phase B (/api/admin/reviews/[id]/polish) after navigation so the
-// user sees the draft and editor as soon as phase A lands.
-export const maxDuration = 300
+// Requires Vercel Pro Fluid Compute (800s cap). Source research + Claude
+// Opus content gen collectively run 60-150s historically; the v1.3
+// STAT-TOKEN PROTOCOL prompt (added in #18) extends that to 6-9min for
+// complex reviews because Opus does extra token-vs-literal reasoning per
+// numeric reference. 300s was hitting the cap on real generations
+// (2026-05-03 timeout in production logs); 600s gives 2× the historical
+// envelope and matches the actual Opus runtime distribution observed
+// post-#18. Bump again if reviews still time out — the long-term fix is
+// to migrate reviews from the monolithic writer to the multi-agent
+// pipeline (article-pipeline.js, commit 0831ee6e) the article side
+// already uses, but that's its own multi-PR project. Visuals, audit and
+// hero-image generation happen in Phase B (/api/admin/reviews/[id]/polish)
+// after navigation so the user sees the draft and editor as soon as
+// phase A lands.
+export const maxDuration = 600
 
 /** * POST /api/admin/reviews/generate
  * Phase A of the split review-generation pipeline.
