@@ -137,11 +137,20 @@ async function runFirstChunk(jobId, cookie, startSkip) {
       return;
     }
 
+    if (result?.authExpired) {
+      const cum = startSkip + (result.totalFetched || 0);
+      await failJob(
+        jobId,
+        `SpyOwl cookie expired or invalid (after ${cum.toLocaleString()} creatives) — refresh in Settings → SpyOwl Cookie and resume`,
+      );
+      return;
+    }
+
     if (result?.abortedEarly) {
       const cum = startSkip + (result.totalFetched || 0);
       await failJob(
         jobId,
-        `Aborted after 3 consecutive batch failures at skip=${result.nextSkip} (reached ${cum.toLocaleString()} creatives)`,
+        `Aborted at skip=${result.nextSkip} after sustained errors (reached ${cum.toLocaleString()} creatives) — resume to continue from this point`,
       );
       return;
     }
