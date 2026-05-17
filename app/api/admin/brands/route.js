@@ -4,7 +4,8 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 /**
  * GET /api/admin/brands
  * Returns brands sorted by triage priority with filtering and pagination
- * Query params: sort, trend, review_status, limit, offset
+ * Query params: sort, trend, review_status, q, limit, offset
+ *   q — case-insensitive substring search on brand name (server-side)
  */
 export async function GET(request) {
   try {
@@ -16,16 +17,25 @@ export async function GET(request) {
     const sort = searchParams.get('sort') || 'creative_volume'
     const trend = searchParams.get('trend') // surging, rising, stable, declining, dead
     const reviewStatus = searchParams.get('review_status') // none, draft, published
+    const q = (searchParams.get('q') || '').trim()
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 500)
     const page = parseInt(searchParams.get('page') || '1')
     const offset = (page - 1) * limit
 
     // Build Supabase query
-    let query = `/scam_brands?select=id,slug,name,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend,status,first_seen_at,last_seen_at`
+    let query = `/scam_brands?select=id,slug,name,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend,status,first_seen_at,last_seen_at,last_synced_at`
 
     // Add filters based on trend
     if (trend && trend !== 'all') {
       query += `&velocity_trend=eq.${trend}`
+    }
+
+    // Server-side name search via PostgREST ilike. PostgREST uses `*` as the
+    // wildcard char; escape any % / * the user types so they can't break out
+    // of the pattern, and URL-encode the final value.
+    if (q) {
+      const safe = q.replace(/[%*]/g, ' ')
+      query += `&name=ilike.${encodeURIComponent(`*${safe}*`)}`
     }
 
     // Add ordering
@@ -76,6 +86,11 @@ export async function GET(request) {
       })
     }
 
+    // "Active on SpyOwl" cutoff — re-seen within the last 3 days.
+    // Computed in the API rather than as a generated column because Postgres
+    // disallows non-IMMUTABLE functions (now()) in GENERATED expressions.
+    const activeCutoff = Date.now() - 3 * 24 * 60 * 60 * 1000
+
     // Enrich brands with review data, renaming fields for frontend
     let enrichedBrands = brands.map((brand) => ({
       id: brand.id,
@@ -90,6 +105,10 @@ export async function GET(request) {
       status: brand.status,
       first_seen_at: brand.first_seen_at,
       last_seen_at: brand.last_seen_at,
+      last_synced_at: brand.last_synced_at,
+      is_active: brand.last_synced_at
+        ? new Date(brand.last_synced_at).getTime() >= activeCutoff
+        : false,
       has_review: reviewMap[brand.id]?.has_review || false,
       review_id: reviewMap[brand.id]?.review_id || null,
       review_status: reviewMap[brand.id]?.review_status || null,

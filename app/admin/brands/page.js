@@ -127,11 +127,20 @@ export default function BrandsPage() {
   const [page, setPage] = useState(1);
 
   const [search, setSearch] = useState('');
+  // Debounced copy of `search` used for server-side ?q= — keeps typing snappy
+  // but avoids firing a fetch on every keystroke.
+  const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('creative_volume');
   const [trendFilter, setTrendFilter] = useState('all');
   const [reviewFilter, setReviewFilter] = useState(
     searchParams.get('filter') === 'no-review' ? 'none' : 'all'
   );
+
+  // Debounce search → searchQuery (300ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const [generatingId, setGeneratingId] = useState(null);
   const [toast, setToast] = useState(null);
@@ -168,18 +177,16 @@ export default function BrandsPage() {
         page: pageNum,
         limit: 30,
       });
+      // Server-side name search — hits Supabase ilike on scam_brands.name.
+      // Falls back to no filter when empty so the default listing is fast.
+      if (searchQuery) params.set('q', searchQuery);
       const res = await fetch(`/api/admin/brands?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
         const data = await res.json();
-        let results = data.brands || [];
-
-        if (search.trim()) {
-          const q = search.toLowerCase();
-          results = results.filter((b) => b.name.toLowerCase().includes(q));
-        }
+        const results = data.brands || [];
 
         if (append) {
           setBrands((prev) => [...prev, ...results]);
@@ -194,7 +201,7 @@ export default function BrandsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, sortBy, trendFilter, reviewFilter, search]);
+  }, [token, sortBy, trendFilter, reviewFilter, searchQuery]);
 
   useEffect(() => {
     setPage(1);
