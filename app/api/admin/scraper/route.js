@@ -2,6 +2,13 @@ import { supaFetch, fetchAllRows } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { SPYOWL_API, getSpyOwlCookie } from '@/lib/scraper'
 
+// Default Vercel function timeout is 10s. This route does a SpyOwl
+// status check (5s timeout, can hang under SpyOwl slowness) plus
+// paginated Supabase fetches over scam_brands and creatives. 60s
+// matches the budget of the sister stats / brands routes so the
+// dashboard's parallel fetches succeed or fail together.
+export const maxDuration = 60
+
 async function getSpyOwlStatus() {
   try {
     // Get cookie + age info from settings
@@ -42,7 +49,7 @@ export async function GET(request) {
       supaFetch('/creatives?select=id', { method: 'HEAD', headers: { Prefer: 'count=exact' } }),
       getSpyOwlStatus(),
       fetchAllRows('/scam_brands', 'id,name,slug,velocity_7d,velocity_trend,total_creatives,total_geos,total_celebrities,scam_score,first_seen_at,last_seen_at,created_at'),
-      supaFetch('/scam_brands?select=id,name,slug,total_creatives,velocity_7d,scam_score,created_at&order=created_at.desc&limit=20'),
+      supaFetch('/scam_brands?select=id,name,slug,total_creatives,total_geos,geo_list,velocity_7d,scam_score,created_at&order=created_at.desc&limit=20'),
       supaFetch('/creatives?select=id,created_at&order=created_at.desc&limit=1'),
     ]);
 
@@ -118,6 +125,8 @@ export async function GET(request) {
       name: b.name,
       slug: b.slug,
       total_creatives: b.total_creatives,
+      total_geos: b.total_geos,
+      geo_list: Array.isArray(b.geo_list) ? b.geo_list.slice(0, 5) : [],
       velocity_7d: b.velocity_7d,
       scam_score: b.scam_score,
       created_at: b.created_at,

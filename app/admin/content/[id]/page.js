@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useAdmin } from '@/lib/admin-context';
+import SeoAeoAudit from '@/components/SeoAeoAudit';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), { ssr: false });
 
@@ -308,6 +309,8 @@ function FaqCard({ item, index, onUpdate, onRemove }) {
   );
 }
 
+/* SeoChecklist replaced by shared SeoAeoAudit component */
+
 /* ====================================================
  *  Main Content Editor Page
  * ==================================================== */
@@ -321,6 +324,13 @@ export default function ContentEditorPage({ params }) {
   const [publishing, setPublishing] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
+  // Structured payload from the publish quality gate (422). Holds the
+  // reasons[] list so the user sees exactly which checks failed instead of
+  // a single opaque "Publish blocked by quality gate" string.
+  const [publishGate, setPublishGate] = useState(null);
+  const [aeoFixing, setAeoFixing] = useState(false);
+  const [aeoFixingId, setAeoFixingId] = useState(null);
+  const [editorKey, setEditorKey] = useState(0);
 
   const [content, setContent] = useState(null);
   const [topic, setTopic] = useState(null);
@@ -452,11 +462,12 @@ export default function ContentEditorPage({ params }) {
     }
   };
 
-  /* -- Publish -- */
+  /* -- Publish / Unpublish -- */
   const publishAction = async (action) => {
     setPublishing(true);
     setError('');
     setMsg('');
+    setPublishGate(null);
     try {
       await save();
       const res = await fetch(`/api/admin/content/${id}/publish`, {
@@ -465,15 +476,36 @@ export default function ContentEditorPage({ params }) {
         body: JSON.stringify({ action }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `${action} failed`);
+      if (!res.ok) {
+        // Quality gate (422) returns a structured payload — surface every
+        // reason as a bullet so the user knows exactly what to fix.
+        if (res.status === 422 && Array.isArray(data?.reasons) && data.reasons.length > 0) {
+          setPublishGate({
+            action,
+            error: data.error || 'Publish blocked by quality gate',
+            reasons: data.reasons,
+            ai_model: data.ai_model || null,
+            slug: data.slug || null,
+          });
+          return;
+        }
+        throw new Error(data.error || `${action} failed`);
+      }
 
       setContent((prev) => ({ ...prev, status: data.status, published_at: data.published_at }));
-      if (data.live_sync?.success) {
-        setMsg(`\u2713 Published & synced to live site`);
-      } else if (action === 'publish') {
-        setMsg(`Published, but blog sync failed: ${data.live_sync?.error || 'unknown error'}`);
+
+      if (action === 'publish') {
+        if (data.live_sync?.success) {
+          setMsg('\u2713 Published & synced to live site');
+        } else {
+          setMsg(`Published locally, but live sync failed: ${data.live_sync?.error || 'unknown'}`);
+        }
       } else {
-        setMsg('Unpublished');
+        if (data.live_sync?.success) {
+          setMsg('\u2713 Unpublished & removed from live site');
+        } else {
+          setMsg('\u2713 Unpublished (live site may still show cached version)');
+        }
       }
     } catch (e) {
       setError(e.message);
@@ -489,6 +521,8 @@ export default function ContentEditorPage({ params }) {
     setError('');
     setMsg('');
     try {
+      // Save latest edits first so the live site gets current content
+      await save();
       const res = await fetch(`/api/admin/content/${id}/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -506,39 +540,147 @@ export default function ContentEditorPage({ params }) {
     }
   };
 
+  /* -- AEO Fix -- */
+  const handleAeoFix = async (fixIds) => {
+    setAeoFixing(true);
+    setAeoFixingId(fixIds.length === 1 ? fixIds[0] : 'all');
+    setError('');
+    try {
+      const res = await fetch('/api/admin/aeo-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          fullArticle,
+          title,
+          keyword: topic?.target_keyword || '',
+          metaDescription,
+          fixes: fixIds,
+          contentType: 'content',
+        }),
+      });
+      let data;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      if (!res.ok) throw new Error(data.error || 'Fix failed');
+      if (data.fixedArticle) {
+        setFullArticle(data.fixedArticle);
+        setEditorKey(k => k + 1);
+        setMsg(`AEO fixes applied (${data.fixesApplied?.join(', ')}). Review & save.`);
+        setTimeout(() => setMsg(''), 6000);
+      }
+    } catch (e) {
+      setError(`AEO fix failed: ${e.message}`);
+    } finally {
+      setAeoFixing(false);
+      setAeoFixingId(null);
+    }
+  };
+
   /* -- Regenerate images -- */
-  const regenerateImages = async (mode = 'all') => {
+  const [imageProgress, setImageProgress] = useState({ step: '', percent: 0 });
+  const regenerateImages = async (mode = 'all', target = '') => {
     setRegeneratingImages(true);
     setImageMsg('');
     setError('');
+
+    // Faster progress steps for single image mode
+    const isSingle = mode === 'single';
+    const steps = isSingle
+      ? [
+          { step: `Regenerating ${target === 'hero' ? 'hero' : 'section'} image...`, percent: 20, delay: 1000 },
+          { step: 'Generating with AI...', percent: 50, delay: 5000 },
+          { step: 'Compressing & uploading...', percent: 75, delay: 10000 },
+          { step: 'Almost done...', percent: 90, delay: 20000 },
+        ]
+      : [
+          { step: 'Saving edits...', percent: 5, delay: 2000 },
+          { step: 'Generating AI search queries...', percent: 10, delay: 4000 },
+          { step: 'Sending to image generator...', percent: 15, delay: 6000 },
+          { step: 'Creating hero image...', percent: 25, delay: 10000 },
+          { step: 'Section images generating in parallel...', percent: 45, delay: 20000 },
+          { step: 'Compressing images...', percent: 65, delay: 30000 },
+          { step: 'Uploading to storage...', percent: 75, delay: 40000 },
+          { step: 'Embedding in article...', percent: 85, delay: 50000 },
+          { step: 'Wrapping up...', percent: 90, delay: 55000 },
+        ];
+    setImageProgress(steps[0]);
+
+    const timers = steps.slice(1).map(s =>
+      setTimeout(() => setImageProgress({ step: s.step, percent: s.percent }), s.delay)
+    );
+
     try {
       await save();
+      setImageProgress({ step: isSingle ? 'Generating...' : 'Generating AI prompts...', percent: 15 });
+
       const res = await fetch(`/api/admin/content/${id}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, ...(target ? { target } : {}) }),
       });
-      const data = await res.json();
+      timers.forEach(t => clearTimeout(t));
+
+      let data;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        if (!res.ok) throw new Error(res.status === 504 ? 'Server timed out — images may still be processing. Try again in a minute.' : text || `HTTP ${res.status}`);
+        data = { results: {} };
+      }
       if (!res.ok) throw new Error(data.error || 'Image generation failed');
+
+      setImageProgress({ step: 'Done!', percent: 100 });
 
       const parts = [];
       if (data.results?.stock?.success && data.results.stock.hero) {
-        parts.push(`Hero image: "${data.results.stock.queries?.heroQuery || 'generated'}"`);
+        parts.push(`Hero: "${data.results.stock.queries?.heroQuery || 'generated'}"`);
         if (data.results.stock.contentImages > 0) {
           parts.push(`${data.results.stock.contentImages} section images`);
         }
       }
+      if (data.results?.stock && !data.results.stock.success) {
+        parts.push(`Stock failed: ${data.results.stock.error || 'unknown'}`);
+      }
       if (data.results?.visuals?.success && data.results.visuals.total > 0) {
         parts.push(`${data.results.visuals.succeeded}/${data.results.visuals.total} AI visuals`);
       }
+      if (data.results?.refresh?.success) {
+        if (data.results.refresh.refreshed > 0) {
+          parts.push(`${data.results.refresh.refreshed} visual(s) refreshed`);
+        } else {
+          parts.push('No visuals found to refresh');
+        }
+        if (data.results.refresh.failed > 0) {
+          parts.push(`${data.results.refresh.failed} failed`);
+        }
+      }
+      if (data.results?.single?.success) {
+        const t = data.results.single.target === 'hero' ? 'Hero' : `Section ${parseInt(data.results.single.target?.replace('content-',''),10)+1}`;
+        parts.push(`${t} image regenerated (${data.results.single.source || 'AI'})`);
+      }
+      if (data.results?.single && !data.results.single.success) {
+        parts.push(`Single image failed: ${data.results.single.error || 'unknown'}`);
+      }
 
-      setImageMsg(parts.length > 0 ? `✓ ${parts.join(' · ')}` : 'No images generated');
+      setImageMsg(parts.length > 0 ? `\u2713 ${parts.join(' \u00b7 ')}` : 'No images generated');
       await reloadContent();
     } catch (e) {
+      timers.forEach(t => clearTimeout(t));
+      setImageProgress({ step: '', percent: 0 });
       setError(`Image generation failed: ${e.message}`);
     } finally {
       setRegeneratingImages(false);
-      setTimeout(() => setImageMsg(''), 6000);
+      setTimeout(() => {
+        setImageMsg('');
+        setImageProgress({ step: '', percent: 0 });
+      }, 8000);
     }
   };
 
@@ -741,6 +883,77 @@ export default function ContentEditorPage({ params }) {
         </div>
       )}
 
+      {/* Publish quality gate failure — renders the structured reasons[]
+          payload returned by /api/admin/content/[id]/publish (422). Without
+          this, the user only saw the bare 'Publish blocked by quality gate'
+          string and had no idea what to fix. Each reason maps to a specific
+          gate check (deterministic-fallback ai_model, skeleton openers,
+          taxonomy trailers, short sections, placeholder internal links,
+          author-name stutter). */}
+      {publishGate && (
+        <div className="rounded-lg border border-amber-600/40 bg-amber-900/10 px-4 py-3 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-300">
+                {publishGate.error}
+              </p>
+              <p className="text-xs text-amber-200/70 mt-0.5">
+                {publishGate.reasons.length} {publishGate.reasons.length === 1 ? 'check' : 'checks'} failed
+                {publishGate.ai_model ? (
+                  <>
+                    {' '}&middot;{' '}
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-black/40 border border-amber-700/40">
+                      ai_model: {publishGate.ai_model}
+                    </span>
+                  </>
+                ) : null}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPublishGate(null)}
+              className="text-xs text-amber-300/60 hover:text-amber-200 px-2"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+
+          <ul className="text-xs text-amber-100/90 space-y-1 list-disc pl-5">
+            {publishGate.reasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {/* Single-click recovery: most quality-gate failures (especially
+                ai_model='deterministic-fallback' and taxonomy-trailer hits)
+                are fixed by re-running the writer. */}
+            <button
+              type="button"
+              onClick={() => {
+                setPublishGate(null);
+                generateArticle();
+              }}
+              disabled={publishing || saving}
+              className="text-xs px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white disabled:opacity-50"
+            >
+              Regenerate Article
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPublishGate(null);
+                setForcePhase('outline');
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-amber-600/30 text-amber-200 hover:text-white hover:border-amber-500/60"
+            >
+              Edit Outline First
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ======== PHASE: EMPTY ======== */}
       {phase === 'empty' && (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
@@ -933,7 +1146,7 @@ export default function ContentEditorPage({ params }) {
             />
 
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-3">
-              <TipTapEditor key={phase + '-' + (content?.id || '')} content={fullArticle} onChange={setFullArticle} />
+              <TipTapEditor key={phase + '-' + (content?.id || '') + '-' + editorKey} content={fullArticle} onChange={setFullArticle} />
             </div>
           </div>
 
@@ -979,12 +1192,20 @@ export default function ContentEditorPage({ params }) {
 
               {/* Hero image preview */}
               {content.hero_image_url ? (
-                <div className="space-y-1">
+                <div className="group relative space-y-1">
                   <img
                     src={content.hero_image_url}
                     alt={content.hero_image_alt || 'Hero'}
                     className="w-full h-24 object-cover rounded-lg border border-gray-700"
                   />
+                  <button
+                    onClick={() => regenerateImages('single', 'hero')}
+                    disabled={regeneratingImages}
+                    className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition text-[9px] px-1.5 py-0.5 rounded bg-black/70 text-white hover:bg-indigo-600 disabled:opacity-50"
+                    title="Regenerate hero image"
+                  >
+                    ↻ Hero
+                  </button>
                   <p className="text-[10px] text-gray-600 truncate">{content.hero_image_credit || ''}</p>
                 </div>
               ) : (
@@ -993,11 +1214,30 @@ export default function ContentEditorPage({ params }) {
                 </div>
               )}
 
-              {/* Content images count */}
+              {/* Content images with individual regenerate */}
               {content.content_images?.length > 0 && (
-                <p className="text-xs text-gray-500">
-                  {content.content_images.length} section image{content.content_images.length > 1 ? 's' : ''}
-                </p>
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Section Images</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {content.content_images.map((img, i) => (
+                      <div key={i} className="group relative">
+                        <img
+                          src={img.url}
+                          alt={img.alt || `Section ${i + 1}`}
+                          className="w-full h-16 object-cover rounded border border-gray-700"
+                        />
+                        <button
+                          onClick={() => regenerateImages('single', `content-${i}`)}
+                          disabled={regeneratingImages}
+                          className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition text-[8px] px-1 py-0.5 rounded bg-black/70 text-white hover:bg-indigo-600 disabled:opacity-50"
+                          title={`Regenerate section ${i + 1} image`}
+                        >
+                          ↻
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Visual meta stats */}
@@ -1007,6 +1247,19 @@ export default function ContentEditorPage({ params }) {
                 </p>
               )}
 
+              {/* Image generation progress */}
+              {regeneratingImages && imageProgress.step && (
+                <div className="space-y-1.5">
+                  <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-500 transition-all duration-1000 ease-out"
+                      style={{ width: `${imageProgress.percent}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-indigo-300 animate-pulse">{imageProgress.step}</p>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div className="flex flex-col gap-1.5">
                 <button
@@ -1014,7 +1267,7 @@ export default function ContentEditorPage({ params }) {
                   disabled={regeneratingImages}
                   className="w-full text-xs px-3 py-2 rounded-lg bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-600/20 transition disabled:opacity-50"
                 >
-                  {regeneratingImages ? 'Generating…' : '🖼️ Regenerate All Images'}
+                  {regeneratingImages ? 'Generating\u2026' : '\ud83d\uddbc\ufe0f Regenerate All Images'}
                 </button>
                 <div className="flex gap-1.5">
                   <button
@@ -1032,8 +1285,36 @@ export default function ContentEditorPage({ params }) {
                     AI Visuals Only
                   </button>
                 </div>
+                <button
+                  onClick={() => regenerateImages('refresh')}
+                  disabled={regeneratingImages}
+                  className="w-full text-[10px] px-2 py-1.5 rounded-lg border border-emerald-600/20 text-emerald-400 hover:bg-emerald-600/10 hover:border-emerald-500/30 transition disabled:opacity-50"
+                >
+                  {regeneratingImages ? 'Refreshing\u2026' : '\u2728 Refresh Visuals (fix diagrams/charts)'}
+                </button>
               </div>
             </div>
+
+            {/* SEO & AEO Audit */}
+            <SeoAeoAudit
+              contentType="content"
+              title={title}
+              headline={headline}
+              metaDescription={metaDescription}
+              fullArticle={fullArticle}
+              slug={content.slug || ''}
+              keyword={topic?.target_keyword || ''}
+              sections={sections || []}
+              faq={faq || []}
+              sources={content.sources || []}
+              internalLinks={content.internal_links || []}
+              heroImage={content.hero_image_url || ''}
+              heroImageAlt={content.hero_image_alt || ''}
+              wordCount={wordCount}
+              onFix={handleAeoFix}
+              fixing={aeoFixing}
+              fixingId={aeoFixingId}
+            />
 
             {content.summary && (
               <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">

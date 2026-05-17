@@ -3,7 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import { generateImageSet, generateImage } from '@/lib/images';
 import { supabaseRequest } from '@/lib/supabase';
 
-export const maxDuration = 60; // TinyPNG + Supabase uploads can take a moment
+export const maxDuration = 300; // Midjourney polling takes 30-90s, plus TinyPNG + Supabase uploads
 
 /**
  * POST /api/admin/images/generate
@@ -72,12 +72,16 @@ export async function POST(request) {
           url: result.hero.url,
           alt: result.hero.alt,
           credit: result.hero.credit,
+          source: result.hero.source,
+          prompt: result.hero.query,
           compressed: `${result.hero.originalSize} → ${result.hero.compressedSize} bytes`,
         } : null,
         content_images: result.contentImages.map(img => ({
           url: img.url,
           alt: img.alt,
           credit: img.credit,
+          source: img.source,
+          prompt: img.query,
           placement: img.placement,
         })),
         errors: result.errors,

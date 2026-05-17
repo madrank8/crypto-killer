@@ -30,16 +30,70 @@ import {
 export const revalidate = 60
 export const dynamicParams = true
 
+function truncate(str, max) {
+  if (!str || typeof str !== 'string') return ''
+  const t = str.trim()
+  if (t.length <= max) return t
+  return `${t.slice(0, Math.max(0, max - 1))}…`
+}
+
+/** Display label for a review row (brand name preferred). */
+function reviewLabel(row, brandNameById) {
+  if (row.brand_id && brandNameById[row.brand_id]) return brandNameById[row.brand_id]
+  return row.title || row.slug
+}
+
+async function fetchBrandNamesForReviews(reviewRows, supabaseRequest) {
+  const ids = [...new Set(reviewRows.map((r) => r.brand_id).filter(Boolean))]
+  if (ids.length === 0) return {}
+  try {
+    const list = ids.join(',')
+    const brands = await supabaseRequest(`/scam_brands?id=in.(${list})&select=id,name`)
+    const map = {}
+    for (const b of brands || []) {
+      map[b.id] = b.name
+    }
+    return map
+  } catch {
+    return {}
+  }
+}
+
+// Build-time pre-render budget. The page already has `dynamicParams = true`
+// and `revalidate = 60`, so any slug NOT in this list still renders fine
+// on first visit (ISR) — we just trade a little first-hit latency for
+// build reliability.
+//
+// Why not return all published rows: Vercel's static-page-generation step
+// runs `generateMetadata` (another Supabase fetch) per page and hits a
+// hard 60s collection-data timeout (default Next.js limit, see
+// https://nextjs.org/docs/messages/static-page-generation-timeout).
+// On 2026-05-03 a build errored with `Collecting page data for /review/[slug]
+// is still timing out after 2 attempts` because the Supabase pool was
+// contended (running scraper + a long-running review-generate). Limiting
+// to a small "top N" + a hard fetch timeout makes builds resilient to that.
+const STATIC_PARAMS_LIMIT = 50
+const STATIC_PARAMS_TIMEOUT_MS = 20_000
+
 export async function generateStaticParams() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), STATIC_PARAMS_TIMEOUT_MS)
   try {
     const reviews = await supabaseRequest(
-      "/reviews?select=slug&status=eq.published"
+      `/reviews?select=slug&status=eq.published&order=published_at.desc.nullslast&limit=${STATIC_PARAMS_LIMIT}`,
+      { signal: controller.signal },
     )
-    return reviews.map((review) => ({
+    clearTimeout(timer)
+    return (Array.isArray(reviews) ? reviews : []).map((review) => ({
       slug: review.slug,
     }))
   } catch (error) {
-    console.error('Error generating static params:', error)
+    clearTimeout(timer)
+    // Fall back to zero pre-rendered pages on Supabase slowness or any
+    // other failure. dynamicParams = true means everything still works
+    // at runtime via on-demand ISR; the build just stops blocking on
+    // upstream availability.
+    console.error('[generateStaticParams] falling back to [] —', error?.message || error)
     return []
   }
 }
@@ -155,17 +209,40 @@ export default async function ReviewPage({ params }) {
       }
     }
 
-    let relatedScams = []
-    if (brand) {
-      try {
-        const related = await supabaseRequest(
-          `/scam_brands?velocity_trend=eq.${brand.velocity_trend}&id=neq.${brand.id}&select=id,slug,name,scam_score,status&limit=5`
-        )
-        relatedScams = related || []
-      } catch (err) {
-        console.error('Error fetching related scams:', err)
-      }
+    // ── Internal-linking flywheel (Task 10) — extra /review + /scams links, no schema change ──
+    let recentReviewsRows = []
+    try {
+      const slugEnc = encodeURIComponent(params.slug)
+      recentReviewsRows =
+        (await supabaseRequest(
+          `/reviews?status=eq.published&slug=neq.${slugEnc}&select=slug,scam_score,verdict,brand_id,title,headline,summary,meta_description,updated_at&order=updated_at.desc&limit=14`
+        )) || []
+    } catch (err) {
+      console.error('Error fetching reviews for internal-link flywheel:', err)
     }
+
+    const currentThreat = review.scam_score ?? 0
+    const inThreatBand = recentReviewsRows.filter(
+      (r) => Math.abs((r.scam_score ?? 0) - currentThreat) <= 25
+    )
+    const relatedReviewsFinal =
+      inThreatBand.length >= 4
+        ? inThreatBand.slice(0, 4)
+        : [
+            ...inThreatBand,
+            ...recentReviewsRows.filter((r) => !inThreatBand.some((b) => b.slug === r.slug)),
+          ].slice(0, 4)
+
+    const relatedSlugs = new Set(relatedReviewsFinal.map((r) => r.slug))
+    const recentReviewsFinal = recentReviewsRows.filter((r) => !relatedSlugs.has(r.slug)).slice(0, 5)
+
+    const usedForLearn = new Set([...relatedReviewsFinal, ...recentReviewsFinal].map((r) => r.slug))
+    const learnMoreRows = recentReviewsRows.filter((r) => !usedForLearn.has(r.slug)).slice(0, 3)
+
+    const flywheelReviewRows = [...relatedReviewsFinal, ...recentReviewsFinal, ...learnMoreRows]
+    const brandNameById = await fetchBrandNamesForReviews(flywheelReviewRows, supabaseRequest)
+
+    const showAuthorCard = Boolean(review.author_name?.trim() || review.author_bio?.trim())
 
     const redFlags = Array.isArray(review.red_flags)
       ? review.red_flags
@@ -639,6 +716,116 @@ export default async function ReviewPage({ params }) {
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* Internal-linking flywheel (Task 10): author + related + learn-more + recent */}
+            <div className="mt-14 pt-10 border-t border-slate-800 space-y-10">
+              {showAuthorCard && (
+                <aside
+                  className="author-card rounded-xl border border-slate-800 bg-slate-900/50 p-6"
+                  aria-labelledby="author-card-heading"
+                >
+                  <h2 id="author-card-heading" className="text-xl font-bold text-white mb-3">
+                    About the author
+                  </h2>
+                  <p className="text-slate-200">
+                    <strong>{review.author_name || 'Crypto Killer Research'}</strong>
+                    {review.author_credentials ? (
+                      <span className="text-slate-400"> — {review.author_credentials}</span>
+                    ) : null}
+                  </p>
+                  {review.author_bio ? (
+                    <p className="text-slate-400 text-sm leading-relaxed mt-3">{truncate(review.author_bio, 320)}</p>
+                  ) : null}
+                  <p className="mt-4">
+                    <Link
+                      href="/scams"
+                      className="text-red-400 hover:text-red-300 text-sm font-semibold inline-flex items-center gap-1"
+                    >
+                      More investigations
+                      <ArrowRight size={16} />
+                    </Link>
+                  </p>
+                </aside>
+              )}
+
+              {relatedReviewsFinal.length > 0 && (
+                <section aria-labelledby="related-investigations-heading">
+                  <h2
+                    id="related-investigations-heading"
+                    className="text-2xl font-bold text-white mb-4 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500">
+                      <Shield size={24} />
+                    </span>
+                    Related investigations
+                  </h2>
+                  <ul className="space-y-3 text-slate-300">
+                    {relatedReviewsFinal.map((r) => (
+                      <li key={r.slug}>
+                        <Link href={`/review/${r.slug}`} className="text-white font-medium hover:text-red-400">
+                          {reviewLabel(r, brandNameById)}
+                        </Link>
+                        <span className="text-slate-500">
+                          {' '}
+                          — Threat {(r.scam_score ?? 0)}/100. {truncate(r.verdict || 'Investigation in progress.', 160)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {learnMoreRows.length > 0 && (
+                <section aria-labelledby="learn-more-heading">
+                  <h2
+                    id="learn-more-heading"
+                    className="text-2xl font-bold text-white mb-4 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500">
+                      <BookOpen size={24} />
+                    </span>
+                    Learn more about crypto scams
+                  </h2>
+                  <ul className="space-y-3 text-slate-300">
+                    {learnMoreRows.map((b) => (
+                      <li key={b.slug}>
+                        <Link href={`/review/${b.slug}`} className="text-white font-medium hover:text-red-400">
+                          {b.headline || b.title || b.slug}
+                        </Link>
+                        <span className="text-slate-500">
+                          {' '}
+                          — {truncate(b.meta_description || b.summary || '', 180)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {recentReviewsFinal.length > 0 && (
+                <section aria-labelledby="recently-published-heading">
+                  <h2
+                    id="recently-published-heading"
+                    className="text-2xl font-bold text-white mb-4 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500">
+                      <FileText size={24} />
+                    </span>
+                    Recently published investigations
+                  </h2>
+                  <ul className="space-y-2 text-slate-300">
+                    {recentReviewsFinal.map((r) => (
+                      <li key={r.slug}>
+                        <Link href={`/review/${r.slug}`} className="text-white font-medium hover:text-red-400">
+                          {reviewLabel(r, brandNameById)}
+                        </Link>
+                        <span className="text-slate-500"> — Threat {(r.scam_score ?? 0)}/100</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
             </div>
           </div>
         </div>

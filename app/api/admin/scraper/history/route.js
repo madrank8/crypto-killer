@@ -1,6 +1,15 @@
+import { waitUntil } from '@vercel/functions';
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import { cleanupStaleJobs } from '@/lib/scraper';
+
+// Default Vercel function timeout is 10s. Under DB contention (active
+// scraper writing to sync_runs while this endpoint also queries it),
+// the cleanup PATCH + history SELECT routinely blew past 10s,
+// 504-ing the dashboard mid-scrape (production incident 2026-05-03).
+// 60s matches the budget of the sister stats/brands/scraper routes
+// (PR #26) so the dashboard's parallel fetches succeed or fail together.
+export const maxDuration = 60;
 
 /**
  * GET /api/admin/scraper/history
@@ -10,8 +19,12 @@ export async function GET(request) {
   try {
     verifyAdmin(request);
 
-    // Auto-cleanup stale jobs before returning history
-    await cleanupStaleJobs();
+    // Auto-cleanup stale jobs — fire-and-forget via waitUntil so its slow
+    // PATCH (which has to scan sync_runs by jsonb path) never blocks the
+    // user-facing render. The next /history call (8s later in the
+    // dashboard's polling cadence) sees whatever cleanup did. If cleanup
+    // takes 30s, that's fine — it doesn't 504 the dashboard.
+    waitUntil(cleanupStaleJobs().catch(() => {}));
 
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '25'), 100);

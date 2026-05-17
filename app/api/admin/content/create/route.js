@@ -3,10 +3,38 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 /**
  * POST /api/admin/content/create
- * Creates a blank content draft for a topic, or returns the existing one.
- * Body: { topic_id }
- * Returns: { id, slug, existing }
+ *
+ * Two modes:
+ *
+ *   1. Topic-driven (legacy):
+ *      Body: { topic_id }
+ *      Creates a blank content draft for an existing topic, or returns the
+ *      existing one if the topic is already linked to content.
+ *
+ *   2. Free-form (Phase 4):
+ *      Body: { title, content_type, topic_type?, target_keyword?, map_id? }
+ *      Creates a topic first (via the same Postgres rules as POST
+ *      /api/admin/topical-map/topics) then a blank content draft. The new
+ *      topic is standalone (map_id null) by default.
+ *
+ * Returns: { id, slug, existing, topic_id }
  */
+
+const VALID_TOPIC_TYPES = new Set(['pillar', 'cluster', 'supporting', 'brand_review'])
+const VALID_CONTENT_TYPES = new Set([
+  'pillar_page',
+  'guide',
+  'educational',
+  'comparison',
+  'recovery_guide',
+  'prevention',
+  'brand_review',
+  'listicle',
+  'glossary',
+  'blog_post',
+  'informational_page',
+  'landing_page',
+])
 
 function slugify(text) {
   return String(text || '')
@@ -26,29 +54,80 @@ async function ensureUniqueContentSlug(base) {
   return `${cleanBase}-${Date.now()}`
 }
 
+async function createTopicFreeForm(body) {
+  const title = String(body?.title || '').trim()
+  const contentType = String(body?.content_type || '').trim()
+  const topicType = String(body?.topic_type || 'supporting').trim()
+
+  if (!title) throw new Error('title is required')
+  if (!contentType) throw new Error('content_type is required')
+  if (!VALID_CONTENT_TYPES.has(contentType)) {
+    throw new Error(`Invalid content_type: ${contentType}`)
+  }
+  if (!VALID_TOPIC_TYPES.has(topicType)) {
+    throw new Error(`Invalid topic_type: ${topicType}`)
+  }
+
+  const targetKeyword = String(body?.target_keyword || title).trim()
+  const mapId = body?.map_id || null
+  const parentId = body?.parent_id || null
+
+  const inserted = await supaFetch('/topics?select=*', {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      title,
+      topic_type: topicType,
+      content_type: contentType,
+      target_keyword: targetKeyword,
+      map_id: mapId,
+      parent_id: parentId,
+      content_status: 'planned',
+      priority_score: 50,
+    }),
+  })
+
+  const topic = Array.isArray(inserted) ? inserted[0] : inserted
+  if (!topic?.id) throw new Error('Failed to create topic (no row returned)')
+  return topic
+}
+
 export async function POST(request) {
   try {
     verifyAdmin(request)
 
     const body = await request.json()
-    const topicId = body?.topic_id
-    if (!topicId) {
-      return Response.json({ error: 'topic_id is required' }, { status: 400 })
+    let topic
+
+    if (body?.topic_id) {
+      // Mode 1: legacy topic-driven
+      const topicRows = await supaFetch(
+        `/topics?id=eq.${body.topic_id}&select=id,title,target_keyword,content_type,content_id&limit=1`,
+      )
+      topic = Array.isArray(topicRows) ? topicRows[0] : null
+      if (!topic) {
+        return Response.json({ error: 'Topic not found' }, { status: 404 })
+      }
+
+      // If topic already has content, return the existing content ID
+      if (topic.content_id) {
+        return Response.json({
+          id: topic.content_id,
+          existing: true,
+          topic_id: topic.id,
+        })
+      }
+    } else if (body?.title && body?.content_type) {
+      // Mode 2: free-form (Phase 4)
+      topic = await createTopicFreeForm(body)
+    } else {
+      return Response.json(
+        { error: 'Either topic_id, or { title, content_type } is required' },
+        { status: 400 },
+      )
     }
 
-    // Load the topic
-    const topicRows = await supaFetch(`/topics?id=eq.${topicId}&select=id,title,target_keyword,content_type,content_id&limit=1`)
-    const topic = Array.isArray(topicRows) ? topicRows[0] : null
-    if (!topic) {
-      return Response.json({ error: 'Topic not found' }, { status: 404 })
-    }
-
-    // If topic already has content, return the existing content ID
-    if (topic.content_id) {
-      return Response.json({ id: topic.content_id, existing: true })
-    }
-
-    // Create a blank content draft
+    // Create a blank content draft (same logic for both modes)
     const slug = await ensureUniqueContentSlug(topic.target_keyword || topic.title)
 
     const inserted = await supaFetch('/content?select=id,slug', {
@@ -89,9 +168,18 @@ export async function POST(request) {
       }),
     })
 
-    return Response.json({ id: content.id, slug: content.slug, existing: false })
+    return Response.json({
+      id: content.id,
+      slug: content.slug,
+      existing: false,
+      topic_id: topic.id,
+    })
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse()
+    if (error.message?.includes('topics_content_type_check') ||
+        error.message?.includes('topics_topic_type_check')) {
+      return Response.json({ error: error.message }, { status: 400 })
+    }
     return Response.json({ error: error.message }, { status: 500 })
   }
 }

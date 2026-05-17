@@ -3,13 +3,31 @@
     {
       "path": "/api/cron/scrape",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/polish-watchdog",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/archive-landing-pages",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/sync-platform-aggregates",
+      "schedule": "15 * * * *"
     }
   ],
   "functions": {
     "app/api/cron/scrape/route.js": {
       "maxDuration": 300
     },
+    "app/api/cron/archive-landing-pages/route.js": {
+      "maxDuration": 300
+    },
     "app/api/admin/scraper/trigger/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/admin/scraper/continue/route.js": {
       "maxDuration": 300
     }
   }

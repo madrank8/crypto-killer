@@ -1,11 +1,12 @@
-import { revalidatePath } from 'next/cache'
 import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
-import { sourceResearcherPrompt, contentWriterPrompt, qualityAuditorPrompt } from '@/lib/review-prompts'
-import { processVisuals, stripVerifyTags } from '@/lib/visual-generator'
-import { generateImageSet } from '@/lib/images'
+import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
+import { stripVerifyTags } from '@/lib/visual-generator'
+import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
+import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
+import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -189,13 +190,28 @@ const STORAGE_UPLOAD_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/creative-images`  : ''
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
-// Multi-agent pipeline: source research + content generation + quality audit = 3 model calls
-// Each can take 30-60s, so we need 180s minimum. Vercel Pro supports up to 300s.
-export const maxDuration = 300
+// Phase A of the split pipeline: source research + content generation only.
+// Requires Vercel Pro Fluid Compute (800s cap). Source research + Claude
+// Opus content gen collectively run 60-150s historically; the v1.3
+// STAT-TOKEN PROTOCOL prompt (added in #18) extends that to 6-9min for
+// complex reviews because Opus does extra token-vs-literal reasoning per
+// numeric reference. 300s was hitting the cap on real generations
+// (2026-05-03 timeout in production logs); 600s gives 2× the historical
+// envelope and matches the actual Opus runtime distribution observed
+// post-#18. Bump again if reviews still time out — the long-term fix is
+// to migrate reviews from the monolithic writer to the multi-agent
+// pipeline (article-pipeline.js, commit 0831ee6e) the article side
+// already uses, but that's its own multi-PR project. Visuals, audit and
+// hero-image generation happen in Phase B (/api/admin/reviews/[id]/polish)
+// after navigation so the user sees the draft and editor as soon as
+// phase A lands.
+export const maxDuration = 600
 
 /** * POST /api/admin/reviews/generate
- * Generate a scam review article using Claude API — now with SSE progress streaming.
- * Full seo-blog-generator v3.1 + schema-markup-generator + ICP methodology.
+ * Phase A of the split review-generation pipeline.
+ * Runs source research → content writing → schema build → DB save, then
+ * returns with generation_status='content_generated'. Visuals, audit and
+ * hero/content images run in the /polish endpoint.
  * Body: { brand_id }
  */
 export async function POST(request) {
@@ -338,6 +354,20 @@ export async function POST(request) {
     const currentDate = new Date().toISOString().split('T')[0]
 
           // ═══════════════════════════════════════════════════════════════
+          // PRE-PHASE-2: Authoritative threat + deduped celebrity list
+          //
+          // Moved up from its historical location below. The downstream
+          // prose template, sidebar chips, and JSON-LD builder all consume
+          // these values. Computing them here lets us also pass them into
+          // the content writer prompt so the LLM sees the deduped count in
+          // its own input — no more "26 celebrities" in the body next to a
+          // list of 28 names (the Floventra bug).
+          // ═══════════════════════════════════════════════════════════════
+          const threat = classifyThreat(brandData.scam_score)
+          const cleanCelebrityList = dedupeCelebrityList(brandData.celebrity_list)
+          brandData.celebrity_list = cleanCelebrityList
+
+          // ═══════════════════════════════════════════════════════════════
           // PHASE 2: SOURCE RESEARCH (Gemini Flash with search grounding, or Claude fallback)          // ═══════════════════════════════════════════════════════════════
           send({ step: 'sources', progress: 30, message: 'Phase 2/5: Researching authoritative sources...' })
 
@@ -383,11 +413,39 @@ export async function POST(request) {
           // ═══════════════════════════════════════════════════════════════
           send({ step: 'ai', progress: 45, message: 'Phase 3/5: Generating review with Claude Opus (30-60s)...' })
 
-          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages)
+          // Path B: pull archive-first landing URLs for this brand so the
+          // writer can cite them in claims[].appearance. Prefer Wayback
+          // snapshots (brand_landing_pages) over live URLs (scam_brands
+          // .landing_urls). Zero-fetch soft-fail: an empty list just
+          // leaves appearance=null across the output, which the
+          // downstream normalizer handles cleanly.
+          let verifiedLandingUrls = []
+          try {
+            const archiveRows = await supabaseRequest(
+              `/brand_landing_pages?brand_id=eq.${brandData.id}` +
+                `&select=archive_url,archive_status,live_url,captured_at` +
+                `&order=captured_at.desc&limit=20`
+            )
+            verifiedLandingUrls = normalizeBrandLandingUrls(archiveRows)
+          } catch (e) {
+            console.error('[generate] brand_landing_pages fetch failed (non-fatal):', e?.message)
+            verifiedLandingUrls = []
+          }
+          // Fallback to raw SpyOwl live URLs persisted by migration 005
+          // when the archive pipeline hasn't caught up on this brand yet.
+          // Better to ship a live URL than null — the writer still gets
+          // to cite a real page; the archive backfill can rewrite later.
+          if (verifiedLandingUrls.length === 0 && Array.isArray(brandData.landing_urls)) {
+            verifiedLandingUrls = brandData.landing_urls.filter(
+              (u) => typeof u === 'string' && u.startsWith('http')
+            )
+          }
+
+          const contentPrompt = contentWriterPrompt(brandData, creativeSample, longevityDays, currentDate, sourceLedger, availableImages, cleanCelebrityList, threat, verifiedLandingUrls)
 
           // Use Claude Opus for content (best writing quality), fall back to Sonnet/Haiku
           const contentResult = await callModel('claude-opus', contentPrompt.system, contentPrompt.user, {
-            maxTokens: 8192,
+            maxTokens: 16384,
           })
           send({
             step: 'ai_done',
@@ -456,6 +514,62 @@ export async function POST(request) {
       reviewContent = JSON.parse(jsonStr)
     } catch (parseError) {
       throw new Error(`Failed to parse Claude response (stop_reason: ${anthropicData.stop_reason}, text length: ${responseText.length}): ${parseError.message}`)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // NUMERIC CONSISTENCY VALIDATION (patch 07, wired 2026-04-22)
+    //
+    // Rewrite drifted numeric claims in-place so prose, stats, and schema
+    // all reference the same authoritative counts. See lib/review-consistency.js.
+    //
+    // The canonical values are pulled from the already-computed route state
+    // (cleanCelebrityList.length, brandData.total_creatives, etc.) — these
+    // are the SAME values that sync-shape.js ships to Replit, so the
+    // Replit-rendered page and the LLM prose will never contradict once this
+    // validator has run.
+    //
+    // mode='autofix' silently rewrites. drift[] is non-empty when corrections
+    // happened — surface the count in trust_indicators for ops observability.
+    // ═══════════════════════════════════════════════════════════════════════
+    let numericDrift = []
+    let redFlagAudit = { ok: true, duplicates: [], categorized: 0, totalFlags: 0 }
+    try {
+      const consistencyResult = enforceNumericConsistency(
+        reviewContent,
+        {
+          celebrities: cleanCelebrityList.length,
+          creatives: brandData.total_creatives || 0,
+          geos: brandData.total_geos || 0,
+          velocity: brandData.velocity_7d || 0,
+          longevity: longevityDays,
+        },
+        'autofix',
+      )
+      reviewContent = consistencyResult.content
+      numericDrift = consistencyResult.drift || []
+
+      redFlagAudit = validateRedFlagDistinctness(reviewContent.red_flags)
+
+      if (numericDrift.length > 0) {
+        send({
+          step: 'consistency',
+          progress: 76,
+          message: `Autofix: rewrote ${numericDrift.length} drifting numeric claim${numericDrift.length === 1 ? '' : 's'}`,
+        })
+      }
+      if (!redFlagAudit.ok && redFlagAudit.duplicates.length > 0) {
+        const dupes = redFlagAudit.duplicates.map((d) => d.category).join(', ')
+        send({
+          step: 'consistency_warn',
+          progress: 77,
+          message: `Red flag categories not distinct — duplicates in: ${dupes} (non-blocking)`,
+        })
+      }
+    } catch (consErr) {
+      // Validator is best-effort. If it throws for an unexpected reason (e.g.
+      // a malformed field the LLM invented), log and continue — we'd rather
+      // ship a slightly-off review than reject a complete generation.
+      console.error('consistency validator failed:', consErr.message)
     }
 
           send({ step: 'building', progress: 78, message: 'Building HTML article + schema markup...' })
@@ -572,12 +686,17 @@ ${geoSections}`
     // All styles are inline. Uses <details>/<summary> for FAQ accordion (no JS).
     // Responsive 2-col layout via flexbox with flex-wrap.
 
-    // Helper: risk label based on score
-    const riskLabel = brandData.scam_score >= 90 ? 'Extreme Risk — Do Not Deposit'
-      : brandData.scam_score >= 80 ? 'Very High Risk — Avoid All Contact'
-      : brandData.scam_score >= 70 ? 'High Risk — Exercise Extreme Caution'
-      : 'Moderate Risk — Be Very Careful'
-    const badgeLabel = brandData.scam_score >= 80 ? '⚠️ CONFIRMED SCAM' : '⚠️ HIGH RISK'
+    // ── Threat classification (single source of truth — see lib/threat-score.js)
+    // Replaces the old `>=90/80/70` ladder that misclassified 99.5% of the
+    // dataset. The `scam_score` field is a weighted signal aggregate, not a
+    // probability; median is 1, p99 is 15. See lib/threat-score.js header.
+    //
+    // [MOVED 2026-04-22] threat + cleanCelebrityList are now computed in the
+    // PRE-PHASE-2 block above so the content-writer prompt can see the deduped
+    // count. This block retains only the downstream-only derivations.
+    const riskLabel = threat.label
+    const badgeLabel = threat.badge
+
     const isStillActive = brandData.last_seen_at && (Math.round((new Date() - new Date(brandData.last_seen_at)) / 86400000) <= 14)
     const firstDetectedFmt = brandData.first_seen_at ? new Date(brandData.first_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
     const lastActiveFmt = brandData.last_seen_at ? new Date(brandData.last_seen_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Unknown'
@@ -646,7 +765,7 @@ ${geoSections}`
 </div>
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⭐</div>
-<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${brandData.total_celebrities || 0}</p></div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${cleanCelebrityList.length}</p></div>
 </div>
 </div>
 </div>
@@ -668,7 +787,7 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <!-- INVESTIGATION SUMMARY -->
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} is a confirmed crypto investment scam with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${(brandData.total_creatives || 0).toLocaleString()} fraudulent advertisements</strong> detected across <strong style="color:#f8fafc">${brandData.total_geos || 0} countries</strong> over <strong style="color:#f8fafc">${longevityDays} days</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${brandData.total_celebrities ? ` The scheme impersonates <strong style="color:#f8fafc">${brandData.total_celebrities} real celebrities</strong> in paid advertisements${(brandData.celebrity_list || []).length > 0 ? `, including ${brandData.celebrity_list.slice(0, 5).map(c => escHtml(c)).join(', ')}` : ''}.` : ''}</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(cleanCelebrityList.length, 'real celebrity', 'real celebrities')}</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
 <p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. SpyOwl's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
@@ -678,7 +797,7 @@ ${sectionH2('📄', 'Investigation Summary')}
 ${reviewContent.how_it_works ? (() => {
   const stageStyles = [
     { icon: '📢', label: 'Stage 1', title: 'Celebrity Impersonation & Geo-Targeted Advertising', bg: 'rgba(124,45,18,0.2)', border: 'rgba(194,65,12,0.4)', barColor: '#ea580c', labelColor: '#fb923c', iconBg: '#ea580c',
-      statValue: `${(brandData.total_creatives || 0).toLocaleString()} ads`, statSub: `impersonating ${brandData.total_celebrities || '?'} celebrities` },
+      statValue: `${pluralize(brandData.total_creatives || 0, 'ad')}`, statSub: cleanCelebrityList.length > 0 ? `impersonating ${pluralize(cleanCelebrityList.length, 'celebrity', 'celebrities')}` : 'celebrity identity data pending' },
     { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Success', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706',
       statValue: 'Instant', statSub: 'deposit confirmation' },
     { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Psychological Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626',
@@ -841,7 +960,7 @@ ${evidenceGridHtml}
 <div style="border-top:1px solid #1e293b">
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Ad Creatives</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${(brandData.total_creatives || 0).toLocaleString()}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Countries</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_geos || 0}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_celebrities || 0}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${cleanCelebrityList.length}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.velocity_7d || 0} new</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Campaign Duration</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${longevityDays} days</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
@@ -876,7 +995,7 @@ ${geoRegions}
 </div><p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
 <p style="margin:0 0 12px;color:#f87171;font-weight:700;font-size:14px">Do not deposit any money.</p>
 <div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
-<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${(brandData.total_creatives || 0).toLocaleString()} ad creatives across ${brandData.total_geos || 0} countries.</p>
+<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${pluralize(brandData.total_creatives || 0, 'ad creative', 'ad creatives')} across ${pluralize(brandData.total_geos || 0, 'country', 'countries')}.</p>
 </div>
 </div>
 
@@ -948,113 +1067,15 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       ? existingByBrand
       : []
 
-          // ═══════════════════════════════════════════════════════════════
-          // PHASE 4.5: VISUAL GENERATION
-          // Parse [CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED] from fullArticle
-          // and replace with actual rendered visuals (charts, diagrams, AI images)
-          // ═══════════════════════════════════════════════════════════════
-
-          send({ step: 'visuals', progress: 80, message: 'Phase 4.5/5: Generating visual assets...' })
-
-          let visualMeta = []
-          try {
-            const vizResult = await processVisuals(fullArticle, {
-              contentId: brand_id,
-              contentType: 'review',
-              aiHelpers: { callModel, extractJSON },
-              onProgress: (step, pct, msg) => send({ step, progress: pct, message: msg }),
-            })
-
-            if (vizResult.stats.total > 0) {
-              fullArticle = vizResult.html
-              visualMeta = vizResult.visuals
-              send({
-                step: 'visuals_done',
-                progress: 84,
-                message: `Visual generation: ${vizResult.stats.succeeded}/${vizResult.stats.total} visuals rendered`,
-              })
-            } else {
-              send({ step: 'visuals_skip', progress: 84, message: 'No visual placeholders found — skipping' })
-            }
-          } catch (vizErr) {
-            console.error('Visual generation phase failed:', vizErr.message)
-            send({ step: 'visuals_error', progress: 84, message: 'Visual generation failed — continuing without visuals' })
-          }
-
-          // Strip {{VERIFY:}}, {{RESEARCH NEEDED:}}, {{SOURCE NEEDED:}} tags from final HTML
+          // Strip {{VERIFY:}}, {{RESEARCH NEEDED:}}, {{SOURCE NEEDED:}} tags from final HTML.
+          // Visual placeholders ([CHART NEEDED], [DIAGRAM NEEDED], [IMAGE NEEDED]) are
+          // intentionally left in-place — the /polish endpoint resolves them in phase B.
           fullArticle = stripVerifyTags(fullArticle)
 
-          // ═══════════════════════════════════════════════════════════════
-          // PHASE 5: QUALITY AUDIT (GPT-4o for fresh perspective, or Claude fallback)
-          // Runs 7 audit passes: anti-slop, E-E-A-T, source alignment, AI extractability,
-          // factual accuracy, tone & voice, schema-content parity
-          // ═══════════════════════════════════════════════════════════════
-          send({ step: 'audit', progress: 85, message: 'Phase 5/5: Quality audit...' })
-
-          let auditReport = null
-          let auditActualModel = null
-          try {
-            const auditPromptData = qualityAuditorPrompt()
-            // Build schema preview for parity check (schema built below, so we build a temp one)
-            const tempSchema = buildReviewSchema({
-              reviewContent,
-              brandData,
-              slug: slug || brandData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-              currentDate,
-              wordCount,
-              longevityDays,
-            })
-
-            const auditUserMsg = auditPromptData.userTemplate(
-              reviewContent,
-              brandData,
-              sourceLedger,
-              tempSchema
-            )
-
-            // Try GPT-4o first (fresh perspective), fall back to Claude Sonnet on any failure
-            const auditModels = availableModelsInfo.openai
-              ? ['gpt-5.4-mini', 'claude-sonnet']
-              : ['claude-sonnet']
-
-            let auditResult = null
-            for (const modelKey of auditModels) {
-              try {
-                auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
-                  jsonMode: true,
-                })
-                break // Success — stop trying
-              } catch (modelErr) {
-                console.error(`Audit model ${modelKey} failed:`, modelErr.message)
-                if (modelKey === auditModels[auditModels.length - 1]) {
-                  throw modelErr // Last model failed — rethrow
-                }
-                send({ step: 'audit_retry', progress: 86, message: `${modelKey} unavailable, retrying with fallback...` })
-              }
-            }
-
-            auditReport = extractJSON(auditResult.text)
-            auditActualModel = auditResult.usedFallback
-              ? `${auditResult.resolvedModel} (fallback from ${auditResult.fallbackFrom})`
-              : auditResult.label || auditResult.resolvedModel
-
-            const auditGrade = auditReport.grade || '?'
-            const auditScore = auditReport.overall_score || 0
-            const criticalCount = (auditReport.critical_fixes || []).length
-
-            send({
-              step: 'audit_done',
-              progress: 88,
-              message: `Audit complete: ${auditGrade} (${auditScore}/100) via ${auditResult.label} — ${criticalCount} critical fix${criticalCount !== 1 ? 'es' : ''}`,
-            })          } catch (auditError) {
-            // Audit failure is non-fatal — log and continue
-            console.error('Quality audit failed:', auditError.message)
-            auditActualModel = `failed (${auditError.message.slice(0, 100)})`
-            send({ step: 'audit_skip', progress: 88, message: `Quality audit skipped: ${auditError.message}` })
-          }
-
     // ─── BUILD JSON-LD SCHEMA (2026-compliant @graph pattern) ───
-    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo
+    // Uses lib/review-schema.js — NO ClaimReview (deprecated Jan 2026), adds WebPage + HowTo.
+    // Pass `threat` so itemReviewed + reviewRating follow the tier classification from
+    // line 583 above, keeping schema polarity aligned with the prose framing (PR3).
     const schemaJsonLd = buildReviewSchema({
       reviewContent,
       brandData,
@@ -1062,6 +1083,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       currentDate,
       wordCount,
       longevityDays,
+      threat,
     })
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })
@@ -1084,7 +1106,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       scam_score: brandData.scam_score || 0,
       status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
       ai_model: contentResult.model || 'claude-opus',
-      ai_prompt_version: 'multi-agent-v1.0-seo-v3.1-schema-v3-icp-v1',
+      ai_prompt_version: 'multi-agent-v1.3-stat-tokens',
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
@@ -1103,27 +1125,82 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
-      visual_meta: visualMeta.length > 0 ? visualMeta : null,
       verify_tags_count: reviewContent.verify_tags_count || 0,
       reddit_test_passed: reviewContent.reddit_test_passed || false,
       information_gain_summary: reviewContent.information_gain_summary || null,
       internal_links: reviewContent.internal_links || [],
+
+      // ── Schema enrichment (migration 05: reviews_schema_enrichment_columns) ──
+      // These 12 columns ship verbatim to Replit via the sync webhook and
+      // drive the @graph enrichment nodes (Article.about/mentions/citation,
+      // ClaimReview, HowTo, ItemList, Dataset, Quotation, Speakable, Person
+      // author). Every field has a DB-level default so missing keys from the
+      // LLM output don't break the INSERT — worst case we ship a less-rich
+      // schema, not a failed save.
+      author_persona_id: reviewContent.author_persona_id || (threat.frameAsScam ? 'webb' : 'nair'),
+      alternative_headline: reviewContent.alternative_headline || null,
+      target_keyword: reviewContent.target_keyword || null,
+      about_slugs: Array.isArray(reviewContent.about_slugs) ? reviewContent.about_slugs : [],
+      mention_slugs: Array.isArray(reviewContent.mention_slugs) ? reviewContent.mention_slugs : [],
+      speakable_selectors: Array.isArray(reviewContent.speakable_selectors) ? reviewContent.speakable_selectors : [],
+      citations: Array.isArray(reviewContent.citations) ? reviewContent.citations : [],
+      dataset: reviewContent.dataset || null,
+      item_reviewed: reviewContent.item_reviewed || null,
+      item_list: reviewContent.item_list || null,
+      how_to: reviewContent.how_to || null,
+      quotes: Array.isArray(reviewContent.quotes) ? reviewContent.quotes : [],
+      claims: Array.isArray(reviewContent.claims) ? reviewContent.claims : [],
+
+      // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
+      // once visuals/audit/hero-images are attached. UI polls on this field.
+      generation_status: 'content_generated',
+      polish_error: null,
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,
-        celebrities_identified: brandData.total_celebrities,
+        // celebrity_count_raw  = upstream aggregator count (may be inflated
+        //                        by accent/transliteration/honorific duplicates)
+        // celebrity_count_deduped = authoritative count after v2 dedupe — this
+        //                        is what renders in prose, stats, and schema
+        celebrity_count_raw: brandData.total_celebrities || 0,
+        celebrity_count_deduped: cleanCelebrityList.length,
+        celebrity_count_dedup_delta: Math.max(0, (brandData.total_celebrities || 0) - cleanCelebrityList.length),
+        celebrities_identified: cleanCelebrityList.length, // canonical going forward
         investigation_period_days: longevityDays,
-        data_source: 'SpyOwl Ad Surveillance',        evidence_images: availableImages.length,
+        data_source: 'SpyOwl Ad Surveillance',
+        evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
-        pipeline_version: 'multi-agent-v1.0',
+        pipeline_version: 'multi-agent-v1.3-stat-tokens',
         source_research_model: sourceResearchActualModel,
         content_model: contentResult.resolvedModel || 'claude-opus',
         content_tokens: contentResult.outputTokens || null,
-        audit_model: auditActualModel || null,
-        audit_score: auditReport?.overall_score || null,
-        audit_grade: auditReport?.grade || null,
-        audit_critical_fixes: auditReport?.critical_fixes || [],
         verified_sources_count: sourceLedger.length,
+        // Enrichment coverage telemetry
+        enrichment_fields_populated: [
+          reviewContent.author_persona_id ? 'author_persona_id' : null,
+          reviewContent.alternative_headline ? 'alternative_headline' : null,
+          reviewContent.target_keyword ? 'target_keyword' : null,
+          Array.isArray(reviewContent.about_slugs) && reviewContent.about_slugs.length ? 'about_slugs' : null,
+          Array.isArray(reviewContent.mention_slugs) && reviewContent.mention_slugs.length ? 'mention_slugs' : null,
+          Array.isArray(reviewContent.speakable_selectors) && reviewContent.speakable_selectors.length ? 'speakable_selectors' : null,
+          Array.isArray(reviewContent.citations) && reviewContent.citations.length ? 'citations' : null,
+          reviewContent.dataset ? 'dataset' : null,
+          reviewContent.item_reviewed ? 'item_reviewed' : null,
+          reviewContent.item_list ? 'item_list' : null,
+          reviewContent.how_to ? 'how_to' : null,
+          Array.isArray(reviewContent.quotes) && reviewContent.quotes.length ? 'quotes' : null,
+          Array.isArray(reviewContent.claims) && reviewContent.claims.length ? 'claims' : null,
+        ].filter(Boolean),
+
+        // Consistency validator output (patch 07)
+        numeric_drift_count: numericDrift.length,
+        numeric_drift_fields: numericDrift.map((d) => d.field).slice(0, 10),
+        red_flags_distinct: redFlagAudit.ok,
+        red_flags_categorized: redFlagAudit.categorized,
+        red_flags_total: redFlagAudit.totalFlags,
+
+        // audit_model / audit_score / audit_grade / audit_critical_fixes
+        // are populated in phase B by /polish.
       },
     }
 
@@ -1166,68 +1243,27 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       }
     }
 
-    // ─── REVALIDATE CACHED PAGES ───
-    try {
-      revalidatePath(`/review/${slug}`)
-      revalidatePath('/')
-      revalidatePath('/scams')
-    } catch (revalError) {
-      console.error('Revalidation error (non-fatal):', revalError.message)
-    }
-
-    // ─── GENERATE HERO + CONTENT IMAGES (Unsplash → TinyPNG → Supabase) ───
-    let heroImageResult = null
-    let contentImagesResult = []
-    try {
-      send({ step: 'images_unsplash', progress: 93, message: 'Generating hero & content images (Unsplash → compress → upload)...' })
-      const imgSet = await generateImageSet(slug, { contentCount: 1 })
-      if (imgSet.hero) {
-        heroImageResult = imgSet.hero
-        const imgUpdate = {
-          hero_image_url: imgSet.hero.url,
-          hero_image_alt: imgSet.hero.alt,
-          hero_image_credit: imgSet.hero.credit,
-        }
-        if (imgSet.contentImages.length > 0) {
-          contentImagesResult = imgSet.contentImages
-          imgUpdate.content_images = imgSet.contentImages.map(img => ({
-            url: img.url, alt: img.alt, credit: img.credit,
-            creditUrl: img.creditUrl, placement: img.placement,
-          }))
-        }
-        await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
-          method: 'PATCH',
-          body: JSON.stringify(imgUpdate),
-          headers: { 'Prefer': 'return=minimal' },
-        })
-        send({ step: 'images_done', progress: 97, message: `Hero image + ${contentImagesResult.length} content image(s) generated & compressed` })
-      } else if (imgSet.errors.length > 0) {
-        send({ step: 'images_warn', progress: 97, message: `Image generation partial: ${imgSet.errors[0]}` })
-      }
-    } catch (imgError) {
-      console.error('[generate] Image pipeline error (non-fatal):', imgError.message)
-      send({ step: 'images_skip', progress: 97, message: `Image generation skipped: ${imgError.message}` })
-    }
+    // Revalidation is deferred to /polish — the public review page would just render a
+    // placeholder-riddled draft right now. No point flushing the cache yet.
 
           send({
             step: 'done',
             progress: 100,
-            message: 'Review generated successfully!',
+            message: 'Draft saved. Finishing visuals, audit & hero images…',
             result: {
               review_id: reviewId,
               brand_slug: slug,
               status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
+              generation_status: 'content_generated',
               word_count: wordCount,
               images_embedded: availableImages.length,
-              hero_image: heroImageResult?.url || null,
-              schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList'],
-              pipeline_version: 'multi-agent-v1.0',
-              audit_grade: auditReport?.grade || 'skipped',
-              audit_score: auditReport?.overall_score || null,
+              schema_types: ['Organization', 'Person', 'WebSite', 'WebPage', 'Article', 'Review', 'FAQPage', 'HowTo', 'BreadcrumbList', 'ItemList', 'Dataset', 'Quotation', 'Speakable'],
+              pipeline_version: 'multi-agent-v1.3-stat-tokens',
+              phase: 'content_generated',
+              polish_pending: true,
               models_used: {
                 sources: sourceResearchActualModel,
                 content: contentResult.resolvedModel || 'claude-opus',
-                audit: auditActualModel || 'skipped',
               },
             },
           })

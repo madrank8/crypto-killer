@@ -4,13 +4,30 @@ import { useState, useEffect, useCallback } from 'react';
 
 /* ─── Step icons for visual flair ─── */
 const STEP_ICONS = {
+  // Phase A: /generate
   brand: '🎯',
   creatives: '📸',
   images: '🖼️',
+  sources: '🔎',
+  sources_fallback: '📚',
   ai: '🧠',
   ai_done: '✅',
   building: '🔨',
   saving: '💾',
+  // Phase B: /polish
+  polish_load: '📦',
+  visuals: '🎨',
+  visuals_done: '✅',
+  visuals_skip: '⏭️',
+  visuals_error: '⚠️',
+  audit: '🔍',
+  audit_done: '✅',
+  audit_retry: '🔁',
+  audit_skip: '⏭️',
+  images_done: '✅',
+  images_warn: '⚠️',
+  images_skip: '⏭️',
+  // Terminal
   done: '🚀',
   error: '❌',
 };
@@ -19,12 +36,29 @@ const STEP_LABELS = {
   brand: 'Loading brand intelligence',
   creatives: 'Fetching ad creatives',
   images: 'Checking evidence images',
+  sources: 'Researching sources',
+  sources_fallback: 'Using fallback sources',
   ai: 'Claude AI generating review',
   ai_done: 'Parsing AI response',
   building: 'Building HTML + schema',
   saving: 'Saving to database',
   done: 'Complete',
   error: 'Error',
+};
+
+// Separate timeline for phase B so the overlay shows the polish story, not both.
+const POLISH_STEP_LABELS = {
+  polish_load: 'Loading draft',
+  visuals: 'Resolving visual placeholders',
+  audit: 'Quality audit',
+  images: 'Hero & content images',
+  saving: 'Saving polished review',
+  done: 'Polish complete',
+  error: 'Error',
+  // Synthetic states set by the editor when reading generation_status from
+  // the saved row, not from a live SSE stream:
+  ready: 'Polish never ran — click Retry to generate hero image, visuals, and run the quality audit',
+  orphan: 'Polish was interrupted — click Retry to restart phase B cleanly',
 };
 
 /* ─── Pulsing dots for the AI thinking phase ─── */
@@ -171,6 +205,168 @@ export function GenerateProgressInline({ progress, step, message, error }) {
       </div>
     </div>
   );
+}
+
+/* ─── Banner variant for phase-B polish (fits above the editor) ─── */
+export function PolishProgressBanner({ progress, step, message, error, onRetry, onDismiss }) {
+  const isDone = step === 'done';
+  const isError = !!error;
+  const isIdle = !step;
+  // Needs-action states are stored on the row (ready/orphan) rather than
+  // streamed from an in-flight SSE. We style them amber (informational) and
+  // expose the Retry button so the author can kick off phase B.
+  const needsAction = step === 'ready' || step === 'orphan';
+  if (isIdle) return null;
+
+  const label = POLISH_STEP_LABELS[step] || message || 'Polishing review';
+
+  return (
+    <div className={`rounded-xl border px-4 py-3 mb-4 ${
+      isError
+        ? 'bg-red-950/30 border-red-600/40'
+        : isDone
+          ? 'bg-green-950/30 border-green-600/40'
+          : needsAction
+            ? 'bg-amber-950/30 border-amber-600/40'
+            : 'bg-purple-950/20 border-purple-600/30'
+    }`}>
+      <div className="flex items-center gap-3">
+        <span className="text-lg">
+          {isError ? '❌' : isDone ? '✅' : needsAction ? '⚠️' : (STEP_ICONS[step] || '⟳')}
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-3">
+            <span className={`text-sm font-medium truncate ${
+              isError ? 'text-red-300'
+                : isDone ? 'text-green-300'
+                : needsAction ? 'text-amber-200'
+                : 'text-purple-200'
+            }`}>
+              {isError ? 'Polish failed'
+                : isDone ? 'Polish complete — review is ready'
+                : needsAction ? (step === 'ready' ? 'Polish pending' : 'Polish interrupted')
+                : label}
+            </span>
+            {!needsAction && (
+              <span className={`text-xs font-mono ${
+                isError ? 'text-red-400' : isDone ? 'text-green-400' : 'text-purple-400'
+              }`}>
+                {progress}%
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{needsAction ? label : message}</p>
+          {!needsAction && (
+            <div className="h-1 bg-dark-bg rounded-full overflow-hidden mt-2">
+              <div
+                className={`h-full transition-all duration-500 ${
+                  isError ? 'bg-red-500' : isDone ? 'bg-green-500' : 'bg-purple-500'
+                }`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+        </div>
+        {(isError || isDone || needsAction) && (
+          <div className="flex items-center gap-2 shrink-0">
+            {(isError || needsAction) && onRetry && (
+              <button
+                onClick={onRetry}
+                className={`text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition ${
+                  isError ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'
+                }`}
+              >
+                {needsAction ? 'Run polish' : 'Retry polish'}
+              </button>
+            )}
+            {onDismiss && (
+              <button
+                onClick={onDismiss}
+                className="text-xs text-gray-400 hover:text-gray-200 px-2 py-1"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Hook: usePolishWithProgress (phase B) ─── */
+export function usePolishWithProgress(token) {
+  const [isPolishing, setIsPolishing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [step, setStep] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const reset = useCallback(() => {
+    setIsPolishing(false);
+    setProgress(0);
+    setStep('');
+    setMessage('');
+    setError(null);
+    setResult(null);
+  }, []);
+
+  const polish = useCallback(async (reviewId) => {
+    if (!reviewId) return;
+    reset();
+    setIsPolishing(true);
+    setProgress(2);
+    setStep('polish_load');
+    setMessage('Starting polish phase…');
+
+    try {
+      const res = await fetch(`/api/admin/reviews/${reviewId}/polish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            setProgress(data.progress);
+            setStep(data.step);
+            setMessage(data.message);
+            if (data.error) setError(data.message);
+            if (data.result) setResult(data.result);
+          } catch {
+            // Ignore malformed SSE lines
+          }
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+      setStep('error');
+      setMessage(err.message);
+      setProgress(0);
+    } finally {
+      setIsPolishing(false);
+    }
+  }, [token, reset]);
+
+  return { isPolishing, progress, step, message, error, result, polish, reset };
 }
 
 /* ─── Hook: useGenerateWithProgress ─── */
