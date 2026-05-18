@@ -243,7 +243,7 @@ export default function TranslationsCard({ reviewId, masterSlug, masterUpdatedAt
           </div>
           {creating && (
             <p className="text-[10px] text-gray-500 italic mt-1">
-              GPT-5.4-mini is translating in 2 passes (short fields + full article). Can take up to 2 minutes.
+              AI translation runs in 2 passes (short fields + full article). Can take up to 2 minutes.
             </p>
           )}
         </div>
