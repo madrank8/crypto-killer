@@ -377,11 +377,17 @@ export default function BrandsPage() {
     }
   };
 
-  // Friendly toast when user picks a locale that isn't ready yet (V1 = anything
-  // other than EN). Tells them what's coming without blocking the flow.
+  // Friendly toast pointing users to the right place for non-EN translations.
+  // Per V1 architecture, the brands-page split-button can't directly trigger a
+  // translation because there's no English master yet — translations attach to
+  // a published master. So we generate EN here and tell the user to add the
+  // target locale from the review editor's Translations sidebar.
   const handleLocaleNotReady = (locale) => {
     const label = LOCALE_BY_CODE[locale]?.label || locale;
-    showToast(`${label} reviews ship in Phase 2 — generating in English for now`, 'warning');
+    showToast(
+      `Generating the English review first. Once it's saved, open the review and click "+ ${label}" in the Translations sidebar (right column) to add ${label}.`,
+      'warning'
+    );
   };
 
   const handleProgressClose = () => {

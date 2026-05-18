@@ -98,11 +98,37 @@ export async function generateStaticParams() {
   }
 }
 
+// Production canonical lives on cryptokiller.org (Replit). This Vercel
+// instance is the admin preview host — canonical and hreflang URLs always
+// point at cryptokiller.org regardless of which host renders them.
+const PROD_SITE_URL = 'https://cryptokiller.org'
+
+// V1 hreflang URL-segment map. Per-locale slug comes from review_translations.
+const LOCALE_TO_URL_SEG = {
+  'it':    'it',
+  'es':    'es',
+  'de':    'de',
+  'fr':    'fr',
+  'pt-BR': 'pt-br',
+}
+
 export async function generateMetadata({ params }) {
   try {
-    const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&status=eq.published&select=title,meta_description,slug,scam_score,hero_image_url,hero_image_alt`
-    )
+    // Fetch the EN master row AND any published translations in parallel.
+    // The translations list drives hreflang link alternates and the
+    // googlebot:notranslate signal (when ≥1 translation exists, we don't
+    // want Google's auto-translation feature competing with our manual one).
+    const [reviews, translations] = await Promise.all([
+      supabaseRequest(
+        `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,meta_description,slug,scam_score,hero_image_url,hero_image_alt`
+      ),
+      supabaseRequest(
+        // Filter by master slug; translations link via review_id but we need
+        // to first resolve master id. Cheaper to do this in 2 PostgREST calls
+        // than a sub-query.
+        `/review_translations?slug=eq.${params.slug}&status=eq.published&select=locale,slug,review_id`
+      ),
+    ])
 
     if (!reviews || reviews.length === 0) {
       return {
@@ -112,17 +138,47 @@ export async function generateMetadata({ params }) {
     }
 
     const review = reviews[0]
+
+    // Translations may not share the master slug (per-locale slug override).
+    // Re-resolve the full translation list by master review_id to be safe.
+    let publishedTranslations = []
+    try {
+      publishedTranslations = await supabaseRequest(
+        `/review_translations?review_id=eq.${review.id}&status=eq.published&select=locale,slug`
+      )
+    } catch {
+      publishedTranslations = Array.isArray(translations) ? translations : []
+    }
+
     const ogImages = review.hero_image_url
       ? [{ url: review.hero_image_url, alt: review.hero_image_alt || review.title }]
       : []
 
+    // Build hreflang languages map. Self-canonical is the EN master URL on
+    // cryptokiller.org. Every published translation adds its hreflang entry,
+    // and EN doubles as x-default.
+    const masterUrl = `${PROD_SITE_URL}/review/${review.slug}`
+    const languages = { 'en': masterUrl, 'x-default': masterUrl }
+    for (const t of publishedTranslations || []) {
+      const seg = LOCALE_TO_URL_SEG[t.locale]
+      if (!seg) continue
+      languages[t.locale] = `${PROD_SITE_URL}/${seg}/review/${t.slug}`
+    }
+
+    const hasTranslations = (publishedTranslations || []).length > 0
+
     return {
       title: review.title || 'Scam Review - Crypto Killer',
       description: review.meta_description || 'Detailed scam analysis and verdict.',
+      alternates: {
+        canonical: masterUrl,
+        languages,
+      },
       openGraph: {
         title: review.title,
         description: review.meta_description,
         type: 'article',
+        locale: 'en_US',
         ...(ogImages.length > 0 && { images: ogImages }),
       },
       twitter: {
@@ -131,6 +187,14 @@ export async function generateMetadata({ params }) {
         description: review.meta_description,
         ...(ogImages.length > 0 && { images: [review.hero_image_url] }),
       },
+      // When we have our own manual translations, ask Google NOT to auto-
+      // translate the EN page for foreign-language searchers — otherwise
+      // Google's Translated Results feature serves a machine-translated EN
+      // preview that competes with our real translation. Only emitted when
+      // ≥1 translation is live.
+      ...(hasTranslations
+        ? { other: { googlebot: 'notranslate' } }
+        : {}),
     }
   } catch (error) {
     console.error('Error generating metadata:', error)

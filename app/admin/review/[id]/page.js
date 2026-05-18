@@ -12,6 +12,7 @@ import {
   PolishProgressBanner,
 } from '@/components/GenerateProgress';
 import SeoAeoAudit from '@/components/SeoAeoAudit';
+import TranslationsCard from '@/components/TranslationsCard';
 
 const TipTapEditor = dynamic(() => import('@/components/TipTapEditor'), {
   ssr: false,
@@ -1446,6 +1447,12 @@ export default function ReviewEditor({ params }) {
             redFlagCount={redFlags.length}
             faqCount={faqs.length}
             status={review.status}
+          />
+          <TranslationsCard
+            reviewId={review.id}
+            masterSlug={review.slug}
+            masterUpdatedAt={review.updated_at}
+            token={token}
           />
           <MidjourneyImagesCard
             review={review}

@@ -67,9 +67,25 @@ export async function POST(request, { params }) {
       landingUrls = [];
     }
 
+    // ─── Pull published translations to include in the Replit payload ──
+    // Replit consumes translations[] from shapeReviewForSync's output to
+    // render /[locale]/review/[slug] pages, emit hreflang, and set
+    // notranslate on the master. Drafts are intentionally excluded — only
+    // published translations belong in the canonical sync.
+    let translations = [];
+    try {
+      const rows = await supaFetch(
+        `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
+      );
+      translations = Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      console.error('[manual-sync] translations fetch failed (non-fatal):', e?.message);
+      translations = [];
+    }
+
     // Call Replit sync webhook — shape Supabase review + brand into the
     // decomposed payload Replit's sync/review endpoint expects.
-    const syncReview = shapeReviewForSync(review, brand, { landingUrls });
+    const syncReview = shapeReviewForSync(review, brand, { landingUrls, translations });
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
       method: 'POST',
       headers: {

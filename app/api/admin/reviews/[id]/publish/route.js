@@ -417,13 +417,26 @@ export async function POST(request, { params }) {
             }
           }
 
+          // Pull published translations so the Replit payload includes them
+          // (drives /[locale]/review/[slug] rendering, hreflang, notranslate).
+          let translations = []
+          try {
+            const rows = await supaFetch(
+              `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
+            )
+            translations = Array.isArray(rows) ? rows : []
+          } catch (e) {
+            console.error('[publish] translations fetch failed (non-fatal):', e?.message)
+            translations = []
+          }
+
           if (brand) {
             // Merge the updated fields into the review object for sync,
             // then do the full Supabase→Replit shape transform.
             const syncReview = shapeReviewForSync(
               { ...review, ...updates },
               brand,
-              { landingUrls },
+              { landingUrls, translations },
             )
 
             const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
