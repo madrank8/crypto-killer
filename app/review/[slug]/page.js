@@ -114,21 +114,15 @@ const LOCALE_TO_URL_SEG = {
 
 export async function generateMetadata({ params }) {
   try {
-    // Fetch the EN master row AND any published translations in parallel.
-    // The translations list drives hreflang link alternates and the
-    // googlebot:notranslate signal (when ≥1 translation exists, we don't
-    // want Google's auto-translation feature competing with our manual one).
-    const [reviews, translations] = await Promise.all([
-      supabaseRequest(
-        `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,meta_description,slug,scam_score,hero_image_url,hero_image_alt`
-      ),
-      supabaseRequest(
-        // Filter by master slug; translations link via review_id but we need
-        // to first resolve master id. Cheaper to do this in 2 PostgREST calls
-        // than a sub-query.
-        `/review_translations?slug=eq.${params.slug}&status=eq.published&select=locale,slug,review_id`
-      ),
-    ])
+    // Fetch the EN master row first — we need review.id to look up translations
+    // by review_id. A parallel by-slug translations query would MISS any
+    // translation that overrode its per-locale slug (e.g. master
+    // 'polso-crescianza' → IT 'recensione-polso-crescianza'), which is the
+    // whole point of the per-locale slug feature. Going by review_id is the
+    // only correct path.
+    const reviews = await supabaseRequest(
+      `/reviews?slug=eq.${encodeURIComponent(params.slug)}&status=eq.published&select=id,title,meta_description,slug,scam_score,hero_image_url,hero_image_alt`
+    )
 
     if (!reviews || reviews.length === 0) {
       return {
@@ -139,16 +133,12 @@ export async function generateMetadata({ params }) {
 
     const review = reviews[0]
 
-    // Translations may not share the master slug (per-locale slug override).
-    // Re-resolve the full translation list by master review_id to be safe.
-    let publishedTranslations = []
-    try {
-      publishedTranslations = await supabaseRequest(
-        `/review_translations?review_id=eq.${review.id}&status=eq.published&select=locale,slug`
-      )
-    } catch {
-      publishedTranslations = Array.isArray(translations) ? translations : []
-    }
+    // Pull every published translation of this master. Soft-fail to empty —
+    // if Supabase errors here, the metadata still renders, we just lose
+    // hreflang annotations on this request.
+    const publishedTranslations = await supabaseRequest(
+      `/review_translations?review_id=eq.${encodeURIComponent(review.id)}&status=eq.published&select=locale,slug`
+    ).catch(() => [])
 
     const ogImages = review.hero_image_url
       ? [{ url: review.hero_image_url, alt: review.hero_image_alt || review.title }]

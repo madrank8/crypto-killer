@@ -4,6 +4,11 @@ import { SUPPORTED_LOCALES } from '@/lib/translate'
 
 export const maxDuration = 60
 
+// Per-locale slug format. Same regex as the POST creator — lowercase
+// letters/digits/hyphens, starting with alphanumeric, 1-100 chars. Rejects
+// '/', '?', '#', whitespace, uppercase that would break routing.
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,99}$/
+
 // Field allowlist for PATCH — protects against client setting provenance/
 // status fields directly. Status changes go through the dedicated /publish
 // endpoint. Provenance fields (translation_method, ai_model, reviewed_at,
@@ -77,16 +82,58 @@ export async function PATCH(request, { params }) {
   try {
     verifyAdmin(request)
     const { id, locale } = await params
+
+    // Reject unsupported locales explicitly. Without this, PATCH silently
+    // no-ops (PostgREST returns 200 with empty array) for invalid locales,
+    // hiding bugs in caller code.
+    if (!SUPPORTED_LOCALES.includes(locale)) {
+      return Response.json(
+        { error: `Unsupported locale '${locale}'. V1: ${SUPPORTED_LOCALES.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
     const body = await request.json().catch(() => ({}))
     const update = pickEditableFields(body)
 
-    if (Object.keys(update).length === 0) {
+    if (Object.keys(update).length === 0 && body.markHumanReviewed !== true) {
       return Response.json({ error: 'No editable fields in body' }, { status: 400 })
     }
 
-    // If the editor explicitly marks human-only review (translator_name +
-    // translator_credentials set together), bump translation_method.
+    // Validate slug if caller is editing it — same rule as the POST creator.
+    if (update.slug != null && !SLUG_RE.test(update.slug)) {
+      return Response.json(
+        {
+          error: `slug "${String(update.slug).slice(0, 80)}" is invalid. Must be lowercase letters/digits/hyphens, 1-100 chars, starting with a letter or digit.`,
+        },
+        { status: 400 }
+      )
+    }
+
+    // If the editor explicitly marks human-only review, bump translation_method
+    // and reviewed_at. Require translator_name to be set to a real reviewer
+    // (not the default editorial team) — otherwise the YMYL provenance signal
+    // this column exists for is defeated. The actual name can come from the
+    // same PATCH body (allowlisted) or from a prior PATCH that set it.
     if (body.markHumanReviewed === true) {
+      // Resolve the translator_name that WILL be on the row after this PATCH:
+      // either from update (if included) or from the existing row.
+      let effectiveName = (update.translator_name || '').trim()
+      if (!effectiveName) {
+        const existing = await supabaseRequest(
+          `/review_translations?review_id=eq.${encodeURIComponent(id)}&locale=eq.${encodeURIComponent(locale)}&select=translator_name`
+        )
+        effectiveName = ((Array.isArray(existing) ? existing[0]?.translator_name : '') || '').trim()
+      }
+      if (!effectiveName || effectiveName === 'Crypto Killer Editorial Team') {
+        return Response.json(
+          {
+            error: 'markHumanReviewed requires translator_name to be set to the actual reviewer (not the default editorial team).',
+            hint: 'Include translator_name in this PATCH body, or PATCH translator_name first, then PATCH markHumanReviewed=true.',
+          },
+          { status: 400 }
+        )
+      }
       update.translation_method = 'human_only'
       update.reviewed_at = new Date().toISOString()
     }
@@ -121,7 +168,12 @@ export async function PATCH(request, { params }) {
     }
 
     const rows = await res.json()
-    return Response.json({ translation: Array.isArray(rows) ? rows[0] : rows })
+    // PostgREST returns an array; empty means no row matched the filter.
+    // Surface that as a real 404 rather than `{ translation: undefined }`.
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return Response.json({ error: 'Translation not found' }, { status: 404 })
+    }
+    return Response.json({ translation: rows[0] })
   } catch (error) {
     if (error.message?.includes('Unauthorized')) return unauthorizedResponse()
     return Response.json({ error: error.message }, { status: 500 })
@@ -137,15 +189,27 @@ export async function DELETE(request, { params }) {
     verifyAdmin(request)
     const { id, locale } = await params
 
+    // Same locale validation as PATCH/GET — silently no-op for invalid
+    // locale codes hides bugs in caller code.
+    if (!SUPPORTED_LOCALES.includes(locale)) {
+      return Response.json(
+        { error: `Unsupported locale '${locale}'. V1: ${SUPPORTED_LOCALES.join(', ')}` },
+        { status: 400 }
+      )
+    }
+
     const writeKey = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY
+    // Prefer: return=representation so we know whether anything was actually
+    // deleted (PostgREST returns the deleted rows). Without this we can't
+    // distinguish "deleted 1 row" from "deleted 0 rows because nothing matched".
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/review_translations?review_id=eq.${id}&locale=eq.${encodeURIComponent(locale)}`,
+      `${SUPABASE_URL}/rest/v1/review_translations?review_id=eq.${encodeURIComponent(id)}&locale=eq.${encodeURIComponent(locale)}&select=id`,
       {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${writeKey}`,
           apikey: writeKey,
-          Prefer: 'return=minimal',
+          Prefer: 'return=representation',
         },
       }
     )
@@ -158,7 +222,12 @@ export async function DELETE(request, { params }) {
       )
     }
 
-    return Response.json({ success: true })
+    const deleted = await res.json().catch(() => [])
+    if (!Array.isArray(deleted) || deleted.length === 0) {
+      return Response.json({ error: 'Translation not found' }, { status: 404 })
+    }
+
+    return Response.json({ success: true, deleted_id: deleted[0]?.id })
   } catch (error) {
     if (error.message?.includes('Unauthorized')) return unauthorizedResponse()
     return Response.json({ error: error.message }, { status: 500 })

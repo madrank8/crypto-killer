@@ -6,6 +6,21 @@ import { translateReview, SUPPORTED_LOCALES } from '@/lib/translate'
 // run 60-120s depending on length. 300s matches the reviews/generate budget.
 export const maxDuration = 300
 
+// Per-locale slug format. Lowercase + digits + hyphens; must start with an
+// alphanumeric so slugs like '-foo' or '?bar' or 'foo/bar' or 'foo bar' are
+// rejected. Cap at 100 chars to match the master slug truncation in
+// rebuild_brands(). Empty rejected (slug is required even if just defaulting
+// to the master slug — passed by caller).
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,99}$/
+
+function validateSlug(slug) {
+  if (typeof slug !== 'string') return 'slug must be a string'
+  if (!SLUG_RE.test(slug)) {
+    return `slug "${slug.slice(0, 80)}" is invalid. Must be lowercase letters/digits/hyphens, 1-100 chars, starting with a letter or digit.`
+  }
+  return null
+}
+
 /**
  * GET /api/admin/reviews/[id]/translations
  * List existing translations for a review.
@@ -51,6 +66,13 @@ export async function POST(request, { params }) {
         { error: `locale required, one of: ${SUPPORTED_LOCALES.join(', ')}` },
         { status: 400 }
       )
+    }
+
+    // Validate the per-locale slug if caller passed one. Defaults to the master
+    // slug (which we trust — it's been through rebuild_brands' regex sanitizer).
+    if (slugOverride != null) {
+      const slugErr = validateSlug(slugOverride)
+      if (slugErr) return Response.json({ error: slugErr }, { status: 400 })
     }
 
     // Fetch the master review
