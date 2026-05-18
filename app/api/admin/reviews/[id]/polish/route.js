@@ -298,7 +298,7 @@ export async function POST(request, { params }) {
             revalidatePath('/')
             revalidatePath('/scams')
           } catch (revalError) {
-            console.error('[polish] Revalidation error (non-fatal):', revalError.message)
+            console.warn('[polish] Revalidation error (non-fatal):', revalError.message)
           }
 
           send({

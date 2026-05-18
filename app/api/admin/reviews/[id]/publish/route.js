@@ -377,7 +377,7 @@ export async function POST(request, { params }) {
       revalidatePath('/')
       revalidatePath('/scams')
     } catch (revalError) {
-      console.error('Revalidation error (non-fatal):', revalError.message)
+      console.warn('Revalidation error (non-fatal):', revalError.message)
     }
 
     // ─── SYNC TO LIVE SITE (publish + unpublish) ───
@@ -412,7 +412,7 @@ export async function POST(request, { params }) {
               )
               landingUrls = normalizeBrandLandingUrls(rows)
             } catch (e) {
-              console.error('[publish] brand_landing_pages fetch failed (non-fatal):', e?.message)
+              console.warn('[publish] brand_landing_pages fetch failed (non-fatal):', e?.message)
               landingUrls = []
             }
           }
@@ -428,7 +428,7 @@ export async function POST(request, { params }) {
             )
               .then((rows) => (Array.isArray(rows) ? rows : []))
               .catch((e) => {
-                console.error('[publish] translations fetch failed (non-fatal):', e?.message)
+                console.warn('[publish] translations fetch failed (non-fatal):', e?.message)
                 return []
               }),
 
@@ -462,7 +462,7 @@ export async function POST(request, { params }) {
                     })
                   )
                   .catch((e) => {
-                    console.error('[publish] recent ads fetch failed (non-fatal):', e?.message)
+                    console.warn('[publish] recent ads fetch failed (non-fatal):', e?.message)
                     return []
                   })
               : Promise.resolve([]),

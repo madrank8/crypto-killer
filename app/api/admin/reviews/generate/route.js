@@ -428,7 +428,7 @@ export async function POST(request) {
             )
             verifiedLandingUrls = normalizeBrandLandingUrls(archiveRows)
           } catch (e) {
-            console.error('[generate] brand_landing_pages fetch failed (non-fatal):', e?.message)
+            console.warn('[generate] brand_landing_pages fetch failed (non-fatal):', e?.message)
             verifiedLandingUrls = []
           }
           // Fallback to raw SpyOwl live URLs persisted by migration 005

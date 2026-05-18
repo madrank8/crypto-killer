@@ -63,7 +63,7 @@ export async function POST(request, { params }) {
       );
       landingUrls = normalizeBrandLandingUrls(rows);
     } catch (e) {
-      console.error('[manual-sync] brand_landing_pages fetch failed (non-fatal):', e?.message);
+      console.warn('[manual-sync] brand_landing_pages fetch failed (non-fatal):', e?.message);
       landingUrls = [];
     }
 
@@ -81,7 +81,7 @@ export async function POST(request, { params }) {
       )
         .then((rows) => (Array.isArray(rows) ? rows : []))
         .catch((e) => {
-          console.error('[manual-sync] translations fetch failed (non-fatal):', e?.message);
+          console.warn('[manual-sync] translations fetch failed (non-fatal):', e?.message);
           return [];
         }),
 
@@ -116,7 +116,7 @@ export async function POST(request, { params }) {
           })
         )
         .catch((e) => {
-          console.error('[manual-sync] recent ads fetch failed (non-fatal):', e?.message);
+          console.warn('[manual-sync] recent ads fetch failed (non-fatal):', e?.message);
           return [];
         }),
     ]);

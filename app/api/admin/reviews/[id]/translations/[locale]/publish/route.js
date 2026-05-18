@@ -96,7 +96,7 @@ export async function POST(request, { params }) {
         },
         signal: AbortSignal.timeout(10_000),
       }).catch((e) => {
-        console.error('[translations/publish] master re-sync failed (non-fatal):', e.message)
+        console.warn('[translations/publish] master re-sync failed (non-fatal):', e.message)
       })
     }
 
