@@ -108,6 +108,129 @@ function ScamScoreChip({ score }) {
   );
 }
 
+/* ─── Locale picker config (Phase 0) ─────────────────────────────────
+   V1 supported review locales. Only EN is wired to the generation
+   pipeline today — IT/ES/DE/FR/PT-BR appear in the picker as "soon" so
+   the UI is forward-compatible with Phase 2 translation flow. Keep
+   ordering aligned with /api/admin/brands SUPPORTED_LOCALES. */
+const LOCALES = [
+  { code: 'en',    label: 'English',    flag: '🇬🇧', ready: true  },
+  { code: 'it',    label: 'Italian',    flag: '🇮🇹', ready: false },
+  { code: 'es',    label: 'Spanish',    flag: '🇪🇸', ready: false },
+  { code: 'de',    label: 'German',     flag: '🇩🇪', ready: false },
+  { code: 'fr',    label: 'French',     flag: '🇫🇷', ready: false },
+  { code: 'pt-BR', label: 'Portuguese', flag: '🇧🇷', ready: false },
+];
+const LOCALE_BY_CODE = Object.fromEntries(LOCALES.map(l => [l.code, l]));
+
+/* Top-GEO badge on each brand card — flag + lang code + share, with a tooltip
+   listing the top-5 geo breakdown so the user understands the targeting. */
+function TopGeoBadge({ top_geo, top_lang, geo_breakdown }) {
+  if (!top_geo && !top_lang) return null;
+  const breakdown = Array.isArray(geo_breakdown) ? geo_breakdown : [];
+  const topShare = breakdown[0]?.share;
+  const tooltip = breakdown.length
+    ? breakdown.map(b => `${b.geo}: ${Math.round((b.share || 0) * 100)}% (${b.n})`).join('\n')
+    : '';
+  return (
+    <span
+      title={tooltip}
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-gray-800/60 text-gray-300 border border-gray-700/50 cursor-help"
+    >
+      {top_geo && <span className="text-sm leading-none">{geoFlag(top_geo)}</span>}
+      <span className="font-mono">{top_geo || '??'}</span>
+      {top_lang && <span className="text-gray-500">·</span>}
+      {top_lang && <span className="text-gray-400">{top_lang}</span>}
+      {topShare != null && breakdown.length > 1 && (
+        <span className="text-gray-600">{Math.round(topShare * 100)}%</span>
+      )}
+    </span>
+  );
+}
+
+/* Split-button: primary action generates in the suggested locale; the
+   dropdown caret reveals all V1 locales. Non-EN options are disabled
+   with a "(soon)" tag until Phase 2 wires the translation pipeline. */
+function GenerateSplitButton({ suggested, isGenerating, onGenerate, onLocaleNotReady }) {
+  const [open, setOpen] = useState(false);
+  const suggestedLocale = LOCALE_BY_CODE[suggested] || LOCALE_BY_CODE.en;
+  const primaryLabel = suggestedLocale.ready
+    ? `Generate in ${suggestedLocale.label}`
+    : 'Generate Review'; // suggested is non-EN but we can't ship it yet → label generically and fall through to EN
+
+  const handlePrimary = () => {
+    if (suggestedLocale.ready) {
+      onGenerate(suggestedLocale.code);
+    } else {
+      // Suggested locale isn't ready yet → notify and fall back to EN
+      onLocaleNotReady(suggestedLocale.code);
+      onGenerate('en');
+    }
+  };
+
+  return (
+    <div className="relative inline-flex items-stretch shrink-0">
+      <button
+        onClick={handlePrimary}
+        disabled={isGenerating}
+        className="text-xs font-semibold text-red-400 hover:text-red-300 px-4 py-2 rounded-l-lg bg-red-600/10 hover:bg-red-600/20 border border-r-0 border-red-600/20 transition disabled:opacity-50"
+      >
+        {isGenerating ? (
+          <span className="flex items-center gap-1.5">
+            <span className="animate-spin">⟳</span> Generating...
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <span>{suggestedLocale.flag}</span>
+            <span>{primaryLabel}</span>
+          </span>
+        )}
+      </button>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={isGenerating}
+        aria-label="Pick a language"
+        className="text-xs text-red-400 hover:text-red-300 px-2 py-2 rounded-r-lg bg-red-600/10 hover:bg-red-600/20 border border-red-600/20 transition disabled:opacity-50"
+      >
+        ▾
+      </button>
+
+      {open && (
+        <>
+          {/* Click-outside catcher */}
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 w-48 bg-dark-card border border-gray-700 rounded-lg shadow-2xl overflow-hidden">
+            {LOCALES.map(loc => (
+              <button
+                key={loc.code}
+                onClick={() => {
+                  setOpen(false);
+                  if (loc.ready) {
+                    onGenerate(loc.code);
+                  } else {
+                    onLocaleNotReady(loc.code);
+                  }
+                }}
+                disabled={!loc.ready}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition ${
+                  loc.ready
+                    ? 'text-gray-200 hover:bg-white/5'
+                    : 'text-gray-600 cursor-not-allowed'
+                } ${loc.code === suggested ? 'bg-white/5' : ''}`}
+              >
+                <span className="text-base">{loc.flag}</span>
+                <span className="flex-1">{loc.label}</span>
+                {loc.code === suggested && <span className="text-[10px] text-amber-400">suggested</span>}
+                {!loc.ready && <span className="text-[10px] text-gray-600">soon</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════ */
 /*  MAIN PAGE                                            */
 /* ═══════════════════════════════════════════════════════ */
@@ -226,14 +349,17 @@ export default function BrandsPage() {
     fetchBrands(next, true);
   };
 
-  const handleOneClickGenerate = async (brandId) => {
+  // Phase 0: `locale` is accepted but only 'en' actually runs the pipeline.
+  // Stored alongside the create request so when Phase 2 wires translations,
+  // the API can route the right way without changing this call-site.
+  const handleOneClickGenerate = async (brandId, locale = 'en') => {
     setGeneratingId(brandId);
     setPendingReviewId(null);
     try {
       const createRes = await fetch('/api/admin/reviews/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ brand_id: brandId }),
+        body: JSON.stringify({ brand_id: brandId, locale }),
       });
 
       if (!createRes.ok) throw new Error('Create failed');
@@ -249,6 +375,13 @@ export default function BrandsPage() {
     } finally {
       setGeneratingId(null);
     }
+  };
+
+  // Friendly toast when user picks a locale that isn't ready yet (V1 = anything
+  // other than EN). Tells them what's coming without blocking the flow.
+  const handleLocaleNotReady = (locale) => {
+    const label = LOCALE_BY_CODE[locale]?.label || locale;
+    showToast(`${label} reviews ship in Phase 2 — generating in English for now`, 'warning');
   };
 
   const handleProgressClose = () => {
@@ -484,9 +617,14 @@ export default function BrandsPage() {
             <ScamScoreChip score={brand.scam_score} />
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-semibold text-sm truncate">{brand.name}</span>
                 <TrendBadge trend={brand.trend} />
+                <TopGeoBadge
+                  top_geo={brand.top_geo}
+                  top_lang={brand.top_lang}
+                  geo_breakdown={brand.geo_breakdown}
+                />
               </div>
               <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
                 <span>{brand.total_creatives} ads</span>
@@ -522,19 +660,12 @@ export default function BrandsPage() {
                   </Link>
                 </>
               ) : (
-                <button
-                  onClick={() => handleOneClickGenerate(brand.id)}
-                  disabled={generatingId === brand.id}
-                  className="text-xs font-semibold text-red-400 hover:text-red-300 px-4 py-2 rounded-lg bg-red-600/10 hover:bg-red-600/20 border border-red-600/20 transition"
-                >
-                  {generatingId === brand.id ? (
-                    <span className="flex items-center gap-1.5">
-                      <span className="animate-spin">⟳</span> Generating...
-                    </span>
-                  ) : (
-                    'Generate Review'
-                  )}
-                </button>
+                <GenerateSplitButton
+                  suggested={brand.suggested_locale || 'en'}
+                  isGenerating={generatingId === brand.id}
+                  onGenerate={(locale) => handleOneClickGenerate(brand.id, locale)}
+                  onLocaleNotReady={handleLocaleNotReady}
+                />
               )}
             </div>
           </div>

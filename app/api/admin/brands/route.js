@@ -1,6 +1,29 @@
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
+// V1 supported review locales — must stay in sync with the translation pipeline
+// (lib/translate.js, when it ships) and the public /[locale]/review/[slug] route
+// allowlist. Order matters for UI display order in the locale picker.
+const SUPPORTED_LOCALES = ['en', 'it', 'es', 'de', 'fr', 'pt-BR']
+
+// Map a SpyOwl land_language code (lowercase ISO-639-1) to the V1 review locale
+// that should be pre-selected when the user clicks Generate Review. Anything not
+// in this table (tr/ru/pl/ar/nl/cs/hr/ro/…) defaults to 'en' — V2 territory.
+const LANG_TO_LOCALE = {
+  en: 'en',
+  it: 'it',
+  es: 'es',
+  de: 'de',
+  fr: 'fr',
+  // SpyOwl emits bare 'pt'; per V1 decision we route it to Brazilian PT.
+  pt: 'pt-BR',
+}
+
+function suggestedLocale(topLang) {
+  if (!topLang) return 'en'
+  return LANG_TO_LOCALE[String(topLang).toLowerCase()] || 'en'
+}
+
 // Default Vercel function timeout is 10s. The brands list endpoint
 // pages through scam_brands and joins review status — under Supabase
 // contention (concurrent scraper, cron, etc.) it 500'd at 10s,
@@ -31,7 +54,7 @@ export async function GET(request) {
     const offset = (page - 1) * limit
 
     // Build Supabase query
-    let query = `/scam_brands?select=id,slug,name,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend,status,first_seen_at,last_seen_at,last_synced_at`
+    let query = `/scam_brands?select=id,slug,name,scam_score,total_creatives,total_geos,total_celebrities,velocity_7d,velocity_trend,status,first_seen_at,last_seen_at,last_synced_at,top_geo,top_lang,geo_breakdown`
 
     // Add filters based on trend
     if (trend && trend !== 'all') {
@@ -117,6 +140,16 @@ export async function GET(request) {
       is_active: brand.last_synced_at
         ? new Date(brand.last_synced_at).getTime() >= activeCutoff
         : false,
+      // ─── Locale targeting (Phase 0) ────────────────────────────────
+      // top_geo / top_lang are the most-frequent country + language across
+      // the brand's creatives, computed by rebuild_brands().
+      // suggested_locale maps top_lang → one of SUPPORTED_LOCALES so the UI
+      // can pre-select the right language without duplicating the mapping.
+      top_geo: brand.top_geo || null,
+      top_lang: brand.top_lang || null,
+      geo_breakdown: brand.geo_breakdown || [],
+      suggested_locale: suggestedLocale(brand.top_lang),
+      // ────────────────────────────────────────────────────────────────
       has_review: reviewMap[brand.id]?.has_review || false,
       review_id: reviewMap[brand.id]?.review_id || null,
       review_status: reviewMap[brand.id]?.review_status || null,
@@ -141,6 +174,7 @@ export async function GET(request) {
       brands: enrichedBrands,
       has_more: brands.length === limit,
       total: enrichedBrands.length,
+      supported_locales: SUPPORTED_LOCALES,
     })
   } catch (error) {
     if (error.message.includes('Unauthorized')) {
