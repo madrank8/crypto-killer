@@ -67,25 +67,63 @@ export async function POST(request, { params }) {
       landingUrls = [];
     }
 
-    // ─── Pull published translations to include in the Replit payload ──
-    // Replit consumes translations[] from shapeReviewForSync's output to
-    // render /[locale]/review/[slug] pages, emit hreflang, and set
-    // notranslate on the master. Drafts are intentionally excluded — only
-    // published translations belong in the canonical sync.
-    let translations = [];
-    try {
-      const rows = await supaFetch(
+    // ─── Pull translations + recent ads IN PARALLEL ──────────────────
+    // Both lookups depend only on review/brand IDs (already known), not on
+    // each other — so Promise.all halves the wall-clock latency on this
+    // pre-sync prep step. Each lookup soft-fails to its empty-array fallback;
+    // they're independently optional and never block the sync.
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [translations, recentAds] = await Promise.all([
+      // Published translations only — drafts stay on Vercel and are never
+      // canonical-synced. Drives hreflang, notranslate, and locale routes.
+      supaFetch(
         `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
-      );
-      translations = Array.isArray(rows) ? rows : [];
-    } catch (e) {
-      console.error('[manual-sync] translations fetch failed (non-fatal):', e?.message);
-      translations = [];
-    }
+      )
+        .then((rows) => (Array.isArray(rows) ? rows : []))
+        .catch((e) => {
+          console.error('[manual-sync] translations fetch failed (non-fatal):', e?.message);
+          return [];
+        }),
+
+      // Last-7d ads for the brand, joined with creative_text in one PostgREST
+      // embed. PostgREST returns the embed as either an array (when relationship
+      // cardinality is ambiguous) or single object, so we normalize both shapes
+      // below.
+      supaFetch(
+        `/creatives?normalized_offer=eq.${encodeURIComponent(brand.normalized_name || '')}` +
+          `&first_seen_at=gte.${encodeURIComponent(since)}` +
+          `&select=id,offer_name,celebrity_name,geo,land_language,is_video,created_at,first_seen_at,creative_text(main_text,link_text,link_url,post_url,fp_link)` +
+          `&order=first_seen_at.desc&limit=20`
+      )
+        .then((rows) =>
+          (Array.isArray(rows) ? rows : []).map((r) => {
+            const t = Array.isArray(r.creative_text) ? r.creative_text[0] : r.creative_text || {};
+            return {
+              creative_id: r.id,
+              offer_name: r.offer_name,
+              celebrity_name: r.celebrity_name,
+              geo: r.geo,
+              land_language: r.land_language,
+              is_video: r.is_video,
+              spyowl_created_at: r.created_at,
+              first_seen_at: r.first_seen_at,
+              main_text: t?.main_text,
+              link_text: t?.link_text,
+              link_url: t?.link_url,
+              post_url: t?.post_url,
+              fp_link: t?.fp_link,
+            };
+          })
+        )
+        .catch((e) => {
+          console.error('[manual-sync] recent ads fetch failed (non-fatal):', e?.message);
+          return [];
+        }),
+    ]);
 
     // Call Replit sync webhook — shape Supabase review + brand into the
     // decomposed payload Replit's sync/review endpoint expects.
-    const syncReview = shapeReviewForSync(review, brand, { landingUrls, translations });
+    const syncReview = shapeReviewForSync(review, brand, { landingUrls, translations, recentAds });
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
       method: 'POST',
       headers: {

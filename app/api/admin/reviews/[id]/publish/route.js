@@ -417,18 +417,56 @@ export async function POST(request, { params }) {
             }
           }
 
-          // Pull published translations so the Replit payload includes them
-          // (drives /[locale]/review/[slug] rendering, hreflang, notranslate).
-          let translations = []
-          try {
-            const rows = await supaFetch(
+          // Pull translations + recent ads IN PARALLEL — both independent of
+          // each other, both soft-fail to empty arrays, both feed the Replit
+          // payload. Cuts ~100ms off every publish round-trip vs sequential.
+          const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+          const [translations, recentAds] = await Promise.all([
+            // Published translations only — drafts never reach Replit.
+            supaFetch(
               `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
             )
-            translations = Array.isArray(rows) ? rows : []
-          } catch (e) {
-            console.error('[publish] translations fetch failed (non-fatal):', e?.message)
-            translations = []
-          }
+              .then((rows) => (Array.isArray(rows) ? rows : []))
+              .catch((e) => {
+                console.error('[publish] translations fetch failed (non-fatal):', e?.message)
+                return []
+              }),
+
+            // Last-7d ads for the brand, embedded with creative_text. Skip
+            // entirely if no normalized_name on brand (returns [] without hitting Supabase).
+            brand?.normalized_name
+              ? supaFetch(
+                  `/creatives?normalized_offer=eq.${encodeURIComponent(brand.normalized_name)}` +
+                    `&first_seen_at=gte.${encodeURIComponent(sinceIso)}` +
+                    `&select=id,offer_name,celebrity_name,geo,land_language,is_video,created_at,first_seen_at,creative_text(main_text,link_text,link_url,post_url,fp_link)` +
+                    `&order=first_seen_at.desc&limit=20`
+                )
+                  .then((rows) =>
+                    (Array.isArray(rows) ? rows : []).map((r) => {
+                      const t = Array.isArray(r.creative_text) ? r.creative_text[0] : r.creative_text || {}
+                      return {
+                        creative_id: r.id,
+                        offer_name: r.offer_name,
+                        celebrity_name: r.celebrity_name,
+                        geo: r.geo,
+                        land_language: r.land_language,
+                        is_video: r.is_video,
+                        spyowl_created_at: r.created_at,
+                        first_seen_at: r.first_seen_at,
+                        main_text: t?.main_text,
+                        link_text: t?.link_text,
+                        link_url: t?.link_url,
+                        post_url: t?.post_url,
+                        fp_link: t?.fp_link,
+                      }
+                    })
+                  )
+                  .catch((e) => {
+                    console.error('[publish] recent ads fetch failed (non-fatal):', e?.message)
+                    return []
+                  })
+              : Promise.resolve([]),
+          ])
 
           if (brand) {
             // Merge the updated fields into the review object for sync,
@@ -436,7 +474,7 @@ export async function POST(request, { params }) {
             const syncReview = shapeReviewForSync(
               { ...review, ...updates },
               brand,
-              { landingUrls, translations },
+              { landingUrls, translations, recentAds },
             )
 
             const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
