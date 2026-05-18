@@ -59,9 +59,11 @@ export async function generateMetadata({ params }) {
 
   // Admin preview: don't require status=published — show drafts too. This is
   // a noindexed Vercel preview, never a production page; admins WANT to
-  // preview drafts before publishing.
+  // preview drafts before publishing. useServiceRole bypasses anon RLS
+  // (which only shows published rows).
   const transRows = await supabaseRequest(
-    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=title,meta_description,review_id,slug,status`
+    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=title,meta_description,review_id,slug,status`,
+    { useServiceRole: true }
   )
 
   if (!Array.isArray(transRows) || transRows.length === 0) {
@@ -120,8 +122,10 @@ export default async function LocaleReviewPreview({ params }) {
   if (!loc) notFound()
 
   // Fetch the translation first — we need review_id before we can fetch master.
+  // useServiceRole so the admin preview can render drafts (anon RLS hides them).
   const transRows = await supabaseRequest(
-    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=*`
+    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=*`,
+    { useServiceRole: true }
   )
   if (!Array.isArray(transRows) || transRows.length === 0) notFound()
   const trans = transRows[0]

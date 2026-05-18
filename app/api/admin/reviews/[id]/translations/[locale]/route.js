@@ -60,8 +60,10 @@ export async function GET(request, { params }) {
       )
     }
 
+    // useServiceRole: admin editor must see drafts; anon RLS hides them.
     const rows = await supabaseRequest(
-      `/review_translations?review_id=eq.${id}&locale=eq.${encodeURIComponent(locale)}&select=*`
+      `/review_translations?review_id=eq.${id}&locale=eq.${encodeURIComponent(locale)}&select=*`,
+      { useServiceRole: true }
     )
     if (!Array.isArray(rows) || rows.length === 0) {
       return Response.json({ error: 'Translation not found' }, { status: 404 })
@@ -120,8 +122,11 @@ export async function PATCH(request, { params }) {
       // either from update (if included) or from the existing row.
       let effectiveName = (update.translator_name || '').trim()
       if (!effectiveName) {
+        // useServiceRole: existing row may be in draft state; anon RLS would
+        // hide it and we'd wrongly fall through to the "missing name" branch.
         const existing = await supabaseRequest(
-          `/review_translations?review_id=eq.${encodeURIComponent(id)}&locale=eq.${encodeURIComponent(locale)}&select=translator_name`
+          `/review_translations?review_id=eq.${encodeURIComponent(id)}&locale=eq.${encodeURIComponent(locale)}&select=translator_name`,
+          { useServiceRole: true }
         )
         effectiveName = ((Array.isArray(existing) ? existing[0]?.translator_name : '') || '').trim()
       }

@@ -31,8 +31,11 @@ export async function GET(request, { params }) {
     verifyAdmin(request)
     const { id } = await params
 
+    // useServiceRole: this endpoint must show drafts in the admin sidebar.
+    // RLS hides drafts from anon, so admin reads must bypass via service_role.
     const rows = await supabaseRequest(
-      `/review_translations?review_id=eq.${id}&select=id,locale,slug,status,word_count,translation_method,translator_name,reviewed_at,ai_model,ai_prompt_version,published_at,source_review_updated_at,created_at,updated_at&order=locale.asc`
+      `/review_translations?review_id=eq.${id}&select=id,locale,slug,status,word_count,translation_method,translator_name,reviewed_at,ai_model,ai_prompt_version,published_at,source_review_updated_at,created_at,updated_at&order=locale.asc`,
+      { useServiceRole: true }
     )
 
     return Response.json({
@@ -90,9 +93,12 @@ export async function POST(request, { params }) {
       )
     }
 
-    // Reject duplicate
+    // Reject duplicate. useServiceRole so we see drafts too (anon RLS would
+    // miss them and we'd hit the UNIQUE constraint at insert anyway, but
+    // catching it here gives a clearer error).
     const existing = await supabaseRequest(
-      `/review_translations?review_id=eq.${id}&locale=eq.${encodeURIComponent(locale)}&select=id`
+      `/review_translations?review_id=eq.${id}&locale=eq.${encodeURIComponent(locale)}&select=id`,
+      { useServiceRole: true }
     )
     if (Array.isArray(existing) && existing.length > 0) {
       return Response.json(
