@@ -37,17 +37,121 @@ scam_brands               Admin dashboard                  Public review pages
 | `threat-score.js` | Classifies a `scam_score` (0–100) into tiers (`confirmed`, `high`, `elevated`, `watchlist`, `low`) and derives prose framing, verdict opener, badge label, and `frameAsScam` flag. |
 | `writer-personas.js` | 5 author personas (`webb`, `nair`, `ortiz`, `pepi`, `majithia`) with expertise profiles used to populate `Person` JSON-LD author nodes. |
 
+## Authentication
+
+All admin API endpoints require a `Bearer` token in the `Authorization` header. The token is the `ADMIN_SECRET` environment variable configured in Vercel.
+
+### Auth flow
+
+1. **Obtain a token** — `POST /api/admin/auth` with `{ "password": "<ADMIN_SECRET>" }`. Returns `{ "token": "<token>" }` on success.
+2. **Authenticate requests** — include the header on every subsequent call:
+   ```
+   Authorization: Bearer <token>
+   ```
+3. **Failure** — missing or invalid token returns `401 { "error": "Unauthorized" }`.
+
+The auth logic lives in `lib/admin-auth.js` (`verifyAdmin` / `unauthorizedResponse`). Cron routes and internal machine-to-machine endpoints (e.g. `scraper/continue`) accept `CRON_SECRET` as an alternative Bearer token.
+
+### Example (curl)
+
+```bash
+# Authenticate
+TOKEN=$(curl -s -X POST https://crypto-killer.vercel.app/api/admin/auth \
+  -H "Content-Type: application/json" \
+  -d '{"password": "'"$ADMIN_SECRET"'"}' | jq -r '.token')
+
+# Use the token
+curl -s https://crypto-killer.vercel.app/api/admin/reviews/list \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ## API Routes (`app/api/admin/`)
+
+### Auth
 
 | Route | Method | Description |
 |---|---|---|
-| `reviews/generate` | POST | Phase A: source research → content writing → schema build → Supabase INSERT (SSE stream) |
-| `reviews/[id]/polish` | POST | Phase B: visual generation, quality audit, hero image |
-| `reviews/[id]/publish` | POST | Publish gate (placeholder check, URL validation, plural agreement) → Supabase PATCH → Replit sync webhook |
-| `reviews/[id]/sync` | POST | Manual re-sync of an existing review to Replit |
-| `reviews/list` | GET | Admin review list (excludes orphaned rows) |
-| `cron/scrape` | GET | SpyOwl → Supabase brand/creative sync |
+| `auth` | POST | Validate admin password, return bearer token |
+
+### Reviews (scam brand investigations)
+
+| Route | Method | Description |
+|---|---|---|
+| `reviews/list` | GET | Paginated list of all reviews (excludes orphaned rows) |
+| `reviews/create` | POST | Create a blank draft review for a brand. Body: `{ brand_id }` |
+| `reviews/generate` | POST | Phase A pipeline: source research → content writing → schema build → Supabase INSERT (SSE stream) |
+| `reviews/validate-publish` | POST | Pre-publish validator (8 deterministic checks, no LLM). Body: `{ reviewId }` |
+| `reviews/[id]` | GET | Fetch a single review with its brand data |
+| `reviews/[id]` | PATCH | Update review fields (auto-recalculates `word_count`) |
+| `reviews/[id]/polish` | POST | Phase B pipeline: visual generation → quality audit → hero image (SSE stream) |
+| `reviews/[id]/publish` | POST | Publish gate (placeholder, URL, plural checks) → Supabase PATCH → Replit sync |
+| `reviews/[id]/sync` | POST | Manual re-sync of a published review to the live site (Replit) |
+| `reviews/[id]/images` | POST | Regenerate evidence grid images from SpyOwl → Supabase Storage |
+| `reviews/[id]/auto-fix` | POST | Auto-fix publish-gate issues (placeholder scrub, citation replacement). Body: `{ issues, citation_fix_mode }` |
+| `reviews/by-slug/[slug]/regenerate-visuals` | POST | Regenerate inline visual placeholders for a review by slug |
+
+### Content (topical blog articles)
+
+| Route | Method | Description |
+|---|---|---|
+| `content/create` | POST | Create a blank content draft (topic-driven or free-form). Body: `{ topic_id }` or `{ title, content_type }` |
+| `content/outline` | POST | Generate an article outline (sections + FAQ) for a draft (SSE stream). Body: `{ content_id }` |
+| `content/fill` | POST | Generate the full article body from an approved outline (SSE stream). Body: `{ content_id }` |
+| `content/generate` | POST | Full pipeline: outline + article + images in one pass (SSE stream) |
+| `content/[id]` | GET | Fetch a content row with linked topic data |
+| `content/[id]` | PATCH | Update content draft fields |
+| `content/[id]/publish` | POST | Publish/unpublish with quality gate. Body: `{ action: "publish" \| "unpublish" }` |
+| `content/[id]/sync` | POST | Manual re-sync of published content to the live blog (Replit) |
+| `content/[id]/images` | POST | Regenerate images (stock + AI visuals). Body: `{ mode: "all" \| "stock" \| "visuals" \| "refresh" \| "single" }` |
+
+### Brands & Dashboard
+
+| Route | Method | Description |
+|---|---|---|
+| `brands` | GET | Paginated brand list with review status. Query: `sort`, `trend`, `review_status`, `limit`, `page` |
+| `stats` | GET | Dashboard KPIs: counts, velocity breakdown, score distribution, pipeline stats |
+| `funnel-stats` | GET | Aggregated scrape statistics for the Funnels dashboard |
+| `settings` | GET | SpyOwl cookie health status |
+| `settings` | POST | Update a setting (currently: `spyowl_cookie`). Body: `{ key, value }` |
+
+### Images & AEO
+
+| Route | Method | Description |
+|---|---|---|
+| `images/generate` | POST | Generate images for a review, content piece, slug, or custom query |
+| `aeo-fix` | POST | Targeted AEO (Answer Engine Optimization) patches via AI. Body: `{ fullArticle, title, keyword, fixes, contentType }` |
+
+### Scraper (SpyOwl ad surveillance)
+
+| Route | Method | Description |
+|---|---|---|
+| `scraper` | GET | Scraper dashboard: ingestion stats, activity breakdown, top surging brands |
+| `scraper/trigger` | POST | Manual scrape trigger (chunked + resumable). Body: `{ geo_filter?, resume? }` |
+| `scraper/continue` | POST | Internal continuation endpoint for chunked scrapes. Auth: `CRON_SECRET` |
+| `scraper/history` | GET | Recent scrape runs with summary stats |
+| `scraper/history` | DELETE | Cancel active scrape job. Body: `{ job_id? }` |
+| `scraper/countries` | GET | Country-level breakdown of scam activity across all brands |
+| `scraper/webhook` | POST | External scraper status update callback. Auth: `ADMIN_SECRET` or `SCRAPER_SECRET` |
+
+### Topical Map
+
+| Route | Method | Description |
+|---|---|---|
+| `topical-map/generate` | POST | AI-generated topical map with keyword research (SSE stream) |
+| `topical-map/maps` | GET | List all topical maps |
+| `topical-map/topics` | GET | Query topics by `map_id` (required), optional `parent_id`, `content_type`, `content_status` |
+| `topical-map/topics` | POST | Create a free-form topic. Body: `{ title, content_type, topic_type?, target_keyword?, map_id? }` |
+| `topical-map/topics/[id]` | PATCH | Update topic fields |
+| `topical-map/topics/[id]` | DELETE | Delete topic. Query: `cascade=true` to include descendants |
+
+### Cron Jobs (`app/api/cron/`)
+
+| Route | Method | Description |
+|---|---|---|
+| `cron/scrape` | GET | Scheduled SpyOwl → Supabase brand/creative sync |
 | `cron/polish-watchdog` | GET | Auto-retries stalled polish jobs |
+| `cron/archive-landing-pages` | GET | Captures Wayback Machine snapshots of brand landing pages |
+| `cron/sync-platform-aggregates` | GET | Syncs platform-level aggregate stats |
 
 ## Local Development
 
@@ -60,12 +164,14 @@ npm run dev
 Required environment variables:
 
 ```
+ADMIN_SECRET=              # Bearer token for admin API authentication
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 ANTHROPIC_API_KEY=
 REPLIT_SITE_URL=https://cryptokiller.org
 SYNC_SECRET=
 NEXT_PUBLIC_SITE_URL=https://crypto-killer.vercel.app
+CRON_SECRET=               # Auth for cron jobs and scraper continuation
 ```
 
 Optional (schema `sameAs` links, SpyOwl image pull):
