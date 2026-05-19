@@ -176,7 +176,7 @@ export async function POST(request, { params }) {
     }
 
     const newGridHtml = `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Evidence: Fraudulent Ad Creatives by Country</h2>
-<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.7);font-size:14px">The following screenshots were captured by SpyOwl ad surveillance. Each image shows a real scam advertisement impersonating a public figure without their consent.</p>
+<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.7);font-size:14px">The following screenshots were captured by CryptoKiller ad surveillance. Each image shows a real scam advertisement impersonating a public figure without their consent.</p>
 ${geoSections}`
 
     // 8. Replace evidence grid in full_article

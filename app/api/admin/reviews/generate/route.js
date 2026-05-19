@@ -47,7 +47,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
   events.push({
     date: first,
     label: 'First Detected',
-    desc: `First scam ad creative captured by SpyOwl surveillance network`,
+    desc: `First scam ad creative captured by CryptoKiller surveillance network`,
     icon: '🔍',
     color: '#3b82f6', // blue
     phase: 'detection',
@@ -612,7 +612,7 @@ export async function POST(request) {
       }
 
       evidenceGridHtml = `<h2 style="color:#f59e0b;font-size:20px;margin:32px 0 12px;border-bottom:1px solid rgba(245,158,11,0.3);padding-bottom:8px">Evidence: Fraudulent Ad Creatives by Country</h2>
-<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.7);font-size:14px">The following screenshots were captured by SpyOwl ad surveillance. Each image shows a real scam advertisement impersonating a public figure without their consent.</p>
+<p style="line-height:1.7;margin:0 0 16px;color:rgba(255,255,255,0.7);font-size:14px">The following screenshots were captured by CryptoKiller ad surveillance. Each image shows a real scam advertisement impersonating a public figure without their consent.</p>
 ${geoSections}`
     }
 
@@ -747,7 +747,7 @@ ${geoSections}`
 <span>📅 Published: ${publishedDateFmt}</span>
 <span>⏱️ {{WORD_COUNT}} words · {{READ_TIME}} min read</span>
 <span>👤 Crypto Killer Research Team</span>
-<span>🔍 SpyOwl Ad Surveillance</span>
+<span>🔍 CryptoKiller Ad Surveillance</span>
 </div>
 <!-- STAT CARDS -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
@@ -788,7 +788,7 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
 <p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(cleanCelebrityList.length, 'real celebrity', 'real celebrities')}</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. SpyOwl's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. CryptoKiller's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
 </div>
@@ -1112,7 +1112,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       updated_at: new Date().toISOString(),
       // ── E-E-A-T fields ──
       author_name: 'Crypto Killer Research Team',
-      author_credentials: 'Crypto fraud intelligence analysts — SpyOwl ad surveillance platform',
+      author_credentials: 'Crypto fraud intelligence analysts — CryptoKiller ad surveillance platform',
       author_bio: reviewContent.expertise_depth || null,
       methodology: reviewContent.methodology || null,
       sources: reviewContent.sources || [],
@@ -1121,7 +1121,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       fact_check_status: 'ai_generated',
       disclaimer: reviewContent.disclaimer || null,
       key_takeaways: reviewContent.key_takeaways || [],
-      not_for_you: reviewContent.not_for_you || `This review covers the cryptocurrency investment scheme advertising under the name ${brandData.name}. Our analysis is based on ad surveillance data collected by SpyOwl. If you encountered a different product with a similar name through a licensed financial advisor, that may be a separate entity.`,
+      not_for_you: reviewContent.not_for_you || `This review covers the cryptocurrency investment scheme advertising under the name ${brandData.name}. Our analysis is based on ad surveillance data collected by our proprietary CryptoKiller system. If you encountered a different product with a similar name through a licensed financial advisor, that may be a separate entity.`,
       protection_steps: reviewContent.protection_steps || null,
       experience_signals: reviewContent.experience_signals || [],
       expertise_depth: reviewContent.expertise_depth || null,
@@ -1167,7 +1167,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         celebrity_count_dedup_delta: Math.max(0, (brandData.total_celebrities || 0) - cleanCelebrityList.length),
         celebrities_identified: cleanCelebrityList.length, // canonical going forward
         investigation_period_days: longevityDays,
-        data_source: 'SpyOwl Ad Surveillance',
+        data_source: 'CryptoKiller Ad Surveillance',
         evidence_images: availableImages.length,
         // Multi-agent pipeline metadata
         pipeline_version: 'multi-agent-v1.3-stat-tokens',
