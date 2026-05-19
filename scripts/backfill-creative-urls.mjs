@@ -19,6 +19,7 @@
  */
 
 import fs from 'fs';
+import { normalizeOffer, buildCleanBrandPrefixes, extractCelebrity } from '../lib/offer-extract.mjs';
 
 const SUPABASE_URL = 'https://rqyfuioazbdixflqngcs.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxeWZ1aW9hemJkaXhmbHFuZ2NzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3NzgyNDAsImV4cCI6MjA5MDM1NDI0MH0.QGi5QSr7x8zIKJrHo4vohT7eaMA7DRMqKYgprM5Ftoo';
@@ -26,13 +27,20 @@ const SPYOWL_API = 'https://api.spyowl.icu';
 const BATCH_SIZE = 500;
 const SPYOWL_TIMEOUT_MS = 20_000;
 
-function normalizeOffer(n) {
-  if (!n) return 'unknown';
-  return n.trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '')
-    .replace(/^(the|a|an)\s+/i, '')
-    .trim();
+async function loadBrandPrefixes() {
+  const all = [];
+  const PAGE = 1000;
+  let offset = 0;
+  while (true) {
+    const page = await supaFetch(`/scam_brands?select=normalized_name&limit=${PAGE}&offset=${offset}&order=normalized_name.asc`);
+    if (!Array.isArray(page) || page.length === 0) break;
+    for (const r of page) {
+      if (r && r.normalized_name) all.push(r.normalized_name);
+    }
+    if (page.length < PAGE) break;
+    offset += page.length;
+  }
+  return buildCleanBrandPrefixes(all);
 }
 
 async function supaFetch(path) {
@@ -115,6 +123,12 @@ async function main() {
   if (!me.ok) throw new Error(`SpyOwl cookie invalid: ${me.status}`);
   console.log('[backfill] Cookie OK.');
 
+  // Load brand-prefix dictionary once for the whole run — used by
+  // extractCelebrity to recover celebrity_name when SpyOwl returns it empty.
+  console.log('[backfill] Loading brand-prefix dictionary from scam_brands...');
+  const brandPrefixes = await loadBrandPrefixes();
+  console.log(`[backfill] ${brandPrefixes.length} clean brand prefixes loaded.`);
+
   // Resume-from-skip via CLI arg so socket reconnects don't start over.
   let skip = Number.isFinite(parseInt(process.argv[2], 10)) ? parseInt(process.argv[2], 10) : 0;
   if (skip > 0) console.log(`[backfill] Resuming from skip=${skip}`);
@@ -152,7 +166,7 @@ async function main() {
       id: c._id,
       offer_name: c.offerName || '',
       normalized_offer: normalizeOffer(c.offerName),
-      celebrity_name: c.celebrityName || '',
+      celebrity_name: c.celebrityName || extractCelebrity(c.offerName, brandPrefixes) || '',
       geo: c.geo || '',
       geo_region_id: c.geoRegionId || '',
       is_video: !!c.isVideo,
