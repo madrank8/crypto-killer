@@ -502,12 +502,16 @@ export async function POST(request, { params }) {
               const storedHash = String(syncResult?.full_article_hash ?? '')
               const incomingHash = String(syncResult?.incoming_full_article_hash ?? '')
               const liveSyncOk = syncResult?.ok === true
+              const hashConfirmedByLive = syncResult?.full_article_hash_matches === true
               const explicitIntegrityFail = syncResult?.full_article_hash_matches === false
               const rescueIntegrity =
                 expectedHash.length === 64 &&
                 incomingHash === expectedHash &&
                 lengthOk
-              const integrityOk = !explicitIntegrityFail || rescueIntegrity
+              // Integrity must be POSITIVELY confirmed — explicit
+              // full_article_hash_matches:true, or an echoed incoming hash we
+              // verify ourselves. Omitting both counts as UNVERIFIED (failure).
+              const integrityOk = hashConfirmedByLive || rescueIntegrity
               const hashMatches = liveSyncOk && integrityOk
               syncStatus = {
                 success: hashMatches,
@@ -524,7 +528,9 @@ export async function POST(request, { params }) {
                   : {
                       error: !liveSyncOk
                         ? 'live site sync response missing ok: true'
-                        : 'full_article hash mismatch on live sync',
+                        : explicitIntegrityFail
+                          ? 'full_article hash mismatch on live sync'
+                          : 'live site did not confirm full_article integrity',
                     }),
               }
               console.log(`[publish] Synced to live site: ${reviewSlug}`)

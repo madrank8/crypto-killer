@@ -156,12 +156,17 @@ export async function POST(request, { params }) {
     const storedHash = String(syncResult?.full_article_hash ?? '');
     const incomingHash = String(syncResult?.incoming_full_article_hash ?? '');
     const liveSyncOk = syncResult?.ok === true;
+    const hashConfirmedByLive = syncResult?.full_article_hash_matches === true;
     const explicitIntegrityFail = syncResult?.full_article_hash_matches === false;
     const rescueIntegrity =
       expectedHash.length === 64 &&
       incomingHash === expectedHash &&
       lengthOk;
-    const integrityOk = !explicitIntegrityFail || rescueIntegrity;
+    // Integrity must be POSITIVELY confirmed — either an explicit
+    // full_article_hash_matches:true from the live site, or an echoed
+    // incoming hash we verify ourselves (rescueIntegrity). A response that
+    // omits both fields counts as UNVERIFIED (failure), never a silent pass.
+    const integrityOk = hashConfirmedByLive || rescueIntegrity;
     const hashMatches = liveSyncOk && integrityOk;
 
     return Response.json({
@@ -182,7 +187,9 @@ export async function POST(request, { params }) {
         : {
             error: !liveSyncOk
               ? 'live site sync response missing ok: true'
-              : 'full_article hash mismatch on live sync',
+              : explicitIntegrityFail
+                ? 'full_article hash mismatch on live sync'
+                : 'live site did not confirm full_article integrity',
           }),
     });
   } catch (error) {
