@@ -238,7 +238,15 @@ export async function POST(request) {
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
-        const send = (data) => {controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+        let closed = false
+        const send = (data) => {
+          if (closed) return
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`))
+          } catch {
+            // Client disconnected; stop trying to enqueue.
+            closed = true
+          }
         }
 
         try {
@@ -574,7 +582,7 @@ export async function POST(request) {
 
           send({ step: 'building', progress: 78, message: 'Building HTML article + schema markup...' })
     // ─── BUILD HTML ARTICLE ───
-    const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    const escHtml = (str) => (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
     // Safety net: convert any residual markdown bold/italic to HTML after escaping
     const cleanMarkdown = (str) => str

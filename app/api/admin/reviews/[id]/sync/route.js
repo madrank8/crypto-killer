@@ -186,7 +186,7 @@ export async function POST(request, { params }) {
           }),
     });
   } catch (error) {
-    if (error.message.includes('Unauthorized')) return unauthorizedResponse();
+    if (String(error?.message || '').includes('Unauthorized')) return unauthorizedResponse();
     return Response.json({ error: error.message }, { status: 500 });
   }
 }

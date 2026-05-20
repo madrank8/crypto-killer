@@ -58,9 +58,14 @@ export async function PATCH(request, { params }) {
     const { id } = params
     const updates = await request.json()
 
-    // Calculate word count if full_article is being updated
+    // Calculate word count if full_article is being updated. Strip HTML
+    // tags first so the count matches the generate / auto-fix routes
+    // (raw split counts every tag as a word and wildly inflates the total).
     if (updates.full_article) {
-      updates.word_count = updates.full_article.split(/\s+/).length
+      updates.word_count = updates.full_article
+        .replace(/<[^>]*>/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean).length
     }
 
     // Always update updated_at

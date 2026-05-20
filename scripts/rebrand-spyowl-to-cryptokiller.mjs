@@ -298,15 +298,26 @@ async function main() {
   }
 
   // ── review_translations ──────────────────────────────────────
-  const tParams = new URLSearchParams();
-  tParams.set('select', '*');
+  // When --slug is set we MUST scope translations to the slug-matched
+  // reviews. A missing review_id filter here would PATCH every translation
+  // row in the table — so if the slug matched nothing, skip the pass
+  // entirely rather than falling back to an unfiltered fetch.
+  let translations = [];
   if (opts.slug) {
-    // Translations join to the master review by review_id; resolve slug first.
-    const masterIds = reviews.filter((r) => r.is_master).map((r) => r.id);
-    if (masterIds.length > 0) tParams.set('review_id', `in.(${masterIds.join(',')})`);
+    const scopedIds = reviews.map((r) => r.id);
+    if (scopedIds.length > 0) {
+      const tParams = new URLSearchParams();
+      tParams.set('select', '*');
+      tParams.set('review_id', `in.(${scopedIds.join(',')})`);
+      tParams.set('order', 'created_at.asc');
+      translations = await sb(`/review_translations?${tParams.toString()}`);
+    }
+  } else {
+    const tParams = new URLSearchParams();
+    tParams.set('select', '*');
+    tParams.set('order', 'created_at.asc');
+    translations = await sb(`/review_translations?${tParams.toString()}`);
   }
-  tParams.set('order', 'created_at.asc');
-  const translations = await sb(`/review_translations?${tParams.toString()}`);
   console.log(`[rebrand] scanned ${translations.length} translations`);
 
   let tTouched = 0;
