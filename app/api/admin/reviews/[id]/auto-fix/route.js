@@ -8,9 +8,17 @@ const VISUAL_PLACEHOLDER_RE =
 
 function scrubVisualPlaceholders(text) {
   if (typeof text !== 'string') return text
+  // NEWLINE-PRESERVING whitespace cleanup. The old `/\s{2,}/g → ' '` collapsed
+  // \n\n paragraph breaks, which flattened how_it_works into one paragraph and
+  // broke every downstream splitter (funnel cards, parseFunnelStages → Replit
+  // funnel_stages). Caught on Crest Fundgrove, 2026-06-10. Collapse runs of
+  // spaces/tabs only; normalize blank-line runs to exactly one \n\n.
   return text
     .replace(VISUAL_PLACEHOLDER_RE, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[^\S\n]{2,}/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 

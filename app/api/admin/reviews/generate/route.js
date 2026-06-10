@@ -7,7 +7,7 @@ import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
-import { verifySourceLedger, buildRegulatorSources } from '@/lib/source-verify'
+import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
 import { runReviewPipeline } from '@/lib/review-pipeline'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
@@ -496,6 +496,29 @@ export async function POST(request) {
             verifiedLandingUrls = brandData.landing_urls.filter(
               (u) => typeof u === 'string' && u.startsWith('http')
             )
+          }
+
+          // ─── BRAND-OWNED DOMAIN FILTER (Crest Fundgrove fix, 2026-06-10) ───
+          // The researcher can return the scam's OWN site as a "source" and it
+          // passes HEAD verification (live scam = 200). Strip anything on the
+          // brand's domains from the citable ledger — the scam's site belongs
+          // in item_reviewed.url / claims appearance, never in Sources.
+          try {
+            const { kept, droppedBrandOwned } = filterBrandOwnedSources(
+              sourceLedger, brandData.name,
+              [...verifiedLandingUrls, ...(Array.isArray(brandData.landing_urls) ? brandData.landing_urls : [])],
+            )
+            if (droppedBrandOwned.length > 0) {
+              sourceLedger = kept
+              console.warn('[generate] dropped brand-owned sources:', JSON.stringify(droppedBrandOwned))
+              send({
+                step: 'sources_brand_filter',
+                progress: 44,
+                message: `Removed ${droppedBrandOwned.length} brand-owned domain${droppedBrandOwned.length === 1 ? '' : 's'} from the source ledger (scam's own site is evidence, not a citation)`,
+              })
+            }
+          } catch (filterErr) {
+            console.error('[generate] brand-owned source filter failed (non-fatal):', filterErr.message)
           }
 
           // ═══ PHASE 3 WRITER MODE SWITCH (P0-2, skill audit) ═══
