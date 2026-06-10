@@ -890,7 +890,48 @@ ${reviewContent.how_it_works ? (() => {
       statValue: '$500–$5k', statSub: 'unlock fees demanded' },
   ]
   // Split on real newlines OR literal \n\n (Claude sometimes returns either)
-  const paragraphs = reviewContent.how_it_works.split(/(?:\\n){2,}|\n{2,}/).filter(p => p.trim())
+  let paragraphs = reviewContent.how_it_works.split(/(?:\\n){2,}|\n{2,}/).filter(p => p.trim())
+
+  // ── Crest Fundgrove fix (2026-06-10) ──────────────────────────────
+  // Three failure modes turned this builder into the "5 cards, image-only
+  // Stage 2, duplicate Stage 4" bug on the live site:
+  //  (1) Writer emitted inline "STAGE N —" markers in ONE paragraph
+  //      → 1 chunk. Split on the markers so each stage gets its card.
+  if (paragraphs.length < 4) {
+    const inlineSplit = reviewContent.how_it_works
+      .split(/(?=\bSTAGE\s+[1-9]\s*(?:[—–\-:]|\())/)
+      .map(p => p.trim())
+      .filter(p => p.length > 0)
+    if (inlineSplit.length > paragraphs.length) paragraphs = inlineSplit
+  }
+  //  (2) Visual placeholders / polish-substituted images as standalone
+  //      paragraphs became text-less stage cards. Pull them out and
+  //      re-attach below the funnel as figures (polish substitution
+  //      still finds them in full_article).
+  const isVisualOnlyChunk = (p) => {
+    const stripped = p
+      .replace(/\[\s*(?:CHART|IMAGE|SCREENSHOT|DIAGRAM|PHOTO|INFOGRAPHIC|STEP-BY-STEP)\s+NEEDED[^\]]*\]/gi, '')
+      .replace(/<figure[\s\S]*?<\/figure>/gi, '')
+      .replace(/<img[^>]*>/gi, '')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/<[^>]+>/g, '')
+      .trim()
+    return stripped.length < 30 && stripped !== p.trim()
+  }
+  const visualChunks = paragraphs.filter(isVisualOnlyChunk)
+  paragraphs = paragraphs.filter(p => !isVisualOnlyChunk(p))
+  //  (3) More than 4 prose chunks duplicated the Stage-4 card via the
+  //      style clamp. Merge overflow into the 4th stage instead.
+  if (paragraphs.length > 4) {
+    paragraphs = [...paragraphs.slice(0, 3), paragraphs.slice(3).join(' ')]
+  }
+  // Strip the writer's inline "STAGE N — Title:" prefix so card bullets
+  // don't repeat the label the card header already shows.
+  paragraphs = paragraphs.map(p => p.replace(/^STAGE\s+[1-9]\s*[—–\-:(]\s*[^.:]{0,80}[.:)]\s*/i, '').trim() || p)
+  const stageVisualsHtml = visualChunks.length > 0
+    ? `<div style="margin-top:16px">${visualChunks.join('\n')}</div>`
+    : ''
+
   const stageCards = paragraphs.map((p, i) => {
     const s = stageStyles[i] || stageStyles[stageStyles.length - 1]
     const sentences = p.split(/(?<=\.)\s+/).filter(st => st.trim())
@@ -929,6 +970,7 @@ ${sectionH2('🔬', 'How This Scam Works')}
 <div style="position:relative;display:flex;flex-direction:column;gap:0">
 ${stageCards}
 </div>
+${stageVisualsHtml}
 </section>`
 })() : ''}
 <!-- RED FLAGS -->
