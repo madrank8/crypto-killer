@@ -2,6 +2,7 @@ import { revalidatePath } from 'next/cache'
 
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { lintProseFields, collectArticleProseFields } from '@/lib/content-lint'
 
 // ─── Publish quality gate ───
 //
@@ -23,6 +24,7 @@ const PLACEHOLDER_LINK_VALUES = new Set(['', '#', 'TBD', 'tbd', 'todo', 'TODO'])
 
 function validateForPublish(content) {
   const reasons = []
+  const warnings = []
 
   // 1. Block deterministic-fallback content. The fallback exists only as a
   //    don't-crash safety net; its output is publish-shaped but topic-agnostic
@@ -84,7 +86,14 @@ function validateForPublish(content) {
     }
   }
 
-  return { ok: reasons.length === 0, reasons }
+  // 5. Deterministic prose lint (lib/content-lint.js): the writer prompt's
+  //    anti-slop kill lists, enforced. AI-tell phrases block publish;
+  //    slop vocabulary + plural mismatches surface as warnings.
+  const lint = lintProseFields(collectArticleProseFields(content))
+  reasons.push(...lint.errors)
+  warnings.push(...lint.warnings)
+
+  return { ok: reasons.length === 0, reasons, warnings }
 }
 
 async function syncToLiveBlog({ content, topic }) {
@@ -187,10 +196,16 @@ export async function POST(request, { params }) {
         return Response.json({
           error: 'Publish blocked by quality gate',
           reasons: gate.reasons,
+          warnings: gate.warnings || [],
           content_id: id,
           slug: content.slug,
           ai_model: content.ai_model,
         }, { status: 422 })
+      }
+      if ((gate.warnings || []).length > 0) {
+        // Non-blocking — log for ops visibility; the admin UI may surface
+        // these from the success payload in a later pass.
+        console.warn(`[publish] content ${id} lint warnings:`, JSON.stringify(gate.warnings))
       }
     }
 

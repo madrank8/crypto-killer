@@ -7,6 +7,7 @@ import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
+import { verifySourceLedger, buildRegulatorSources } from '@/lib/source-verify'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -406,13 +407,60 @@ export async function POST(request) {
             // Source research failure is non-fatal — use default source templates
             console.error('Source research failed:', srcError.message)
             sourceResearchActualModel = `default_templates (${sourceModel} failed: ${srcError.message.slice(0, 100)})`
+            // generic:true marks these as site-wide resources, NOT brand-specific
+            // evidence. The writer prompt renders them with a [GENERIC] annotation
+            // restricting citation to protection_steps; source-verify keeps them
+            // (verified:false) even on a transient HEAD failure.
             sourceLedger = [
-              { title: 'FCA ScamSmart Warning List', url: 'https://www.fca.org.uk/scamsmart/warning-list', type: 'regulatory', verified: false, extract: 'FCA register of unauthorized firms and individuals.' },
-              { title: 'SEC EDGAR Company Search', url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany', type: 'regulatory', verified: false, extract: 'SEC database for registered investment entities.' },              { title: 'IC3 Internet Crime Complaint Center', url: 'https://www.ic3.gov/', type: 'government', verified: false, extract: 'FBI portal for reporting internet-enabled crime.' },
-              { title: 'FTC Report Fraud', url: 'https://reportfraud.ftc.gov/', type: 'government', verified: false, extract: 'Federal Trade Commission fraud reporting portal.' },
-              { title: 'ScamAdviser', url: 'https://www.scamadviser.com/', type: 'consumer_protection', verified: false, extract: 'Consumer trust score analysis for websites.' },
+              { title: 'FCA ScamSmart Warning List', url: 'https://www.fca.org.uk/scamsmart/warning-list', type: 'regulatory', verified: false, generic: true, extract: 'FCA register of unauthorized firms and individuals.' },
+              { title: 'SEC EDGAR Company Search', url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany', type: 'regulatory', verified: false, generic: true, extract: 'SEC database for registered investment entities.' },
+              { title: 'IC3 Internet Crime Complaint Center', url: 'https://www.ic3.gov/', type: 'government', verified: false, generic: true, extract: 'FBI portal for reporting internet-enabled crime.' },
+              { title: 'FTC Report Fraud', url: 'https://reportfraud.ftc.gov/', type: 'government', verified: false, generic: true, extract: 'Federal Trade Commission fraud reporting portal.' },
+              { title: 'ScamAdviser', url: 'https://www.scamadviser.com/', type: 'consumer_protection', verified: false, generic: true, extract: 'Consumer trust score analysis for websites.' },
             ]
             send({ step: 'sources_fallback', progress: 40, message: `Source research failed — using ${sourceLedger.length} default regulatory sources` })
+          }
+
+          // ═══════════════════════════════════════════════════════════════
+          // PHASE 2.5: DETERMINISTIC SOURCE VERIFICATION (source-verify.js)
+          //
+          // The researcher model self-asserts `verified:true` — that was
+          // never a real check. Before the writer sees the ledger:
+          //   (a) HEAD/GET-check every URL; drop hard failures so dead or
+          //       hallucinated sources are never cited (P0-1, skill audit)
+          //   (b) run exact regulator lookups (SEC EDGAR full-text; FCA
+          //       register when FCA_API_* env is set) and append the
+          //       findings as verified sources — deterministic facts the
+          //       LLM can no longer get wrong
+          // Both are best-effort and never throw.
+          // ═══════════════════════════════════════════════════════════════
+          send({ step: 'sources_verify', progress: 41, message: `Verifying ${sourceLedger.length} source URLs + regulator registries...` })
+          try {
+            const [ledgerCheck, regulatorSources] = await Promise.all([
+              verifySourceLedger(sourceLedger),
+              buildRegulatorSources(brandData.name),
+            ])
+            const droppedCount = ledgerCheck.dropped.length
+            if (droppedCount > 0) {
+              console.warn(
+                '[generate] dropped dead/unverifiable sources:',
+                JSON.stringify(ledgerCheck.dropped.map((d) => ({ url: d.source.url, reason: d.reason })))
+              )
+            }
+            // Dedupe regulator findings against URLs already in the ledger
+            const existingUrls = new Set(ledgerCheck.verified.map((s) => s.url))
+            const newRegulatorSources = regulatorSources.filter((s) => !existingUrls.has(s.url))
+            sourceLedger = [...newRegulatorSources, ...ledgerCheck.verified]
+            send({
+              step: 'sources_verified',
+              progress: 43,
+              message: `Source ledger verified: ${ledgerCheck.verified.length} live${droppedCount > 0 ? `, ${droppedCount} dead URL${droppedCount === 1 ? '' : 's'} dropped` : ''}${newRegulatorSources.length > 0 ? `, ${newRegulatorSources.length} regulator registry finding${newRegulatorSources.length === 1 ? '' : 's'} added` : ''}`,
+              dropped: ledgerCheck.dropped,
+            })
+          } catch (verifyErr) {
+            // Verification is a quality gate, not a point of failure.
+            console.error('[generate] source verification failed (non-fatal):', verifyErr.message)
+            send({ step: 'sources_verify_failed', progress: 43, message: 'Source verification errored — continuing with unverified ledger' })
           }
 
           // ═══════════════════════════════════════════════════════════════

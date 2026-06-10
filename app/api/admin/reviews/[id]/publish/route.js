@@ -2,6 +2,8 @@ import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
+import { headCheckUrl } from '@/lib/source-verify'
+import { lintProseFields } from '@/lib/content-lint'
 
 // Supabase → Replit shape transform lives in lib/sync-shape.js, shared
 // with the /sync route. That module handles field renames, funnel-stage
@@ -32,48 +34,14 @@ import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 
 const PLACEHOLDER_RE = /\[\s*(CHART|DIAGRAM|IMAGE|INFOGRAPHIC|SCREENSHOT|PHOTO|STEP-BY-STEP)\s+NEEDED/i
 
-// Domains we can't programmatically validate (block HEAD, hallucinate
-// easily, or don't have a stable public URL scheme). Listing one of
-// these in citations[] forces a manual-review path rather than an
-// unverifiable auto-publish.
-const UNVERIFIABLE_DOMAINS = new Set([
-  'reddit.com', 'www.reddit.com', 'old.reddit.com', 'new.reddit.com', 'np.reddit.com',
-  'quora.com', 'www.quora.com',
-  'medium.com', // anyone can publish; URLs hallucinate perfectly
-  'twitter.com', 'x.com', // rate limits + requires auth
-])
+// URL liveness checking (UNVERIFIABLE_DOMAINS, HEAD_403_OK, headCheckUrl)
+// moved to lib/source-verify.js — shared with the generation-time ledger
+// verification in reviews/generate and content/outline. Same semantics;
+// single source of truth.
 
-// Legit domains that commonly 403 a HEAD request — treat 403 as OK
-// when the domain is on this allowlist. Otherwise 403 is a fail.
-const HEAD_403_OK = new Set([
-  'github.com', 'www.github.com',
-  'linkedin.com', 'www.linkedin.com',
-  'youtube.com', 'www.youtube.com',
-  'amazon.com', 'www.amazon.com',
-  // Trustpilot blocks automated HEAD requests while the public review page
-  // remains browser-verifiable.
-  'trustpilot.com', 'www.trustpilot.com',
-  // ScamAdviser frequently times out/blocks automated HEAD checks; the public
-  // page is still browser-verifiable and is acceptable as supporting evidence.
-  'scamadviser.com', 'www.scamadviser.com',
-])
-
-// Plural agreement errors that are almost never correct. Singular form
-// goes in .detail for the error message. Applied to every prose field.
-const PLURAL_MISMATCH_PATTERNS = [
-  { re: /\b1\s+countries\b/i, detail: '1 country (singular)' },
-  { re: /\b1\s+days\b/i, detail: '1 day (singular)' },
-  { re: /\b1\s+creatives\b/i, detail: '1 creative (singular)' },
-  { re: /\b1\s+celebrities\b/i, detail: '1 celebrity (singular)' },
-  { re: /\b1\s+sources\b/i, detail: '1 source (singular)' },
-  { re: /\b1\s+flags\b/i, detail: '1 flag (singular)' },
-  { re: /\b1\s+platforms\b/i, detail: '1 platform (singular)' },
-  { re: /\b1\s+brands\b/i, detail: '1 brand (singular)' },
-  { re: /\b1\s+weeks\b/i, detail: '1 week (singular)' },
-  { re: /\b1\s+months\b/i, detail: '1 month (singular)' },
-  { re: /\b1\s+years\b/i, detail: '1 year (singular)' },
-  { re: /\b1\s+victims\b/i, detail: '1 victim (singular)' },
-]
+// Plural-agreement patterns moved to lib/content-lint.js — the shared
+// lint (lintProseFields) now covers plural mismatches PLUS the anti-slop
+// kill lists from the writer prompts, for both reviews and articles.
 
 const MIN_FULL_ARTICLE_WORDS = 700
 
@@ -117,47 +85,7 @@ function collectProseFields(review) {
   return fields
 }
 
-/**
- * HEAD-check a single URL with a short timeout. Returns:
- *   { ok: true }
- *   { ok: false, reason: string }
- * We only fail on hard negatives: malformed URL, unverifiable domain,
- * DNS/network failure, non-2xx non-403 response (or 403 outside the
- * allowlist). Redirects are followed.
- */
-async function headCheckUrl(url) {
-  if (!url || typeof url !== 'string') {
-    return { ok: false, reason: 'missing or non-string URL' }
-  }
-  let host
-  try {
-    host = new URL(url).hostname.toLowerCase()
-  } catch {
-    return { ok: false, reason: `malformed URL (${url})` }
-  }
-  if (UNVERIFIABLE_DOMAINS.has(host)) {
-    return {
-      ok: false,
-      reason:
-        `unverifiable domain '${host}' — these URLs hallucinate perfectly ` +
-        `and cannot be programmatically checked. Replace with a ` +
-        `government/regulatory source, or remove.`,
-    }
-  }
-  try {
-    const res = await fetch(url, {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(5000),
-      redirect: 'follow',
-    })
-    if (res.ok) return { ok: true }
-    if (res.status === 403 && HEAD_403_OK.has(host)) return { ok: true }
-    return { ok: false, reason: `HTTP ${res.status}` }
-  } catch (e) {
-    if (HEAD_403_OK.has(host)) return { ok: true }
-    return { ok: false, reason: `network: ${e.message || 'unknown error'}` }
-  }
-}
+// headCheckUrl now imported from lib/source-verify.js (see note above).
 
 /**
  * Run every publish-time integrity gate on a review row. Returns:
@@ -246,14 +174,15 @@ async function validateReviewReadyToPublish(review) {
     }
   }
 
-  // ─── (3) Plural agreement (warning, non-blocking) ──────────────
+  // ─── (3) Deterministic prose lint (lib/content-lint.js) ────────
+  // AI-tell kill phrases → errors (block publish). Slop vocabulary and
+  // plural mismatches → warnings. This replaces the old plural-only loop
+  // and finally ENFORCES the writer prompt's anti-slop kill lists, which
+  // were previously checked only by the (advisory) Phase 5 LLM auditor.
   const allText = fields.map((f) => f.text).join('\n')
-  for (const p of PLURAL_MISMATCH_PATTERNS) {
-    const m = allText.match(p.re)
-    if (m) {
-      warnings.push(`Plural mismatch: "${m[0]}" should be ${p.detail}.`)
-    }
-  }
+  const lint = lintProseFields(fields)
+  errors.push(...lint.errors)
+  warnings.push(...lint.warnings)
 
   // ─── (4) Trivial self-contradiction heuristic (warning) ────────
   // Catches the most obvious cases — the full semantic check lives in

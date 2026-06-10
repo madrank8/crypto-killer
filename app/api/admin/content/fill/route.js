@@ -427,6 +427,10 @@ export async function POST(request) {
           const persona = selectPersona({
             contentType: topic.content_type,
             pageRole: topic.page_role,
+            // Victim-facing detection (excludes the sardonic Nair voice
+            // for recovery/report/lost-money topics — tone-safety rule)
+            topicTitle: topic.title,
+            targetKeyword: topic.target_keyword,
           })
           const personaMetadata = getPersonaMetadata(persona)
           send({

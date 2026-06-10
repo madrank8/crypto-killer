@@ -1,6 +1,7 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
+import { verifySourceLedger } from '@/lib/source-verify'
 
 export const maxDuration = 120
 
@@ -196,6 +197,24 @@ export async function POST(request) {
 
           if (sourceLedger.length === 0) {
             sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+          }
+
+          // Phase 1.5: Deterministic URL verification (lib/source-verify.js).
+          // The researcher self-asserts URLs; HEAD/GET-check them here so the
+          // outline + downstream writers never cite a dead or hallucinated
+          // source (P0-1, content-pipeline skill audit). Best-effort: an
+          // empty post-verification ledger falls back to the static set.
+          try {
+            const { verified, dropped } = await verifySourceLedger(sourceLedger)
+            if (dropped.length > 0) {
+              console.warn('[outline] dropped dead/unverifiable sources:', JSON.stringify(dropped.map((d) => ({ url: d.source.url, reason: d.reason }))))
+              send({ step: 'research_verified', progress: 22, message: `Verified sources: ${verified.length} live, ${dropped.length} dead URL${dropped.length === 1 ? '' : 's'} dropped` })
+            }
+            sourceLedger = verified.length > 0
+              ? verified
+              : fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+          } catch (verifyErr) {
+            console.error('[outline] source verification failed (non-fatal):', verifyErr.message)
           }
 
           // Phase 2: Generate outline with Claude Sonnet (fast)
