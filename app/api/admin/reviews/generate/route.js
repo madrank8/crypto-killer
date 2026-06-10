@@ -708,7 +708,7 @@ ${geoSections}`
     // ─── E-E-A-T CONTENT SECTIONS ───
     // Author byline HTML (word count placeholder replaced after fullArticle is built)
     const authorName = reviewContent.author_name || 'Crypto Killer Research Team'
-    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition.')
+    const authorCredentials = escHtml(reviewContent.expertise_depth || 'Crypto fraud intelligence analysts specializing in ad surveillance and scam pattern recognition. Findings are cross-checked against the FCA Financial Services Register, FCA Warning List, and SEC EDGAR.')
     const authorBylineTemplate = `<div style="border-left:3px solid #f59e0b;padding:12px 16px;margin:24px 0;background:rgba(245,158,11,0.08);border-radius:0 8px 8px 0" itemscope itemtype="https://schema.org/Person">
 <p style="margin:0 0 4px;font-size:15px"><strong>Reviewed by:</strong> <span itemprop="name">${escHtml(authorName)}</span></p>
 <p style="margin:0 0 4px;font-size:13px;opacity:0.8"><em>${authorCredentials}</em></p>
@@ -1168,7 +1168,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       updated_at: new Date().toISOString(),
       // ── E-E-A-T fields ──
       author_name: 'Crypto Killer Research Team',
-      author_credentials: 'Crypto fraud intelligence analysts — CryptoKiller ad surveillance platform',
+      author_credentials: 'Crypto fraud intelligence analysts — CryptoKiller ad surveillance platform, cross-checked against FCA and SEC databases',
       author_bio: reviewContent.expertise_depth || null,
       methodology: reviewContent.methodology || null,
       sources: reviewContent.sources || [],
