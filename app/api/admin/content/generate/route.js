@@ -7,6 +7,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { generateArticleImages, generateImageSet, injectImagesIntoHtml } from '@/lib/images'
+import { buildArticleHtml } from '@/lib/article-html'
 
 export const maxDuration = 300
 
@@ -26,314 +27,6 @@ async function ensureUniqueContentSlug(base) {
     if (!Array.isArray(rows) || rows.length === 0) return candidate
   }
   return `${cleanBase}-${Date.now()}`
-}
-
-/**
- * Apply inline formatting: VERIFY tags, bold, italic, inline code.
- */
-function applyInlineFormatting(text) {
-  return text
-    .replace(/\{\{VERIFY:\s*(.+?)\s*\|\s*(.+?)\}\}/g,
-      '<span class="verify-tag" data-verify="true" title="$2">[$1]</span>')
-    .replace(/\{\{RESEARCH NEEDED:\s*(.+?)\}\}/g,
-      '<span class="research-tag" data-verify="research">[$1]</span>')
-    .replace(/\{\{SOURCE NEEDED:\s*(.+?)\}\}/g,
-      '<span class="source-tag" data-verify="source">[$1]</span>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`(.+?)`/g, '<code>$1</code>')
-}
-
-/**
- * Convert markdown-flavored section body into rich HTML.
- * Parses: tables, unordered/ordered lists, callout boxes, blockquotes,
- * bold/italic, inline code, and {{VERIFY}} tags. Falls back to <p> for plain text.
- */
-function bodyToHtml(body) {
-  if (!body) return ''
-  const text = String(body)
-
-  // Split into blocks on double newlines
-  const blocks = text.split(/\n{2,}/).filter(b => b.trim())
-  const htmlParts = []
-
-  for (const block of blocks) {
-    const trimmed = block.trim()
-
-    // ── H3 subheading: ### heading text ──
-    const h3Match = trimmed.match(/^###\s+(.+)$/)
-    if (h3Match) {
-      htmlParts.push(`<h3>${applyInlineFormatting(h3Match[1].trim())}</h3>`)
-      continue
-    }
-
-    // ── Callout boxes: {{WARNING: text}} or {{TIP: text}} ──
-    const calloutMatch = trimmed.match(/^\{\{(WARNING|TIP|NOTE|CAUTION):\s*([\s\S]+?)\}\}$/i)
-    if (calloutMatch) {
-      const type = calloutMatch[1].toLowerCase()
-      const content = applyInlineFormatting(calloutMatch[2].trim())
-      htmlParts.push(`<div class="callout callout-${type}"><strong>${calloutMatch[1].charAt(0).toUpperCase() + calloutMatch[1].slice(1).toLowerCase()}:</strong> ${content}</div>`)
-      continue
-    }
-
-    // ── Markdown table: lines starting with | ──
-    const lines = trimmed.split('\n')
-    if (lines.length >= 2 && lines[0].trim().startsWith('|') && lines[1].trim().match(/^\|[\s:|-]+\|$/)) {
-      const parseRow = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim())
-      const headers = parseRow(lines[0])
-      const dataRows = lines.slice(2).filter(l => l.trim().startsWith('|'))
-      let table = '<div class="table-wrapper"><table>\n<thead><tr>'
-      headers.forEach(h => { table += `<th>${applyInlineFormatting(h)}</th>` })
-      table += '</tr></thead>\n<tbody>'
-      dataRows.forEach(row => {
-        const cells = parseRow(row)
-        table += '\n<tr>'
-        cells.forEach(c => { table += `<td>${applyInlineFormatting(c)}</td>` })
-        table += '</tr>'
-      })
-      table += '\n</tbody></table></div>'
-      htmlParts.push(table)
-      continue
-    }
-
-    // ── Blockquote: lines starting with > ──
-    if (lines[0].trim().startsWith('>')) {
-      const quoteLines = lines.map(l => l.trim().replace(/^>\s?/, ''))
-      // Check if last line is an attribution (starts with — or --)
-      let attribution = ''
-      let quoteText = quoteLines
-      if (quoteLines.length > 1 && /^(—|--|-)/.test(quoteLines[quoteLines.length - 1])) {
-        attribution = quoteLines[quoteLines.length - 1].replace(/^(—|--|-)\s*/, '')
-        quoteText = quoteLines.slice(0, -1)
-      }
-      let bq = `<blockquote class="expert-quote"><p>${applyInlineFormatting(quoteText.join(' '))}</p>`
-      if (attribution) bq += `\n<cite>— ${applyInlineFormatting(attribution)}</cite>`
-      bq += '</blockquote>'
-      htmlParts.push(bq)
-      continue
-    }
-
-    // ── Unordered list: lines starting with - or * ──
-    if (lines.every(l => /^\s*[-*]\s+/.test(l) || !l.trim())) {
-      const items = lines.filter(l => l.trim()).map(l => l.trim().replace(/^[-*]\s+/, ''))
-      htmlParts.push(`<ul>\n${items.map(i => `<li>${applyInlineFormatting(i)}</li>`).join('\n')}\n</ul>`)
-      continue
-    }
-
-    // ── Ordered list: lines starting with 1. 2. etc ──
-    if (lines.every(l => /^\s*\d+\.\s+/.test(l) || !l.trim())) {
-      const items = lines.filter(l => l.trim()).map(l => l.trim().replace(/^\d+\.\s+/, ''))
-      htmlParts.push(`<ol>\n${items.map(i => `<li>${applyInlineFormatting(i)}</li>`).join('\n')}\n</ol>`)
-      continue
-    }
-
-    // ── Default: paragraph ──
-    let html = trimmed.replace(/\n/g, '<br/>')
-    html = applyInlineFormatting(html)
-    // Don't wrap if already contains block elements
-    if (/<(figure|div|img|table|blockquote)\b/i.test(html)) {
-      htmlParts.push(html)
-    } else {
-      htmlParts.push(`<p>${html}</p>`)
-    }
-  }
-
-  return htmlParts.join('\n')
-}
-
-/**
- * Build full HTML from structured article data.
- * Renders: Summary → Key Takeaways (BLUF) → Body sections with social proof →
- *          Not For You block → FAQ with FAQPage schema → Source Ledger →
- *          Related Investigations → Author bio → Article JSON-LD schema
- */
-function buildArticleHtml(article, persona) {
-  const sections = Array.isArray(article.sections) ? article.sections : []
-  const faq = Array.isArray(article.faq) ? article.faq : []
-  const keyTakeaways = Array.isArray(article.key_takeaways) ? article.key_takeaways : []
-  const notForYou = article.not_for_you || ''
-  const authorName = article.author_name || persona?.name || 'CryptoKiller Research Team'
-  // Strip leading author name from bio if the model echoed it back. The renderer
-  // already prepends "{authorName} — " around the bio, so a bio like
-  // "P. Nair investigates ..." becomes "P. Nair — P. Nair investigates ...".
-  // Prevent that stutter at write time so it never reaches the published page.
-  const rawBio = article.author_bio || `investigates cryptocurrency fraud at CryptoKiller.`
-  const authorBio = String(rawBio)
-    .replace(new RegExp(`^\\s*${authorName.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')}\\s*[—\\-:,]?\\s*`, 'i'), '')
-    .trim() || rawBio
-  // Filter internal_links to entries with real slugs — the prompt forbids '#'
-  // placeholders, but we defend the renderer too. An entry with no usable
-  // target_slug becomes a broken link in the published HTML and a Google
-  // spam signal; drop it.
-  const internalLinks = (Array.isArray(article.internal_links) ? article.internal_links : [])
-    .filter(l => {
-      const t = String(l?.target_slug || '').trim()
-      return t && t !== '#' && t !== 'TBD' && t.length > 1
-    })
-  // Normalize accessed_date to today — AI models return unreliable/identical dates
-  const todayDate = new Date().toISOString().slice(0, 10)
-  const sources = (Array.isArray(article.sources) ? article.sources : [])
-    .map(s => ({ ...s, accessed_date: todayDate }))
-  const socialProof = Array.isArray(article.social_proof) ? article.social_proof : []
-  const visualPlaceholders = Array.isArray(article.visual_placeholders) ? article.visual_placeholders : []
-
-  const parts = []
-
-  // NOTE: Do NOT render `article.summary` here. The Replit SSR (prerender.ts
-  // renderBlogPost) already emits it once as a paragraph between the byline
-  // and the article body, sourced from row.summary. Rendering it here too
-  // produced the duplicate intro paragraph that appeared on every blog post
-  // before this fix.
-
-  // Key Takeaways (BLUF)
-  if (keyTakeaways.length > 0) {
-    parts.push(`<div class="key-takeaways">
-<h2>Key Takeaways</h2>
-<ul>
-${keyTakeaways.map(t => `<li>${t}</li>`).join('\n')}
-</ul>
-</div>`)
-  }
-
-  // Distribute social proof evenly — first quote appears by section 1, max 1 per section, no clustering
-  const socialProofMap = {}
-  if (socialProof.length > 0 && sections.length > 0) {
-    const count = socialProof.length
-    const sLen = sections.length
-    // Place first quote at section index 1 (or 0 if only 1 section), then spread rest evenly
-    const startIdx = sLen > 1 ? 1 : 0
-    const availableSlots = sLen - startIdx
-    const step = count <= 1 ? 1 : Math.max(1, Math.floor(availableSlots / count))
-    socialProof.forEach((sp, i) => {
-      const targetIdx = Math.min(startIdx + i * step, sLen - 1)
-      // Avoid doubling up — shift to next available slot
-      let finalIdx = targetIdx
-      while (socialProofMap[finalIdx] && finalIdx < sLen - 1) finalIdx++
-      if (!socialProofMap[finalIdx]) socialProofMap[finalIdx] = []
-      socialProofMap[finalIdx].push(sp)
-    })
-  }
-
-  // Distribute visual placeholders across sections (one per ~2 sections)
-  const visualMap = {}
-  if (visualPlaceholders.length > 0) {
-    const interval = Math.max(1, Math.floor(sections.length / visualPlaceholders.length))
-    visualPlaceholders.forEach((vp, i) => {
-      const targetIdx = Math.min(i * interval, sections.length - 1)
-      if (!visualMap[targetIdx]) visualMap[targetIdx] = []
-      visualMap[targetIdx].push(vp)
-    })
-  }
-
-  // Body sections with integrated social proof and visual placeholders
-  for (let i = 0; i < sections.length; i++) {
-    const s = sections[i]
-    // Defence in depth — strip the two most common leak patterns that the
-    // writer prompt now forbids, in case a model regression slips one in:
-    //   1. "This section [verb]..." opener (description of section, not content)
-    //   2. "This topic relates to the broader area of '...'" trailer (taxonomy leak)
-    // Also strip a leading echo of article.summary if the model repeats it
-    // at the start of the first section body — produces visible duplicate
-    // intro paragraphs on the published page.
-    let cleanBody = String(s.body || '')
-    cleanBody = cleanBody.replace(
-      /^\s*This\s+section\s+(?:explains|walks\s+through|defines|addresses|provides|details|covers|describes|outlines|introduces|presents|discusses|examines|explores|breaks\s+down)[^.]*\.\s*/i,
-      ''
-    )
-    cleanBody = cleanBody.replace(
-      /\s*This\s+(?:topic|article|guide|page|section)\s+(?:relates\s+to|is\s+part\s+of|falls\s+under|sits\s+under|belongs\s+to)\s+the\s+broader\s+(?:area|topic|category)\s+of\s+["“'][^"”']+["”']\.?\s*/gi,
-      ' '
-    )
-    if (i === 0 && article.summary) {
-      const sumWords = String(article.summary).trim().split(/\s+/).slice(0, 12).join(' ')
-      if (sumWords.length > 30 && cleanBody.startsWith(sumWords)) {
-        cleanBody = cleanBody.slice(sumWords.length).replace(/^[^A-Z0-9]*/, '').trim()
-      }
-    }
-    cleanBody = cleanBody.trim()
-    const bodyHtml = bodyToHtml(cleanBody)
-
-    let sectionHtml = `<h2>${s.heading || 'Section'}</h2>\n${bodyHtml}`
-
-    // Insert visual placeholder after section body if assigned
-    if (visualMap[i]) {
-      for (const vp of visualMap[i]) {
-        const vpText = String(vp)
-        // Parse placeholder: [TYPE NEEDED: description | Alt: alt text] or [TYPE: description]
-        const match = vpText.match(/\[(\w+)(?:\s+NEEDED)?:\s*(.+?)(?:\s*\|\s*Alt:\s*(.+?))?\]/)
-        if (match) {
-          const type = match[1].toLowerCase()
-          const desc = match[2].trim()
-          const alt = match[3]?.trim() || desc
-          sectionHtml += `\n<figure class="visual-placeholder" data-type="${type}">
-<div class="placeholder-box" role="img" aria-label="${alt}">[${type.toUpperCase()}: ${desc}]</div>
-<figcaption>${alt}</figcaption>
-</figure>`
-        }
-      }
-    }
-
-    // Insert social proof blockquote after section body if assigned
-    if (socialProofMap[i]) {
-      for (const sp of socialProofMap[i]) {
-        const spType = sp.type || 'industry'
-        const spSource = sp.source || 'Source'
-        const spContent = sp.content || ''
-        const spAttr = sp.attribution || ''
-        sectionHtml += `\n<blockquote class="social-proof" data-proof-type="${spType}">
-<p>${spContent}</p>
-<cite>— <strong>${spSource}</strong>${spAttr ? `, ${spAttr}` : ''}</cite>
-</blockquote>`
-      }
-    }
-
-    parts.push(sectionHtml)
-  }
-
-  // Not For You block
-  if (notForYou) {
-    parts.push(`<div class="not-for-you">
-<h2>When This Guide Does NOT Apply</h2>
-${bodyToHtml(notForYou)}
-</div>`)
-  }
-
-  // FAQ — DO NOT render in fullArticle. The Replit SSR (renderBlogPost)
-  // emits the FAQ section AND the FAQPage JSON-LD from row.faq. If we render
-  // here too, the page shows two FAQ sections and the JSON-LD is duplicated.
-  // The FAQ data is persisted via the structured `faq` column (see the
-  // /content INSERT below) so the prerender has everything it needs.
-
-  // Source Ledger — DO NOT render in fullArticle. Same reason: the Replit
-  // SSR renders a single Sources section from row.sources. The structured
-  // `sources` column is the canonical store.
-
-  // Internal links section (rendered as related reading). internalLinks is
-  // already filtered above to drop entries with empty/'#'/'TBD' target_slug,
-  // so any entry that survives has a real URL. If filtering left zero valid
-  // entries, omit the whole section rather than render an empty heading.
-  if (internalLinks.length > 0) {
-    parts.push(`<div class="related-reading">
-<h3>Related Investigations</h3>
-<ul>
-${internalLinks.map(l => `<li><a href="${l.target_slug}">${l.anchor_text}</a> — ${l.context || ''}</li>`).join('\n')}
-</ul>
-</div>`)
-  }
-
-  // Author bio
-  parts.push(`<div class="author-bio">
-<p><strong>${authorName}</strong> — ${authorBio}</p>
-</div>`)
-
-  // Article JSON-LD is emitted by the Replit SSR (renderBlogPost), built
-  // from the full @graph (Organization, Person, Article, FAQPage, citations,
-  // ItemList, HowTo, Dataset, Quotation, ClaimReview). Emitting a second
-  // BlogPosting block inside fullArticle creates duplicate structured-data
-  // and downgrades the trust signal. Strip from fullArticle. The Replit
-  // prerender also defensively strips any <script> baked into row.fullArticle.
-
-  return parts.join('\n\n')
 }
 
 function fallbackSourceLedger(topicKeyword, currentDate) {
@@ -528,6 +221,19 @@ async function fetchPublishedSlugs() {
 export async function POST(request) {
   try {
     verifyAdmin(request)
+
+    // ── LEGACY WRITER QUARANTINE (P1-2, content-writing audit 2026-06-11) ──
+    // This monolithic single-call writer is superseded by outline + fill
+    // (4-stage pipeline: verified sources, per-stage retries, v2 schema
+    // enrichment, persona selection). It produced 9 of the catalog's
+    // articles without any of that. Kept only as an emergency rollback:
+    // set CONTENT_WRITER_MODE=mono to re-enable (mirrors REVIEW_WRITER_MODE).
+    if (process.env.CONTENT_WRITER_MODE !== 'mono') {
+      return Response.json({
+        error: 'The monolithic content writer is retired. Use the outline + fill pipeline (/api/admin/content/outline then /fill). To force this legacy path, set CONTENT_WRITER_MODE=mono.',
+        superseded_by: ['/api/admin/content/outline', '/api/admin/content/fill'],
+      }, { status: 410 })
+    }
 
     const body = await request.json()
     const topicId = body?.topic_id
