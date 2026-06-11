@@ -1,0 +1,43 @@
+{
+  "ranAt": "2026-06-11T09:34:03.180Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "romance-scammer-red-flags",
+      "total": 6,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/romance-scams",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.aarp.org/money/scams-fraud/info-2024/top-scams-to-watch-for.html",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "investment-pressure-tactics",
+      "total": 6,
+      "dead": 2,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.fbi.gov/news/stories/cryptocurrency-and-ai-scams-bilk-americans-of-billions",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.bitdefender.com/blog/hotforsecurity/social-media-scams-cost-americans-2-1-billion-in-2025-ftc-warns/",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

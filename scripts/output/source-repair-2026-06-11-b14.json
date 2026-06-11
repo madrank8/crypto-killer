@@ -1,0 +1,84 @@
+{
+  "ranAt": "2026-06-11T09:34:39.958Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "crypto-scam-recovery",
+      "total": 7,
+      "dead": 5,
+      "changes": [
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2023/PSA230824",
+          "replacement": "https://web.archive.org/web/20241001015335/https://www.ic3.gov/Media/Y2023/PSA230824",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.consumerfinance.gov/data-research/research-reports/complaint-bulletin-consumer-complaints-about-crypto-assets/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.chainalysis.com/blog/crypto-scams-fraud-2025-impersonation-ai/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/5-ways-fraudsters-may-lure-victims-scams-involving-crypto-asset",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://kalkinemedia.com/us/education/guides/how-to-recover-stolen-crypto-using-legal-and-technical-methods",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.americanbanker.com/payments/news/ai-agents-help-uncover-crypto-crime",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "social-media-crypto-scams",
+      "total": 7,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/social-media-and-investment-fraud",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.fbi.gov/news/story/cryptocurrency-and-ai-scams-bilk-americans-of-billions",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.theguardian.com/technology/2023/apr/06/uk-regulators-warn-influencers-of-risks-of-promoting-nfts-and-cryptocurrencies",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.researchgate.net/publication/365518420_An_Analysis_of_Crypto_Scams_during_the_Covid-19_Pandemic_2020-2022",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

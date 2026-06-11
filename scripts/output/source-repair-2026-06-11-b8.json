@@ -1,0 +1,51 @@
+{
+  "ranAt": "2026-06-11T09:33:38.094Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "celebrities-promoting-crypto-scams",
+      "total": 6,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://bluntmag.com.au/how-ai-deepfakes-are-fueling-crypto-scams-in-2026/",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scam-red-flags",
+      "total": 7,
+      "dead": 4,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.fbi.gov/news/stories/cryptocurrency-and-ai-scams-bilk-americans-of-billions-040626",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.chainalysis.com/blog/2026-crypto-crime-report-intro-crypto-scams-fraud/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.ic3.gov/Media/Y2025/PSA250813",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2023/PSA230824",
+          "replacement": "https://web.archive.org/web/20241001015335/https://www.ic3.gov/Media/Y2023/PSA230824",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

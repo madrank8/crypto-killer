@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { lintProseFields, collectArticleProseFields } from '@/lib/content-lint'
+import { verifySourceLedger } from '@/lib/source-verify'
 
 // ─── Publish quality gate ───
 //
@@ -92,6 +93,93 @@ function validateForPublish(content) {
   const lint = lintProseFields(collectArticleProseFields(content))
   reasons.push(...lint.errors)
   warnings.push(...lint.warnings)
+
+  // 6. Per-stage deterministic fallbacks (P1-3, content-writing audit
+  //    2026-06-11). The overall ai_model check in (1) only catches the
+  //    all-stages-failed case. The 4-stage pipeline can fall back per
+  //    section/stage — those bodies are outline briefs glued into "prose"
+  //    and pass the word-count + opener checks above. The pipeline records
+  //    exactly which stages fell back in ai_audit.pipeline_stages; read it.
+  //    Sections + skeleton (summary/title/takeaways) → hard block;
+  //    FAQ/aux fallbacks → warning (FAQ falls back to outline answer_hints,
+  //    which were human-approved at outline time).
+  const stages = Array.isArray(content.ai_audit?.pipeline_stages)
+    ? content.ai_audit.pipeline_stages
+    : []
+  const detStages = stages.filter((s) => s?.label === 'deterministic-fallback')
+  const detSections = detStages.filter((s) => String(s?.stage || '').startsWith('section-'))
+  const detSkeleton = detStages.filter((s) => s?.stage === 'skeleton')
+  const detSoft = detStages.filter((s) => s?.stage === 'faq' || s?.stage === 'aux')
+  if (detSections.length > 0) {
+    const names = detSections.map((s) => s.heading || s.stage).join(', ')
+    reasons.push(`${detSections.length} section(s) used the deterministic fallback (${names}) — the body is an outline brief, not written prose. Re-run Generate Article (or just those sections) before publishing.`)
+  }
+  if (detSkeleton.length > 0) {
+    reasons.push('skeleton stage used the deterministic fallback — title/summary/key-takeaways are templates. Re-run Generate Article before publishing.')
+  }
+  if (detSoft.length > 0) {
+    warnings.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — review the FAQ/aux fields before publishing.`)
+  }
+
+  return { ok: reasons.length === 0, reasons, warnings }
+}
+
+// ─── Source gate (async — network checks) ───
+//
+// P0-2 from the content-writing audit (2026-06-11): validateForPublish never
+// looked at sources, so dead/hallucinated URLs from a stale outline ledger
+// published without re-verification (live catalog shipped ~30 hard-404
+// citations, several fabricated, e.g. ic3.gov/Media/Y2026/PreviewYear2026.pdf).
+//
+// Severity model (conservative — gov sites bot-block datacenter IPs):
+//   - HARD-DEAD (404/410, DNS/network failure, malformed, unverifiable
+//     domain)                          → error  (blocks publish)
+//   - SOFT-FAIL (403/405/5xx/timeouts) → warning (editor judges; these are
+//     usually bot blocks on fbi.gov/sec.gov-class hosts, not dead pages)
+//   - No current-year source           → error  (the writer prompt's own
+//     hard requirement — semantic freshness; was enforced in the legacy
+//     generate route but lost in the fill pipeline)
+//   - citations count ≠ sources count  → warning (schema drift)
+async function validateSourcesForPublish(content) {
+  const reasons = []
+  const warnings = []
+
+  const sources = Array.isArray(content.sources) ? content.sources : []
+  if (sources.length === 0) {
+    reasons.push('content.sources is empty — a published YMYL article must cite verifiable sources')
+    return { ok: false, reasons, warnings }
+  }
+
+  const HARD_DEAD_RE = /HTTP 404|HTTP 410|malformed URL|unverifiable domain|network:/i
+  try {
+    const { dropped } = await verifySourceLedger(sources)
+    for (const d of dropped) {
+      const label = `"${(d.source?.title || d.source?.url || 'source').slice(0, 80)}" (${d.source?.url})`
+      if (HARD_DEAD_RE.test(d.reason || '')) {
+        reasons.push(`dead source ${label} — ${d.reason}. Replace or remove before publishing.`)
+      } else {
+        warnings.push(`unverified source ${label} — ${d.reason} (likely bot-block; verify in a browser)`)
+      }
+    }
+  } catch (e) {
+    // Verification infrastructure failing must not hard-block an editor —
+    // but it must be visible.
+    warnings.push(`source verification could not run: ${e?.message || e}`)
+  }
+
+  const currentYear = String(new Date().getFullYear())
+  const hasCurrentYear = sources.some((s) =>
+    String(s?.accessed_date || '').startsWith(currentYear) ||
+    String(s?.datePublished || '').startsWith(currentYear)
+  )
+  if (!hasCurrentYear) {
+    reasons.push(`no current-year (${currentYear}) source in the ledger — refresh at least one source for semantic freshness (writer-prompt hard requirement)`)
+  }
+
+  const citations = Array.isArray(content.citations) ? content.citations : []
+  if (citations.length > 0 && citations.length !== sources.length) {
+    warnings.push(`citations (${citations.length}) and sources (${sources.length}) counts differ — schema citations may be stale relative to the ledger`)
+  }
 
   return { ok: reasons.length === 0, reasons, warnings }
 }
@@ -192,20 +280,25 @@ export async function POST(request, { params }) {
     // Unpublish is always allowed — bad content must always be removable.
     if (action === 'publish') {
       const gate = validateForPublish(content)
-      if (!gate.ok) {
+      // Source gate runs even when the prose gate already failed, so the
+      // editor sees the full fix list in one 422 instead of fix-retry loops.
+      const sourceGate = await validateSourcesForPublish(content)
+      const reasons = [...gate.reasons, ...sourceGate.reasons]
+      const warnings = [...(gate.warnings || []), ...(sourceGate.warnings || [])]
+      if (reasons.length > 0) {
         return Response.json({
           error: 'Publish blocked by quality gate',
-          reasons: gate.reasons,
-          warnings: gate.warnings || [],
+          reasons,
+          warnings,
           content_id: id,
           slug: content.slug,
           ai_model: content.ai_model,
         }, { status: 422 })
       }
-      if ((gate.warnings || []).length > 0) {
+      if (warnings.length > 0) {
         // Non-blocking — log for ops visibility; the admin UI may surface
         // these from the success payload in a later pass.
-        console.warn(`[publish] content ${id} lint warnings:`, JSON.stringify(gate.warnings))
+        console.warn(`[publish] content ${id} gate warnings:`, JSON.stringify(warnings))
       }
     }
 

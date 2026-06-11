@@ -1,0 +1,85 @@
+{
+  "ranAt": "2026-06-11T09:32:17.212Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "ai-crypto-trading-bot-scam",
+      "total": 5,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.cftc.gov/LearnAndProtect/AdvisoriesAndArticles/customeradvisory_AI.html",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/news/press-release/2025-271",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.nasaa.org/investor-education/investor-advisories-and-bulletins/informed-investor-advisory-elaborate-cryptocurrency-scams-involving-self-proclaimed-investment-education-foundations-and-proprietary-ai-bots/",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://nordvpn.com/blog/trading-bot-scam/",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    },
+    {
+      "slug": "fake-trading-profits",
+      "total": 8,
+      "dead": 7,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.netcraft.com/blog/online-investment-scams-inside-a-fake-trading-platform/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.fma.govt.nz/scams/scam-types/fake-investment-platforms/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/ia_dontfall",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://ag.ny.gov/press-release/2024/investor-alert-attorney-general-james-warns-new-yorkers-investment-scams-meta",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.occ.gov/topics/consumers-and-communities/consumer-protection/fraud-resources/financial-investment-fraud.html",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://globalfinancialrecovery.com/how-to-identify-and-avoid-fake-investment-dashboards/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.aarp.org/money/scams-fraud/info-2024/investment.html",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    }
+  ]
+}

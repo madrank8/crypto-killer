@@ -1,0 +1,34 @@
+{
+  "ranAt": "2026-06-11T09:32:06.239Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "ai-deepfake-crypto-scams-2026-safety-guide",
+      "total": 2,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-scams",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "drop-placeholder-link",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "slug": "ai-deepfake-crypto-scams-a-2026-guide-to-safety",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/scamsmart/warning-list",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "ranAt": "2026-06-11T09:29:55.066Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "crypto-job-posting-scams",
+      "total": 6,
+      "dead": 4,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.gate.io/learn/articles/crypto-job-scams-how-hackers-trick-applicants-and-how-to-stay-safe/741",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.topper.com/guides/cryptocurrency-scams/job-scams",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.bitdefender.com/blog/hotforsecurity/pay-to-work-scammers-impersonating-recruiters-steal-your-crypto-before-denying-your-salary-fbi-says/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2024/PSA240604",
+          "replacement": "https://web.archive.org/web/20240928145350/https://www.ic3.gov/Media/Y2024/PSA240604",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scam-recovery",
+      "total": 7,
+      "dead": 5,
+      "changes": [
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2023/PSA230824",
+          "replacement": "https://web.archive.org/web/20241001015335/https://www.ic3.gov/Media/Y2023/PSA230824",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.consumerfinance.gov/data-research/research-reports/complaint-bulletin-consumer-complaints-about-crypto-assets/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.chainalysis.com/blog/crypto-scams-fraud-2025-impersonation-ai/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/5-ways-fraudsters-may-lure-victims-scams-involving-crypto-asset",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://kalkinemedia.com/us/education/guides/how-to-recover-stolen-crypto-using-legal-and-technical-methods",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.americanbanker.com/payments/news/ai-agents-help-uncover-crypto-crime",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "social-media-crypto-scams",
+      "total": 7,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/social-media-and-investment-fraud",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.fbi.gov/news/story/cryptocurrency-and-ai-scams-bilk-americans-of-billions",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.theguardian.com/technology/2023/apr/06/uk-regulators-warn-influencers-of-risks-of-promoting-nfts-and-cryptocurrencies",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

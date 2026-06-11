@@ -1,0 +1,49 @@
+{
+  "ranAt": "2026-06-11T09:33:05.059Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "how-to-spot-crypto-scams",
+      "total": 8,
+      "dead": 2,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/investor-alert-5-ways-fraudsters-may-lure-victims-scams-involving",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.aarp.org/money/scams-fraud/info-2021/cryptocurrency.html",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    },
+    {
+      "slug": "celebrity-crypto-scam",
+      "total": 8,
+      "dead": 2,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://unit42.paloaltonetworks.com/deepfake-scam-campaigns/",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.jdsupra.com/legalnews/enforcement-news-sec-charges-former-nba-2041263/",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    }
+  ]
+}

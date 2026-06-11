@@ -1,0 +1,54 @@
+{
+  "ranAt": "2026-06-11T09:33:21.083Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "how-to-spot-a-deepfake",
+      "total": 6,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.fbi.gov/news/story/cryptocurrency-and-ai-scams-bilk-americans-of-billions-040626",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.finra.org/investors/insights/artificial-intelligence-and-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.marylandattorneygeneral.gov/press/2026/040626.aspx",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "pig-butchering-scam",
+      "total": 8,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://consumer.ftc.gov/articles/how-recognize-and-report-romance-scam",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/investor/alerts/ia_cryptocurrency.pdf",
+          "detail": "HTTP 404",
+          "inBody": true
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.ic3.gov/Media/Y2026/PreviewYear2026.pdf",
+          "detail": "HTTP 404",
+          "inBody": true
+        }
+      ]
+    }
+  ]
+}

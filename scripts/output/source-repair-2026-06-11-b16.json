@@ -1,0 +1,72 @@
+{
+  "ranAt": "2026-06-11T09:34:52.182Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "crypto-scammer-list",
+      "total": 7,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.chainalysis.com/research/2026-crypto-crime-report/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/investor/pubs/investor-alert-5-ways-fraudsters-may-lure-victims-scams-involving-crypto-asset",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.consumerfinance.gov/data-research/research-reports/complaint-bulletin-an-analysis-of-consumer-complaints-related-to-crypto-assets/",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "what-to-do-if-you-get-scammed-out-of-crypto",
+      "total": 6,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.ohioattorneygeneral.gov/getmedia/e942c8d2-5a7c-4029-9c59-d8e7c10b65f7/Cryptocurrency-fraud-What-to-do-after-a-financial-loss.aspx",
+          "detail": "network: fetch failed"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.sofi.com/learn/content/how-to-report-crypto-scam/",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://cyberclaims.co/blog/cryptocurrency-scam-recovery",
+          "detail": "network: fetch failed"
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scam-evidence",
+      "total": 5,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2023/PSA230824",
+          "replacement": "https://web.archive.org/web/20241001015335/https://www.ic3.gov/Media/Y2023/PSA230824",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

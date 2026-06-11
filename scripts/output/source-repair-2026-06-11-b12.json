@@ -1,0 +1,63 @@
+{
+  "ranAt": "2026-06-11T09:34:26.663Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "guaranteed-returns-crypto",
+      "total": 8,
+      "dead": 3,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.sec.gov/oiea/investor-alerts-and-bulletins/affinity-fraud",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.ic3.gov/Media/Y2023/ic3_media_release_2023",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://sumsub.com/blog/crypto-scams/",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    },
+    {
+      "slug": "crypto-job-posting-scams",
+      "total": 6,
+      "dead": 4,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.gate.io/learn/articles/crypto-job-scams-how-hackers-trick-applicants-and-how-to-stay-safe/741",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.topper.com/guides/cryptocurrency-scams/job-scams",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "remove",
+          "url": "https://www.bitdefender.com/blog/hotforsecurity/pay-to-work-scammers-impersonating-recruiters-steal-your-crypto-before-denying-your-salary-fbi-says/",
+          "detail": "HTTP 404",
+          "inBody": false
+        },
+        {
+          "kind": "wayback-replace",
+          "url": "https://www.ic3.gov/Media/Y2024/PSA240604",
+          "replacement": "https://web.archive.org/web/20240928145350/https://www.ic3.gov/Media/Y2024/PSA240604",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}
