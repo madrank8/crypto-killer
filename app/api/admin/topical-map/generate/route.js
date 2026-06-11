@@ -9,6 +9,7 @@ import {
   topicalMapGeneratorPrompt,
   computeTopicPriorityScore,
 } from '@/lib/content-prompts'
+import { isKeywordDataAvailable, enrichTopicalMapKeywords } from '@/lib/keyword-data'
 
 export const maxDuration = 300
 
@@ -512,6 +513,30 @@ export async function POST(request) {
             throw new Error('AI returned no pillars — try again or shorten inputs.')
           }
 
+          // ── Ground keyword metrics in real data (P1-4, audit 2026-06-11) ──
+          // The generator prompt makes the LLM INVENT search_volume and
+          // keyword_difficulty. When DataForSEO creds are configured, replace
+          // those guesses with real metrics before priority scores are
+          // computed — priority_score drives the content production queue.
+          // No creds / API failure → LLM estimates pass through unchanged.
+          let keywordGrounding = { requested: 0, matched: 0, grounded: 0, source: 'llm-estimated' }
+          if (isKeywordDataAvailable()) {
+            send({ step: 'grounding', progress: 62, message: 'Grounding keyword volumes & difficulty (DataForSEO)...' })
+            try {
+              const stats = await enrichTopicalMapKeywords(mapData)
+              keywordGrounding = { ...stats, source: 'dataforseo' }
+              send({
+                step: 'grounding',
+                progress: 66,
+                message: `Keyword data grounded: ${stats.grounded}/${stats.requested} keywords got real volume/difficulty.`,
+              })
+            } catch (e) {
+              console.warn('[topical-map] keyword grounding failed (non-fatal):', e?.message || e)
+            }
+          } else {
+            console.warn('[topical-map] DATAFORSEO_LOGIN/PASSWORD unset — search_volume & keyword_difficulty are LLM estimates')
+          }
+
           send({ step: 'saving', progress: 70, message: 'Saving map and topics to Supabase...' })
 
           const mapInsert = await supaFetch('/topical_maps?select=id', {
@@ -527,6 +552,7 @@ export async function POST(request) {
                   research: researchModel,
                   structure: mapModelUsed,
                 },
+                keyword_grounding: keywordGrounding,
               },
             }),
           })
