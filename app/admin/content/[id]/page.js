@@ -484,6 +484,7 @@ export default function ContentEditorPage({ params }) {
             action,
             error: data.error || 'Publish blocked by quality gate',
             reasons: data.reasons,
+            dead_sources: Array.isArray(data.dead_sources) ? data.dead_sources : [],
             ai_model: data.ai_model || null,
             slug: data.slug || null,
           });
@@ -507,6 +508,51 @@ export default function ContentEditorPage({ params }) {
           setMsg('\u2713 Unpublished (live site may still show cached version)');
         }
       }
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  /* -- Drop dead citation(s) & retry publish (no AI regeneration) --
+     A dead/404 source is a ledger problem, not a prose problem — regenerating
+     the whole article to clear it wastes time and tokens. This removes the
+     offending source (and any matching citation) from the row via a plain
+     PATCH, then re-runs the publish gate. */
+  const removeDeadSourcesAndRetry = async () => {
+    const deadUrls = new Set((publishGate?.dead_sources || []).map((d) => d.url).filter(Boolean));
+    if (deadUrls.size === 0) return;
+    setPublishing(true);
+    setError('');
+    setMsg('');
+    try {
+      const newSources = (content.sources || []).filter((s) => !deadUrls.has(s?.url));
+      const patch = { sources: newSources };
+      const hasCitations = Array.isArray(content.citations);
+      const newCitations = hasCitations
+        ? content.citations.filter((c) => !deadUrls.has(c?.url))
+        : null;
+      if (hasCitations) patch.citations = newCitations;
+
+      const res = await fetch(`/api/admin/content/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Failed to remove dead source');
+      }
+
+      setContent((prev) => ({
+        ...prev,
+        sources: newSources,
+        ...(hasCitations ? { citations: newCitations } : {}),
+      }));
+      setPublishGate(null);
+      // Re-run the publish gate against the cleaned ledger.
+      await publishAction('publish');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -926,6 +972,22 @@ export default function ContentEditorPage({ params }) {
           </ul>
 
           <div className="flex flex-wrap gap-2 pt-1">
+            {/* Token-free recovery for dead citations: drop the offending
+                source(s) from the ledger and re-run the gate. A 404 URL is a
+                data problem, not a prose problem — no regeneration needed. */}
+            {Array.isArray(publishGate.dead_sources) && publishGate.dead_sources.length > 0 && (
+              <button
+                type="button"
+                onClick={removeDeadSourcesAndRetry}
+                disabled={publishing || saving}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50"
+                title={publishGate.dead_sources.map((d) => d.url).join('\n')}
+              >
+                {publishing
+                  ? 'Removing…'
+                  : `Remove dead source${publishGate.dead_sources.length > 1 ? 's' : ''} & retry`}
+              </button>
+            )}
             {/* Single-click recovery: most quality-gate failures (especially
                 ai_model='deterministic-fallback' and taxonomy-trailer hits)
                 are fixed by re-running the writer. */}
