@@ -100,9 +100,13 @@ function validateForPublish(content) {
   //    section/stage — those bodies are outline briefs glued into "prose"
   //    and pass the word-count + opener checks above. The pipeline records
   //    exactly which stages fell back in ai_audit.pipeline_stages; read it.
-  //    Sections + skeleton (summary/title/takeaways) → hard block;
-  //    FAQ/aux fallbacks → warning (FAQ falls back to outline answer_hints,
-  //    which were human-approved at outline time).
+  //    ALL deterministic-fallback stages → hard block. (YMYL writing-process
+  //    review: previously FAQ/aux fallbacks were warn-only, which let a
+  //    partly-templated article publish — aux-fallback ships with no schema
+  //    enrichment / E-E-A-T fields and FAQ-fallback ships templated outline
+  //    hints rather than written answers. The review pipeline already throws
+  //    on any stage fallback; the article gate now matches that stance, so
+  //    nothing partially-templated reaches a YMYL reader.)
   const stages = Array.isArray(content.ai_audit?.pipeline_stages)
     ? content.ai_audit.pipeline_stages
     : []
@@ -118,7 +122,7 @@ function validateForPublish(content) {
     reasons.push('skeleton stage used the deterministic fallback — title/summary/key-takeaways are templates. Re-run Generate Article before publishing.')
   }
   if (detSoft.length > 0) {
-    warnings.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — review the FAQ/aux fields before publishing.`)
+    reasons.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — FAQ/aux fields are templated outline hints, not written content (aux-fallback also ships no schema enrichment). Re-run Generate Article before publishing.`)
   }
 
   return { ok: reasons.length === 0, reasons, warnings }
