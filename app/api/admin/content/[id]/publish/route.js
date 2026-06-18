@@ -2,7 +2,7 @@ import { revalidatePath } from 'next/cache'
 
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { lintProseFields, collectArticleProseFields } from '@/lib/content-lint'
+import { lintProseFields, collectArticleProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { verifySourceLedger } from '@/lib/source-verify'
 
 // ─── Publish quality gate ───
@@ -93,6 +93,11 @@ function validateForPublish(content) {
   const lint = lintProseFields(collectArticleProseFields(content))
   reasons.push(...lint.errors)
   warnings.push(...lint.warnings)
+
+  // Structural-pollution gate: full_article must be an HTML fragment, never a
+  // full document or a serialized structured-data dump. Blocks render-breaking
+  // content from reaching the public renderer. (Audit: YMYL writing-process review.)
+  reasons.push(...detectHtmlPollution(content.full_article, 'full_article'))
 
   // 6. Per-stage deterministic fallbacks (P1-3, content-writing audit
   //    2026-06-11). The overall ai_model check in (1) only catches the

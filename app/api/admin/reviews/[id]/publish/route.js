@@ -3,7 +3,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { headCheckUrl } from '@/lib/source-verify'
-import { lintProseFields } from '@/lib/content-lint'
+import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
 
 // Supabase → Replit shape transform lives in lib/sync-shape.js, shared
 // with the /sync route. That module handles field renames, funnel-stage
@@ -138,6 +138,11 @@ async function validateReviewReadyToPublish(review) {
       `Run AI Generate/Fill, save, and retry publish.`
     )
   }
+  // Structural-pollution gate: the body is an HTML fragment, never a full
+  // document or a structured-data dump. Blocks render-breaking content
+  // (embedded <html>/<body>, raw <script>, JSON-LD blobs) from being synced
+  // to the public renderer. (Audit: YMYL writing-process review.)
+  errors.push(...detectHtmlPollution(fullArticle, 'full_article'))
 
   // ─── (2) Citation URL validation (HEAD + blocked-domain check) ─
   const citations = Array.isArray(review.citations) ? review.citations : []
