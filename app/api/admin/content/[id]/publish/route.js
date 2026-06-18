@@ -143,11 +143,15 @@ function validateForPublish(content) {
 async function validateSourcesForPublish(content) {
   const reasons = []
   const warnings = []
+  // Structured list of hard-dead sources, so the admin UI can offer a precise
+  // "remove this source & retry" remedy instead of forcing a full (token-
+  // expensive) article regeneration over a single bad URL.
+  const deadSources = []
 
   const sources = Array.isArray(content.sources) ? content.sources : []
   if (sources.length === 0) {
     reasons.push('content.sources is empty — a published YMYL article must cite verifiable sources')
-    return { ok: false, reasons, warnings }
+    return { ok: false, reasons, warnings, deadSources }
   }
 
   const HARD_DEAD_RE = /HTTP 404|HTTP 410|malformed URL|unverifiable domain|network:/i
@@ -157,6 +161,13 @@ async function validateSourcesForPublish(content) {
       const label = `"${(d.source?.title || d.source?.url || 'source').slice(0, 80)}" (${d.source?.url})`
       if (HARD_DEAD_RE.test(d.reason || '')) {
         reasons.push(`dead source ${label} — ${d.reason}. Replace or remove before publishing.`)
+        if (d.source?.url) {
+          deadSources.push({
+            url: d.source.url,
+            title: d.source.title || null,
+            reason: d.reason,
+          })
+        }
       } else {
         warnings.push(`unverified source ${label} — ${d.reason} (likely bot-block; verify in a browser)`)
       }
@@ -181,7 +192,7 @@ async function validateSourcesForPublish(content) {
     warnings.push(`citations (${citations.length}) and sources (${sources.length}) counts differ — schema citations may be stale relative to the ledger`)
   }
 
-  return { ok: reasons.length === 0, reasons, warnings }
+  return { ok: reasons.length === 0, reasons, warnings, deadSources }
 }
 
 async function syncToLiveBlog({ content, topic }) {
@@ -290,6 +301,9 @@ export async function POST(request, { params }) {
           error: 'Publish blocked by quality gate',
           reasons,
           warnings,
+          // Machine-actionable: lets the UI offer a one-click remove-and-retry
+          // for dead citations rather than a full article regeneration.
+          dead_sources: sourceGate.deadSources || [],
           content_id: id,
           slug: content.slug,
           ai_model: content.ai_model,
