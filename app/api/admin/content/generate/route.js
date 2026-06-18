@@ -452,9 +452,12 @@ Return the COMPLETE corrected JSON object.`
               sourceLedger,
               {}
             )
-            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
+            // Auditor on Claude Sonnet 4.6 (was gpt-5.4-mini). Audit now gates
+            // publication, so it runs on a known-good current model.
+            const auditResult = await callModel('claude-sonnet', auditPrompt.system, auditMsg, {
               jsonMode: true,
-              timeoutMs: 45000,
+              timeoutMs: 60000,
+              effort: 'medium',
             })
             audit = extractJSON(auditResult.text)
           } catch {
