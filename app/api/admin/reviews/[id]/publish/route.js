@@ -198,6 +198,22 @@ async function validateReviewReadyToPublish(review) {
     warnings.push('Possible self-contradiction: text claims "all N creatives target X exclusively" AND "creatives distributed outside X" in the same review.')
   }
 
+  // ─── Quality-auditor verdict gate ───────────────────────────────
+  // The Phase-5 auditor (Claude Sonnet 4.6, run at polish time) persists a VETO
+  // flag (audit_hard_fail) and score (trust_indicators.audit_score). The audit
+  // is no longer advisory — a VETO or a clear-fail score blocks publish.
+  if (review.audit_hard_fail === true) {
+    errors.push(
+      `quality audit VETO — ${review.audit_hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Polish.`
+    )
+  }
+  const auditScore = Number(review?.trust_indicators?.audit_score)
+  if (Number.isFinite(auditScore) && auditScore < 60) {
+    errors.push(`quality audit score ${auditScore}/100 is below the YMYL publish floor (60). Address the auditor's critical fixes and re-run Polish.`)
+  } else if (Number.isFinite(auditScore) && auditScore < 80) {
+    warnings.push(`quality audit score ${auditScore}/100 is below the target (80) — review the auditor's findings before publishing.`)
+  }
+
   return { errors, warnings, issues }
 }
 

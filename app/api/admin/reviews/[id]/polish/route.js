@@ -1,7 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
+import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals } from '@/lib/visual-generator'
@@ -163,16 +163,17 @@ export async function POST(request, { params }) {
               tempSchema,
             )
 
-            const availableModelsInfo = getAvailableModels()
-            const auditModels = availableModelsInfo.openai
-              ? ['gpt-5.4-mini', 'claude-sonnet']
-              : ['claude-sonnet']
+            // Auditor runs on Claude Sonnet 4.6 (was gpt-5.4-mini primary). The
+            // audit now gates publication (validateReviewReadyToPublish), so it
+            // runs on a known-good current model, not an unverified provider pin.
+            const auditModels = ['claude-sonnet', 'claude-haiku']
 
             let auditResult = null
             for (const modelKey of auditModels) {
               try {
                 auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
                   jsonMode: true,
+                  effort: 'medium',
                 })
                 break
               } catch (modelErr) {
@@ -267,10 +268,20 @@ export async function POST(request, { params }) {
             audit_critical_fixes: auditReport?.critical_fixes || [],
           }
 
+          // Persist the auditor VETO verdict so the publish gate can block on
+          // it (the audit is no longer advisory-only). hard_fail_checks.any_hard_fail
+          // → audit_hard_fail; the reason → audit_hard_fail_reason.
+          const hardFail = auditReport?.hard_fail_checks?.any_hard_fail === true
+          const hardFailReason = hardFail
+            ? (auditReport?.hard_fail_checks?.hard_fail_reason || 'Quality auditor flagged a hard fail (see critical_fixes).')
+            : null
+
           const polishPatch = {
             full_article: fullArticle,
             visual_meta: visualMeta.length > 0 ? visualMeta : (review.visual_meta || null),
             trust_indicators: trustIndicators,
+            audit_hard_fail: hardFail,
+            audit_hard_fail_reason: hardFailReason,
             generation_status: 'polished',
             polish_error: null,
           }

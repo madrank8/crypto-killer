@@ -130,6 +130,25 @@ function validateForPublish(content) {
     reasons.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — FAQ/aux fields are templated outline hints, not written content (aux-fallback also ships no schema enrichment). Re-run Generate Article before publishing.`)
   }
 
+  // 7. Quality-auditor verdict gate (lib/review-prompts qualityAuditorPrompt,
+  //    run on Claude Sonnet 4.6 at fill time, persisted to ai_audit). The audit
+  //    is no longer advisory: a VETO (any_hard_fail) or a clear-fail score
+  //    blocks publish. Only enforced when a verdict exists, so legacy rows
+  //    without an audit aren't retroactively blocked — re-run Generate Article
+  //    to produce a verdict.
+  const verdict = content.ai_audit && typeof content.ai_audit === 'object' ? content.ai_audit : null
+  if (verdict) {
+    if (verdict.hard_fail_checks?.any_hard_fail === true) {
+      reasons.push(`quality audit VETO — ${verdict.hard_fail_checks.hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Generate Article.`)
+    }
+    const score = Number(verdict.overall_score)
+    if (Number.isFinite(score) && score < 60) {
+      reasons.push(`quality audit score ${score}/100 is below the YMYL publish floor (60). Address the auditor's critical_fixes and re-run Generate Article.`)
+    } else if (Number.isFinite(score) && score < 80) {
+      warnings.push(`quality audit score ${score}/100 is below the target (80) — review the auditor's improvements before publishing.`)
+    }
+  }
+
   return { ok: reasons.length === 0, reasons, warnings }
 }
 
