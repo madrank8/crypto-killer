@@ -5,7 +5,7 @@ import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { dedupeCelebrityList } from '@/lib/threat-score'
-import { embedAdEvidence } from '@/lib/ad-evidence'
+import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
 
@@ -271,25 +271,24 @@ export async function POST(request, { params }) {
             send({ step: 'images_skip', progress: 90, message: `Images skipped: ${imgError.message}` })
           }
 
-          // ─── PHASE B.3.5: EMBED REAL AD-CREATIVE EVIDENCE ──────────────
-          // Re-embed the scraped SpyOwl ad evidence (capped at 5) as the final
-          // content step, so it ships on every publish and survives a
-          // regenerate (which rewrites full_article). Reuses storage-cached
-          // creatives — only needs SpyOwl for first-time fetches. Non-fatal.
-          let evidenceEmbedded = 0
+          // ─── PHASE B.3.5: RESOLVE REAL AD-CREATIVE EVIDENCE ────────────
+          // Structured evidence (fetched/cached SpyOwl creatives, capped at 5)
+          // stored in ad_evidence for the renderer to display as a dedicated
+          // section. NOT injected into full_article — that only rendered in SSR,
+          // never the React client. Reuses storage-cached creatives; only needs
+          // SpyOwl for first-time fetches. Non-fatal.
+          let adEvidence = null
           try {
-            const ev = await embedAdEvidence({ brand: brandData, fullArticle })
-            fullArticle = ev.fullArticle
-            evidenceEmbedded = ev.imagesEmbedded
+            adEvidence = await resolveAdEvidence({ brand: brandData })
             send({
               step: 'evidence',
               progress: 92,
-              message: evidenceEmbedded > 0
-                ? `Embedded ${evidenceEmbedded} real ad-creative evidence image(s)`
-                : 'No ad-creative evidence embedded (no cached creatives / SpyOwl unavailable)',
+              message: adEvidence?.images?.length
+                ? `Resolved ${adEvidence.images.length} real ad-creative evidence image(s)`
+                : 'No ad-creative evidence (no cached creatives / SpyOwl unavailable)',
             })
           } catch (evErr) {
-            console.error('[polish] Ad-evidence embed failed:', evErr.message)
+            console.error('[polish] Ad-evidence resolve failed:', evErr.message)
           }
 
           // ─── PHASE B.4: SAVE EVERYTHING ────────────────────────────────
@@ -320,6 +319,10 @@ export async function POST(request, { params }) {
             audit_hard_fail_reason: hardFailReason,
             generation_status: 'polished',
             polish_error: null,
+            // Structured scraped ad evidence (renderer displays it as a dedicated
+            // section). Only overwrite when freshly resolved, so a transient
+            // SpyOwl failure doesn't wipe previously-stored evidence.
+            ...(adEvidence ? { ad_evidence: adEvidence } : {}),
           }
 
           if (heroImageResult) {
