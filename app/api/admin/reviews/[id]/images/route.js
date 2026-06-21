@@ -2,7 +2,9 @@ import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const SPYOWL_API = 'https://api.spyowl.icu'
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Service-role key for storage WRITES — the anon key is RLS-blocked on the
+// creative-images bucket (uploads silently 403'd). Service-role bypasses RLS.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
   : ''
