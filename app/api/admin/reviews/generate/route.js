@@ -1304,6 +1304,11 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       // once visuals/audit/hero-images are attached. UI polls on this field.
       generation_status: 'content_generated',
       polish_error: null,
+      // Regenerated content invalidates the previous audit verdict — clear the
+      // stale VETO so the publish gate can't block fresh content on an old
+      // audit. The auditor re-runs at Polish and sets a current verdict.
+      audit_hard_fail: false,
+      audit_hard_fail_reason: null,
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,
