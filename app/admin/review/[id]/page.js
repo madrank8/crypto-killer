@@ -582,8 +582,9 @@ export default function ReviewEditor({ params }) {
   // targeted HTML patches). Reads from the freshly-fetched review to avoid any
   // stale-state. Non-fatal: polish already succeeded if this no-ops.
   const runSeoAutoFix = useCallback(async (fresh) => {
-    const article = fresh?.full_article;
+    let article = fresh?.full_article;
     if (!article || !token) return;
+    // 1. Apply the safe SEO/AEO fixes to the freshly-polished article.
     try {
       const res = await fetch('/api/admin/aeo-fix', {
         method: 'POST',
@@ -599,15 +600,41 @@ export default function ReviewEditor({ params }) {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.fixedArticle && data.fixedArticle !== article) {
-        setFullArticle(data.fixedArticle);
+        article = data.fixedArticle;
+        setFullArticle(article);
         setEditorKey((k) => k + 1);
-        setSyncMsg(`SEO/AEO auto-fixes applied (${(data.fixesApplied || []).join(', ')}). Review & Save to publish.`);
-        setTimeout(() => setSyncMsg(''), 9000);
+        // Persist the SEO fix (explicit value — avoids stale editor state).
+        await fetch(`/api/admin/reviews/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ full_article: article }),
+        }).catch(() => {});
       }
     } catch {
       /* non-fatal — polish already succeeded */
     }
-  }, [token]);
+    // 2. Auto-sync to the live renderer when the review is already published,
+    // so a re-polish (evidence + SEO fixes) reflects on cryptokiller.org without
+    // a separate manual "Sync to Live" step. Drafts just await the user's Save.
+    if (fresh.status === 'published') {
+      try {
+        const r = await fetch(`/api/admin/reviews/${id}/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json().catch(() => ({}));
+        setSyncMsg(r.ok && d.success
+          ? '✓ Polished, SEO-fixed & synced to live'
+          : `Polished & SEO-fixed — auto-sync failed (${d.error || 'click Sync to Live'})`);
+      } catch {
+        setSyncMsg('Polished & SEO-fixed — auto-sync failed, click Sync to Live');
+      }
+      await fetchReview().catch(() => {}); // refresh editor + saved-snapshot
+    } else {
+      setSyncMsg('SEO/AEO auto-fixes applied. Review & Save.');
+    }
+    setTimeout(() => setSyncMsg(''), 9000);
+  }, [token, id, fetchReview]);
 
   // When the polish stream ends successfully, reload the review (so the editor
   // shows rendered visuals, audit score, hero image, and embedded evidence),
