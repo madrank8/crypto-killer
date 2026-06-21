@@ -190,7 +190,9 @@ const STORAGE_BASE = SUPABASE_URL
   : ''
 const STORAGE_UPLOAD_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/creative-images`  : ''
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Service-role key for storage WRITES — the anon key is RLS-blocked on the
+// creative-images bucket (uploads silently 403'd). Service-role bypasses RLS.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Phase A of the split pipeline: source research + content generation only.
 // Requires Vercel Pro Fluid Compute (800s cap). Source research + Claude
