@@ -311,6 +311,9 @@ export async function POST(request) {
         if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
       }
     }
+    // Cap evidence to 5 creatives per review — a representative sample is
+    // enough and keeps Supabase Storage lean (no dozens of near-duplicate ads).
+    if (evidenceGrid.length > 5) evidenceGrid.length = 5
 
           send({ step: 'images', progress: 25, message: `Found ${evidenceGrid.length} evidence candidates${SPYOWL_COOKIE ? '' : ' — no SpyOwl cookie (set in Settings)'}` })
 
