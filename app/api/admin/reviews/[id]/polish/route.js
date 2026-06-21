@@ -4,6 +4,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
+import { dedupeCelebrityList } from '@/lib/threat-score'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
 
@@ -144,6 +145,19 @@ export async function POST(request, { params }) {
               methodology: review.methodology,
               sources: review.sources || [],
               disclaimer: review.disclaimer,
+              // Include the typed entity so the auditor can confirm
+              // item_reviewed.type directly (was only visible in the truncated
+              // SCHEMA JSON-LD, causing false "not typed" hard fails).
+              item_reviewed: review.item_reviewed || null,
+            }
+
+            // Real celebrity names (the raw celebrity_list stores comma-joined
+            // compound strings, so total_celebrities under-counts — e.g. 2 array
+            // elements holding 4 names). Pass the deduped/split names so the
+            // auditor cross-checks against the true roster, not a wrong count.
+            const auditBrandData = {
+              ...brandData,
+              celebrity_names: dedupeCelebrityList(brandData.celebrity_list || []),
             }
 
             const tempSchema = buildReviewSchema({
@@ -158,7 +172,7 @@ export async function POST(request, { params }) {
             const auditPromptData = qualityAuditorPrompt()
             const auditUserMsg = auditPromptData.userTemplate(
               reviewContent,
-              brandData,
+              auditBrandData,
               review.sources || [],
               tempSchema,
             )
