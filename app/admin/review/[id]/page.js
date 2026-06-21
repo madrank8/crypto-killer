@@ -553,10 +553,13 @@ export default function ReviewEditor({ params }) {
     fetchReview();
   }, [fetchReview]);
 
-  // Auto-fire /polish when the review lands in the editor with phase A just done.
-  // Triggers on: explicit ?polish=auto query param OR a stored generation_status
-  // that indicates work is still pending.
+  // Auto-polish is DISABLED (per request): polishing runs ONLY when the user
+  // clicks the Polish button — never automatically on load/refresh or after an
+  // AI Generate. This keeps the token-spending audit/visuals/evidence pass under
+  // explicit control. Flip AUTO_POLISH back to true to restore chain-on-generate.
   useEffect(() => {
+    const AUTO_POLISH = false;
+    if (!AUTO_POLISH) return;
     if (!review || polishAutoTriggered || polishProgress.isPolishing) return;
     const status = review.generation_status;
     const shouldAutoPolish =
@@ -569,13 +572,51 @@ export default function ReviewEditor({ params }) {
     polishProgress.polish(id);
   }, [review, polishQueryParam, polishAutoTriggered, polishProgress, id]);
 
-  // When the polish stream ends successfully, reload the review so the editor
-  // shows the rendered visuals, audit score, and hero image.
+  // After polish, apply the SEO/AEO auto-fixes the sidebar audit recommends, so
+  // a Polish run actually improves the page's SEO — not just visuals/evidence.
+  // Only the SAFE STRUCTURAL categories are auto-applied (extractive answers,
+  // question-shaped headings, BLUF/answer-first opening, formatting). The
+  // generative categories (attribution, freshness, surface) are deliberately
+  // EXCLUDED — they invent sources/claims/sections and would trip the
+  // fabrication/fake-freshness VETOs in the publish gate. Cheap (claude-haiku,
+  // targeted HTML patches). Reads from the freshly-fetched review to avoid any
+  // stale-state. Non-fatal: polish already succeeded if this no-ops.
+  const runSeoAutoFix = useCallback(async (fresh) => {
+    const article = fresh?.full_article;
+    if (!article || !token) return;
+    try {
+      const res = await fetch('/api/admin/aeo-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          fullArticle: article,
+          title: fresh.title || '',
+          keyword: fresh.brand_name || fresh.brand?.name || '',
+          metaDescription: fresh.meta_description || '',
+          fixes: ['extractive', 'headings', 'bluf', 'formatting'],
+          contentType: 'review',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.fixedArticle && data.fixedArticle !== article) {
+        setFullArticle(data.fixedArticle);
+        setEditorKey((k) => k + 1);
+        setSyncMsg(`SEO/AEO auto-fixes applied (${(data.fixesApplied || []).join(', ')}). Review & Save to publish.`);
+        setTimeout(() => setSyncMsg(''), 9000);
+      }
+    } catch {
+      /* non-fatal — polish already succeeded */
+    }
+  }, [token]);
+
+  // When the polish stream ends successfully, reload the review (so the editor
+  // shows rendered visuals, audit score, hero image, and embedded evidence),
+  // then run the SEO/AEO auto-fix on the fresh content.
   useEffect(() => {
     if (polishProgress.step === 'done' && !polishProgress.error) {
-      fetchReview();
+      fetchReview().then((fresh) => { if (fresh) runSeoAutoFix(fresh); });
     }
-  }, [polishProgress.step, polishProgress.error, fetchReview]);
+  }, [polishProgress.step, polishProgress.error, fetchReview, runSeoAutoFix]);
 
   const handleRetryPolish = useCallback(() => {
     setPolishBannerDismissed(false);
