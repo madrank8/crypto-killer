@@ -214,6 +214,21 @@ async function validateReviewReadyToPublish(review) {
     warnings.push(`quality audit score ${auditScore}/100 is below the target (80) — review the auditor's findings before publishing.`)
   }
 
+  // ─── Real ad-evidence presence (don't silently ship evidence-less) ──
+  // Celebrity-impersonation reviews should embed the real scraped ad creatives
+  // (the SpyOwl screenshots) as first-party evidence. The generate route embeds
+  // them when the SpyOwl fetch succeeds, but that fetch can fail silently
+  // (expired cookie / SpyOwl down) and ship a review with NO evidence images.
+  // Surface that as a warning so it's caught, not missed. (Warning, not block,
+  // because SpyOwl is an external dependency and shouldn't be able to wedge
+  // publishing.)
+  const itemListItems = Array.isArray(review.item_list?.items) ? review.item_list.items : []
+  const isCelebrityCase = Number(review.item_list?.numberOfItems) > 0 || itemListItems.length > 0
+  const embeddedEvidence = (String(review.full_article || '').match(/\/creative-images\//g) || []).length
+  if (isCelebrityCase && embeddedEvidence === 0) {
+    warnings.push('No scraped ad-creative evidence embedded — this is a celebrity-impersonation review but full_article has 0 SpyOwl creative images. Refresh the SpyOwl cookie in Settings and re-embed (regenerate or "Embed Ad Evidence") so the real evidence ships on the live review.')
+  }
+
   return { errors, warnings, issues }
 }
 
