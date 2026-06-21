@@ -1086,8 +1086,9 @@ ${authorBylineTemplate}
 <!-- CAMPAIGN TIMELINE -->
 ${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 
-<!-- EVIDENCE GRID -->
-${evidenceGridHtml}
+<!-- EVIDENCE: scraped ad creatives are stored in the structured ad_evidence
+     field and rendered as a dedicated section by the client + SSR — no longer
+     injected into full_article (that only rendered in SSR, never the React client). -->
 
 </div>
 <!-- RIGHT SIDEBAR -->
@@ -1305,6 +1306,14 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       quotes: Array.isArray(reviewContent.quotes) ? reviewContent.quotes : [],
       claims: Array.isArray(reviewContent.claims) ? reviewContent.claims : [],
 
+      // Structured scraped ad evidence (capped) — rendered as a dedicated
+      // section by the client + SSR. Replaces the old full_article grid.
+      ad_evidence: availableImages.length > 0
+        ? {
+            images: availableImages.map((i) => ({ geo: i.geo, celebrity: i.celebrity, url: i.url })),
+            geoCounts,
+          }
+        : null,
       // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
       // once visuals/audit/hero-images are attached. UI polls on this field.
       generation_status: 'content_generated',
