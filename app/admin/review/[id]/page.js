@@ -1152,6 +1152,23 @@ export default function ReviewEditor({ params }) {
             )}
           </button>
 
+          {/* Polish — re-run visuals + quality audit + ad-evidence embedding
+             WITHOUT regenerating the article text. Cheap (no writer LLM calls),
+             and the way to (re)embed real scraped ad creatives after a content
+             generate or a SpyOwl cookie refresh. */}
+          <button
+            onClick={() => { setPolishBannerDismissed(false); polishProgress.polish(id); }}
+            disabled={polishProgress.isPolishing || gen.isGenerating}
+            title="Re-run visuals, quality audit & ad-evidence embedding — without regenerating the article text (saves tokens)"
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-sky-600/10 text-sky-400 hover:bg-sky-600/20 border border-sky-600/20 transition disabled:opacity-50"
+          >
+            {polishProgress.isPolishing ? (
+              <><span className="animate-spin">⟳</span> Polishing...</>
+            ) : (
+              <><span>✨</span> Polish</>
+            )}
+          </button>
+
           {/* Save */}
           <button
             onClick={handleSave}
