@@ -5,6 +5,7 @@ import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { dedupeCelebrityList } from '@/lib/threat-score'
+import { embedAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
 
@@ -268,6 +269,27 @@ export async function POST(request, { params }) {
           } catch (imgError) {
             console.error('[polish] Image pipeline failed:', imgError.message)
             send({ step: 'images_skip', progress: 90, message: `Images skipped: ${imgError.message}` })
+          }
+
+          // ─── PHASE B.3.5: EMBED REAL AD-CREATIVE EVIDENCE ──────────────
+          // Re-embed the scraped SpyOwl ad evidence (capped at 5) as the final
+          // content step, so it ships on every publish and survives a
+          // regenerate (which rewrites full_article). Reuses storage-cached
+          // creatives — only needs SpyOwl for first-time fetches. Non-fatal.
+          let evidenceEmbedded = 0
+          try {
+            const ev = await embedAdEvidence({ brand: brandData, fullArticle })
+            fullArticle = ev.fullArticle
+            evidenceEmbedded = ev.imagesEmbedded
+            send({
+              step: 'evidence',
+              progress: 92,
+              message: evidenceEmbedded > 0
+                ? `Embedded ${evidenceEmbedded} real ad-creative evidence image(s)`
+                : 'No ad-creative evidence embedded (no cached creatives / SpyOwl unavailable)',
+            })
+          } catch (evErr) {
+            console.error('[polish] Ad-evidence embed failed:', evErr.message)
           }
 
           // ─── PHASE B.4: SAVE EVERYTHING ────────────────────────────────

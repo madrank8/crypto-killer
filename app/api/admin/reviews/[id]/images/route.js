@@ -93,6 +93,9 @@ export async function POST(request, { params }) {
         if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
       }
     }
+    // Cap evidence to 5 creatives per review — a representative sample is
+    // enough and keeps Supabase Storage lean (no dozens of near-duplicate ads).
+    if (evidenceGrid.length > 5) evidenceGrid.length = 5
 
     if (evidenceGrid.length === 0) {
       return Response.json({
@@ -189,7 +192,7 @@ ${geoSections}`
       // Find where the evidence section ends (next <h2> or </details> or <h3 for Key Takeaways)
       const afterGrid = fullArticle.substring(gridStart)
       // Evidence grid ends at the next <h2 or <h3 section after it
-      const nextSectionMatch = afterGrid.match(/(?:^[\s\S]*?<\/div>\s*\n?)(<(?:h2|h3)\s)/)
+      const nextSectionMatch = afterGrid.match(/(?:^[\s\S]*?<\/div>\s*\n?)(<(?:h2|h3)[\s>])/)
       if (nextSectionMatch) {
         const endIdx = gridStart + afterGrid.indexOf(nextSectionMatch[1])
         fullArticle = fullArticle.substring(0, gridStart) + newGridHtml + '\n' + fullArticle.substring(endIdx)
