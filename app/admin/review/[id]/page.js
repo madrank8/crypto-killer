@@ -599,7 +599,14 @@ export default function ReviewEditor({ params }) {
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.fixedArticle && data.fixedArticle !== article) {
+      // Guard: SEO/AEO fixes only ADD content (extractive answers, headings,
+      // BLUF). A result shorter than the input means the patcher dropped
+      // article content — reject it and keep the polished article intact.
+      const fixedOk =
+        res.ok && data.fixedArticle &&
+        data.fixedArticle !== article &&
+        data.fixedArticle.length >= article.length * 0.9;
+      if (fixedOk) {
         article = data.fixedArticle;
         setFullArticle(article);
         setEditorKey((k) => k + 1);
