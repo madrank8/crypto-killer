@@ -1014,13 +1014,36 @@ ${reviewContent.how_it_works ? (() => {
   const visualChunks = paragraphs.filter(isVisualOnlyChunk)
   paragraphs = paragraphs.filter(p => !isVisualOnlyChunk(p))
   //  (3) More than 4 prose chunks duplicated the Stage-4 card via the
-  //      style clamp. Merge overflow into the 4th stage instead.
+  //      style clamp. Merge overflow into the 4th stage instead —
+  //      deduping identical sentences (audit 2026-07-05 R9: a retry that
+  //      echoed earlier stage text produced repeated sentences inside the
+  //      merged 4th card on whatsapp-bot).
   if (paragraphs.length > 4) {
-    paragraphs = [...paragraphs.slice(0, 3), paragraphs.slice(3).join(' ')]
+    const overflow = paragraphs.slice(3).join(' ')
+    const seen = new Set()
+    const deduped = overflow
+      .split(/(?<=\.)\s+/)
+      .filter(sent => {
+        const key = sent.trim().toLowerCase()
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .join(' ')
+    paragraphs = [...paragraphs.slice(0, 3), deduped]
   }
-  // Strip the writer's inline "STAGE N — Title:" prefix so card bullets
-  // don't repeat the label the card header already shows.
-  paragraphs = paragraphs.map(p => p.replace(/^STAGE\s+[1-9]\s*[—–\-:(]\s*[^.:]{0,80}[.:)]\s*/i, '').trim() || p)
+  // Strip the writer's inline "STAGE N — Title:" labels so card bullets
+  // don't repeat the label the card header already shows. GLOBAL, not just
+  // leading (audit 2026-07-05 R9): merged overflow carries INTERIOR stage
+  // labels ("… fees. STAGE 4 — The Withdrawal Trap: victims…") that the old
+  // ^-anchored strip missed — the visible Stage-4 duplication on whatsapp-bot.
+  paragraphs = paragraphs.map(p => {
+    const stripped = p
+      .replace(/^STAGE\s+[1-9]\s*[—–\-:(]\s*[^.:]{0,80}[.:)]\s*/i, '')
+      .replace(/(?:^|(?<=[.!?]\s))STAGE\s+[1-9]\s*[—–\-:(]\s*[^.:]{0,80}[.:)]\s*/gi, '')
+      .trim()
+    return stripped || p
+  })
   const stageVisualsHtml = visualChunks.length > 0
     ? `<div style="margin-top:16px">${visualChunks.join('\n')}</div>`
     : ''
@@ -1466,17 +1489,34 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         })
         reviewId = Array.isArray(createResponse) ? createResponse[0].id : createResponse.id      } catch (insertError) {
         if (insertError.message.includes('23505') || insertError.message.includes('409')) {
-          // Slug collision — find the conflicting review and update it
+          // Slug collision — find the conflicting review. Audit 2026-07-05
+          // (R7): the old handler PATCHed whatever review held the slug,
+          // INCLUDING a different brand's review (two brands normalizing to
+          // the same slug under a race) — silently overwriting brand A's
+          // published content with brand B's. Only update when the
+          // conflicting row belongs to THIS brand; otherwise retry the
+          // INSERT under a brand-suffixed slug.
           const conflicting = await supabaseRequest(
-            `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id`
+            `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id,brand_id`
           )
-          if (Array.isArray(conflicting) && conflicting.length > 0) {
+          if (Array.isArray(conflicting) && conflicting.length > 0 && conflicting[0].brand_id === brand_id) {
             reviewId = conflicting[0].id
             await supabaseRequest(`/reviews?id=eq.${reviewId}`, {
               method: 'PATCH',
               body: JSON.stringify(reviewPayload),
               headers: { 'Prefer': 'return=minimal' },
             })
+          } else if (Array.isArray(conflicting) && conflicting.length > 0) {
+            // Slug owned by ANOTHER brand — disambiguate and insert fresh.
+            const suffixedSlug = `${slug}-${String(brand_id).slice(0, 8)}`
+            console.warn(`[generate] slug '${slug}' owned by brand ${conflicting[0].brand_id} — inserting as '${suffixedSlug}'`)
+            const retryResponse = await supabaseRequest('/reviews', {
+              method: 'POST',
+              body: JSON.stringify({ ...reviewPayload, slug: suffixedSlug }),
+              headers: { 'Prefer': 'return=representation' },
+            })
+            reviewId = Array.isArray(retryResponse) ? retryResponse[0].id : retryResponse.id
+            slug = suffixedSlug
           } else {
             // Slug collision but can't find conflicting record — rethrow
             throw insertError

@@ -58,10 +58,40 @@ export async function POST(request, { params }) {
           send({ step: 'polish_load', progress: 3, message: 'Loading draft…' })
 
           // Mark in-flight up-front so concurrent requests bail fast.
-          await patchReview(id, {
-            generation_status: 'polishing',
-            polish_error: null,
-          })
+          // Audit 2026-07-05 (R6): this used to be an unconditional PATCH —
+          // the comment promised a guard that didn't exist, and two
+          // concurrent polishes (double-click / watchdog retry) ran the full
+          // Imagen+audit pipeline twice with last-write-wins corruption of
+          // full_article. Now a compare-and-set: the filter only matches when
+          // the row is NOT already polishing, and return=representation tells
+          // us whether we won the race. Losers bail immediately.
+          const casRows = await supabaseRequest(
+            `/reviews?id=eq.${id}&generation_status=neq.polishing`,
+            {
+              method: 'PATCH',
+              headers: { Prefer: 'return=representation' },
+              body: JSON.stringify({
+                generation_status: 'polishing',
+                polish_error: null,
+                // Reviewer catch (2026-07-05): no DB trigger maintains
+                // updated_at, and the watchdog measures "stuck" against it.
+                // Without this a Retry-Polish started >10 min after the last
+                // write gets reaped by the watchdog mid-run.
+                updated_at: new Date().toISOString(),
+              }),
+            }
+          )
+          if (!Array.isArray(casRows) || casRows.length === 0) {
+            send({
+              step: 'polish_skipped',
+              progress: 100,
+              message: 'A polish run is already in progress for this review — skipping duplicate run.',
+              result: { skipped: true, reason: 'already_polishing' },
+            })
+            controller.close()
+            closed = true
+            return
+          }
 
           const reviewRows = await supabaseRequest(
             `/reviews?id=eq.${id}&select=*`,

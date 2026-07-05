@@ -556,13 +556,43 @@ export async function POST(request, { params }) {
       }
     }
 
+    // ─── Live-sync failure handling (audit 2026-07-05, R15) ─────────
+    // The Supabase status flip happened BEFORE the Replit sync. If the sync
+    // failed, the old response still said success:true — the DB claimed
+    // 'published' while the live site never received the review, and the
+    // discrepancy was invisible. Now: persist a live_sync_failed marker on
+    // the row (so the admin list can badge it) and return success:false so
+    // the editor surfaces the failure instead of a green toast.
+    const liveSyncFailed = action === 'publish' && syncStatus && syncStatus.success !== true
+    if (liveSyncFailed) {
+      try {
+        await supaFetch(`/reviews?id=eq.${id}`, {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify({
+            // Append, don't overwrite — generation_notes also carries manual
+            // regeneration notes.
+            generation_notes: `${String(review?.generation_notes || '').slice(0, 1500)}${review?.generation_notes ? '\n\n' : ''}LIVE SYNC FAILED at publish (${new Date().toISOString()}): ${String(syncStatus.error || 'unconfirmed integrity').slice(0, 300)} — Supabase says published but the live site did not confirm. Use the Sync button to retry.`,
+          }),
+        })
+      } catch (markErr) {
+        console.error('[publish] failed to persist live_sync_failed marker:', markErr.message)
+      }
+    }
+
     return Response.json({
-      success: true,
+      success: !liveSyncFailed,
       id,
       action,
       status: updates.status,
       published_at: updates.published_at,
       live_sync: syncStatus,
+      ...(action === 'publish' && syncStatus === null
+        ? { warnings_sync: 'Live sync SKIPPED — REPLIT_SITE_URL / SYNC_SECRET not configured. The live site did not receive this review.' }
+        : {}),
+      ...(liveSyncFailed
+        ? { error: `Published in Supabase but LIVE SYNC FAILED: ${syncStatus.error || 'integrity unconfirmed'}. The live site is stale — retry with the Sync button.` }
+        : {}),
       ...(action === 'publish' && updates.fact_check_status === 'ai_generated_with_warnings'
         ? { warnings: 'Review published with non-blocking warnings (plural agreement, coherence heuristics). See server logs.' }
         : {}),

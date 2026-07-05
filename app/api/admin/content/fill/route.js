@@ -135,10 +135,24 @@ export async function POST(request) {
           const content = Array.isArray(contentRows) ? contentRows[0] : null
           if (!content) throw new Error('Content not found')
 
-          const sections = content.sections
+          // Audit 2026-07-05 (A6): prefer the PRESERVED outline. Fill
+          // overwrites content.sections with {heading, body} — so a re-run
+          // (exactly what the publish gate tells editors to do) used to see
+          // headings with no description/key_points/word targets and write a
+          // degraded second-generation article. outline_sections is written
+          // below on every run and survives fills.
+          const sections = (Array.isArray(content.outline_sections) && content.outline_sections.length > 0)
+            ? content.outline_sections
+            : content.sections
           if (!Array.isArray(sections) || sections.length === 0) {
             throw new Error('No outline found. Generate an outline first.')
           }
+          const outlineSections = sections.map((s) => ({
+            heading: s.heading,
+            description: s.description || '',
+            target_word_count: s.target_word_count || 180,
+            key_points: s.key_points || [],
+          }))
           // Load topic + parent
           let topic = null
           if (content.topic_id) {
@@ -499,6 +513,18 @@ export async function POST(request) {
               ai_model: writerModelUsed,
               ai_audit: audit,
               visual_meta: visualMeta.length > 0 ? visualMeta : null,
+              // Audit 2026-07-05 (A3): these four columns were silently
+              // dropped by the fill migration — every article shipped with
+              // target_keyword/persona/alt-headline null on the live site.
+              author_persona_id: personaMetadata.id,
+              target_keyword: topic.target_keyword || content.target_keyword || null,
+              alternative_headline: article.alternative_headline
+                || (article.title && article.headline && article.title !== article.headline ? article.title : null),
+              reddit_test_passed: article.reddit_test_passed === true,
+              // Audit 2026-07-05 (A6): preserve the approved outline so
+              // re-running fill regenerates from full context, not bare
+              // headings.
+              outline_sections: outlineSections,
               updated_at: new Date().toISOString(),
             }),
           })
