@@ -444,8 +444,16 @@ function HealthDial({ score }) {
   );
 }
 
-function SuggestionCard({ s, state, onSetState }) {
+const EXECUTABLE = new Set(['new_review', 'refresh_review', 'fix_ctr']);
+const EXECUTE_LABELS = {
+  new_review: '⚡ Create & generate review',
+  refresh_review: '⚡ Run polish',
+  fix_ctr: '⚡ Run polish + SEO fix',
+};
+
+function SuggestionCard({ s, state, onSetState, onExecute, executing }) {
   const muted = state === 'done' || state === 'dismissed';
+  const canExecute = EXECUTABLE.has(s.action_type);
   return (
     <div className={`bg-dark-card border rounded-xl p-4 ${muted ? 'border-gray-800/50 opacity-50' : 'border-gray-800'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -470,11 +478,24 @@ function SuggestionCard({ s, state, onSetState }) {
       </div>
       <h4 className={`font-semibold mt-2 ${muted ? 'text-gray-500 line-through' : 'text-white'}`}>{s.title}</h4>
       <p className="text-sm text-gray-400 mt-1.5">{s.why}</p>
-      {!muted && s.deep_link && (
-        <a href={s.deep_link}
-          className="inline-flex items-center gap-1 mt-3 text-sm font-medium text-blue-400 hover:text-blue-300">
-          Open {s.target ? <code className="text-xs bg-dark-bg px-1.5 py-0.5 rounded">{s.target}</code> : null} →
-        </a>
+      {!muted && (
+        <div className="flex items-center gap-4 mt-3">
+          {canExecute && (
+            <button
+              onClick={() => onExecute(s)}
+              disabled={executing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition"
+            >
+              {executing === s.fingerprint ? 'Starting…' : EXECUTE_LABELS[s.action_type]}
+            </button>
+          )}
+          {s.deep_link && (
+            <a href={s.deep_link}
+              className="inline-flex items-center gap-1 text-sm font-medium text-blue-400 hover:text-blue-300">
+              Open {s.target ? <code className="text-xs bg-dark-bg px-1.5 py-0.5 rounded">{s.target}</code> : null} →
+            </a>
+          )}
+        </div>
       )}
     </div>
   );
@@ -519,6 +540,25 @@ function AdvisorTab({ token }) {
       setError(e.message);
     } finally {
       setRunning(false);
+    }
+  };
+
+  const [executing, setExecuting] = useState(null);
+  const execute = async (s) => {
+    setExecuting(s.fingerprint);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/advisor/execute', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fingerprint: s.fingerprint }),
+      });
+      const data = await res.json();
+      if (!res.ok && !data.redirect) throw new Error(data.error || 'Execute failed');
+      if (data.redirect) window.location.href = data.redirect;
+    } catch (e) {
+      setError(`Execute failed: ${e.message}`);
+      setExecuting(null);
     }
   };
 
@@ -625,7 +665,8 @@ function AdvisorTab({ token }) {
                 </h3>
                 <div className="space-y-3">
                   {items.map((s) => (
-                    <SuggestionCard key={s.fingerprint} s={s} state={states[s.fingerprint]} onSetState={setState} />
+                    <SuggestionCard key={s.fingerprint} s={s} state={states[s.fingerprint]} onSetState={setState}
+                      onExecute={execute} executing={executing} />
                   ))}
                 </div>
               </div>

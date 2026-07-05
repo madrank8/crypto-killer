@@ -553,24 +553,40 @@ export default function ReviewEditor({ params }) {
     fetchReview();
   }, [fetchReview]);
 
-  // Auto-polish is DISABLED (per request): polishing runs ONLY when the user
-  // clicks the Polish button — never automatically on load/refresh or after an
-  // AI Generate. This keeps the token-spending audit/visuals/evidence pass under
-  // explicit control. Flip AUTO_POLISH back to true to restore chain-on-generate.
+  // STATUS-BASED auto-polish is DISABLED (per request): polishing never fires
+  // just because of load/refresh or a generation_status value — that keeps the
+  // token-spending audit/visuals/evidence pass under explicit control. Flip
+  // AUTO_POLISH back to true to restore chain-on-generate.
+  //
+  // EXPLICIT ?polish=auto IS honored: it only appears on navigations the user
+  // deliberately clicked (brands one-click flow, Advisor Execute), so the
+  // intent is as explicit as pressing the Polish button.
   useEffect(() => {
     const AUTO_POLISH = false;
-    if (!AUTO_POLISH) return;
     if (!review || polishAutoTriggered || polishProgress.isPolishing) return;
     const status = review.generation_status;
     const shouldAutoPolish =
       polishQueryParam === 'auto' ||
-      status === 'content_generated' ||
-      status === 'polishing'; // orphaned in-flight from a prior attempt
+      (AUTO_POLISH && (status === 'content_generated' || status === 'polishing'));
     if (!shouldAutoPolish) return;
     setPolishAutoTriggered(true);
     setPolishBannerDismissed(false);
     polishProgress.polish(id);
   }, [review, polishQueryParam, polishAutoTriggered, polishProgress, id]);
+
+  // ?generate=auto (Advisor Execute → new review): auto-start AI Generate on a
+  // review that has no article yet. Explicit-intent only (query param), and
+  // never clobbers existing content — an already-written review just opens.
+  const generateQueryParam = searchParams.get('generate');
+  const [genAutoTriggered, setGenAutoTriggered] = useState(false);
+  useEffect(() => {
+    if (generateQueryParam !== 'auto') return;
+    if (!review || genAutoTriggered || gen.isGenerating) return;
+    if (review.full_article && review.full_article.length > 200) return;
+    if (!review.brand_id) return;
+    setGenAutoTriggered(true);
+    gen.generate(review.brand_id);
+  }, [generateQueryParam, review, genAutoTriggered, gen]);
 
   // After polish, apply the SEO/AEO auto-fixes the sidebar audit recommends, so
   // a Polish run actually improves the page's SEO — not just visuals/evidence.
