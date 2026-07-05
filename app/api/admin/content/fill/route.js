@@ -384,6 +384,15 @@ export async function POST(request) {
           let audit = null
           try {
             const auditPrompt = qualityAuditorPrompt()
+            // W5a reviewer catch (2026-07-05): the auditor's Koray checks
+            // 1/2/7 (declaration order, answer-first sections, canonical
+            // question in 150 words) systematically fail a well-executed
+            // Discover article — the delayed-answer structure is the POINT.
+            // Exempt those checks in discover mode; everything else
+            // (fabrication, anti-slop, E-E-A-T, sources) stays in force.
+            const discoverAuditNote = topic?.content_type === 'discover'
+              ? `\n\n═══ DISCOVER MODE EXEMPTION ═══\nThis article is a GOOGLE DISCOVER piece: delayed answer, 2-3 sections, dopamine close — BY DESIGN. Mark koray_audit checks declaration_order, contextual_responsiveness, and question_coverage as "note" (not "fail") when the only issue is the delayed-answer structure. Do NOT deduct koray_relevance/ai_extractability points for structure that discover mode mandates. All other checks apply at full strictness.`
+              : ''
             const auditMsg = auditPrompt.userTemplate(
               article,
               {
@@ -398,7 +407,7 @@ export async function POST(request) {
               },
               sourceLedger,
               {}
-            )
+            ) + discoverAuditNote
             // Cross-vendor audit (2026-07-05, W4a): GPT-5.4 Mini primary for
             // a fresh-perspective gate over Claude-written prose (the old
             // abandonment cause — wrong max_tokens param — is fixed in
@@ -521,6 +530,9 @@ export async function POST(request) {
               author_persona_id: personaMetadata.id,
               target_keyword: topic.target_keyword || content.target_keyword || null,
               alternative_headline: article.alternative_headline
+                // W5a: discover outlines store the held SEO re-title here —
+                // never clobber it with the derived fallback.
+                || content.alternative_headline
                 || (article.title && article.headline && article.title !== article.headline ? article.title : null),
               reddit_test_passed: article.reddit_test_passed === true,
               // Audit 2026-07-05 (A6): preserve the approved outline so

@@ -46,7 +46,17 @@ JSON shape:
   ]
 }
 
-Rules:
+${topic?.content_type === 'discover'
+  ? `Rules (GOOGLE DISCOVER MODE — this article is built for the Discover feed, NOT for search extraction; audit 2026-07-05 W5a):
+- 2-3 sections ONLY. Snacking length — each section targets 200-280 words.
+- DELAYED ANSWER: the first section builds the story/tension WITHOUT resolving the core question. Only the FINAL section pays it off. This is the exact inverse of the SEO answer-first rule — intentional for Discover engagement.
+- DOPAMINE CLOSE: the final section's description must specify an emotionally satisfying payoff (revelation, twist, "what happened next").
+- "title" is the HOOK title: curiosity-gap, ≤ 70 chars, NO question-format H2 requirement, NO keyword stuffing. It must make a feed-scroller stop.
+- Also emit "seo_retitle_variant": a conventional keyword-led SEO title ≤ 60 chars (held in reserve for a later re-title once Discover traffic decays).
+- 3-5 FAQ items max.
+- YMYL guardrails still apply: no fabricated facts, safety actions where relevant, ${currentYear} context.
+- Sources must be real, navigable URLs.`
+  : `Rules:
 - 5-8 sections total.
 - Each section should target 120-260 words in the final article.
 - At least 3 of the H2 headings MUST use question format (e.g., "How Do Scammers Fabricate Profits?" not "The Technology Scammers Use"). Critical for AI Overview extraction.
@@ -56,7 +66,7 @@ Rules:
 - YMYL content: include safety actions and reporting channels where relevant.
 - Assume ${currentYear} context.
 - BANNED phrases: "In today's rapidly evolving", "It's important to note", "Let's dive in", "landscape", "crucial", "comprehensive", "robust", "deep dive", "delve", "journey"
-- Sources must be real, navigable URLs.`
+- Sources must be real, navigable URLs.`}`
 
   const user = `Create an article outline for:
 
@@ -275,6 +285,13 @@ export async function POST(request) {
               })),
               sources: outline.sources || sourceLedger,
               ai_model: outlineModel,
+              // W5a (Discover lane): the held-in-reserve SEO re-title emitted
+              // in discover mode lands in alternative_headline (fill also
+              // derives one for non-discover articles, so only set when the
+              // outline actually produced it).
+              ...(outline.seo_retitle_variant
+                ? { alternative_headline: String(outline.seo_retitle_variant).slice(0, 110) }
+                : {}),
               updated_at: new Date().toISOString(),
             }),
           })

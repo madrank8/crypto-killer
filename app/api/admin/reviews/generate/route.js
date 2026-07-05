@@ -4,7 +4,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
 import { stripVerifyTags } from '@/lib/visual-generator'
-import { classifyThreat, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
+import { classifyThreat, computeCategoryScores, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
@@ -832,6 +832,47 @@ ${geoSections}`
         `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:1px solid #1e293b"><span style="color:#cbd5e1;font-size:12px;font-weight:500">${region}</span><span style="color:#64748b;font-size:12px">${codes.join(', ')}</span></div>`
       ).join('')
     })()
+    // ─── W5b (audit 2026-07-05): comparable documented scams (L3). ──────
+    // Deterministic — real published sibling reviews with measured stats,
+    // never model-suggested slugs. Selection: published masters, nearest
+    // threat scores, prefer same celebrity-abuse trait. Also seeds real
+    // internal links (topical PageRank between related investigations).
+    let comparables = []
+    try {
+      const sibRows = await supabaseRequest(
+        `/reviews?status=eq.published&brand_id=neq.${brand_id}&is_master=not.is.false&select=slug,title,brand_id,scam_score&limit=50`,
+        { useServiceRole: true }
+      )
+      const sibs = Array.isArray(sibRows) ? sibRows.filter(r => r.slug && r.brand_id) : []
+      if (sibs.length > 0) {
+        const sibBrands = await supabaseRequest(
+          `/scam_brands?id=in.(${sibs.map(r => r.brand_id).join(',')})&select=id,name,total_creatives,total_geos,total_celebrities,velocity_7d`,
+          { useServiceRole: true }
+        )
+        const brandById = new Map((sibBrands || []).map(b => [b.id, b]))
+        const myScore = brandData.scam_score || 0
+        const myHasCelebs = cleanCelebrityList.length > 0
+        comparables = sibs
+          .map(r => ({ ...r, brand: brandById.get(r.brand_id) }))
+          .filter(r => r.brand)
+          .sort((a, b) => {
+            const traitA = (a.brand.total_celebrities > 0) === myHasCelebs ? 0 : 1
+            const traitB = (b.brand.total_celebrities > 0) === myHasCelebs ? 0 : 1
+            if (traitA !== traitB) return traitA - traitB
+            return Math.abs((a.scam_score || 0) - myScore) - Math.abs((b.scam_score || 0) - myScore)
+          })
+          .slice(0, 3)
+      }
+    } catch (cmpErr) {
+      console.warn('[generate] comparables fetch failed (non-fatal):', cmpErr.message)
+    }
+
+    // ─── W5c (audit 2026-07-05): deterministic per-category sub-scores.
+    // review-quality-gate L2: a single overall score with no category
+    // breakdown caps the quality assessment at 45. Computed from measured
+    // data, never the model.
+    const categoryScores = computeCategoryScores(brandData, cleanCelebrityList.length)
+
     // ─── R2 fix (audit 2026-07-05): regulator status derived from REAL
     // lookups instead of four hardcoded "None" badges. sourceLedger entries
     // carry lookup.registry from lib/source-verify:
@@ -1111,6 +1152,40 @@ ${(reviewContent.red_flags || []).map((rf, idx) => `<div style="background:rgba(
 </div>
 </section>` : ''}
 
+<!-- COMPARABLE DOCUMENTED SCAMS (W5b/L3 — deterministic, real siblings) -->
+${comparables.length > 0 ? `
+<section style="margin-bottom:48px">
+${sectionH2('🔍', `How ${escHtml(brandData.name)} Compares to Similar Documented Scams`)}
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">CryptoKiller has documented ${comparables.length} operation${comparables.length === 1 ? '' : 's'} with a matching pattern. Cross-referencing exposes shared infrastructure and tactics:</p>
+<div style="overflow-x:auto">
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="border-bottom:1px solid #1e293b">
+<th style="text-align:left;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px">Operation</th>
+<th style="text-align:right;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px">Threat</th>
+<th style="text-align:right;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px">Ads</th>
+<th style="text-align:right;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px">Countries</th>
+<th style="text-align:right;padding:10px 12px;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:1px">Celebrities</th>
+</tr></thead>
+<tbody>
+<tr style="border-bottom:1px solid rgba(30,41,59,0.5);background:rgba(127,29,29,0.15)">
+<td style="padding:10px 12px;color:#f8fafc;font-weight:700">${escHtml(brandData.name)} (this review)</td>
+<td style="padding:10px 12px;text-align:right;color:#ef4444;font-weight:700">${brandData.scam_score || 0}/100</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${(brandData.total_creatives || 0).toLocaleString()}</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${brandData.total_geos || 0}</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${cleanCelebrityList.length}</td>
+</tr>
+${comparables.map(c => `<tr style="border-bottom:1px solid rgba(30,41,59,0.5)">
+<td style="padding:10px 12px"><a href="/review/${escHtml(c.slug)}" style="color:#60a5fa;text-decoration:none;font-weight:600">${escHtml(c.brand.name)}</a></td>
+<td style="padding:10px 12px;text-align:right;color:#f87171;font-weight:600">${c.scam_score || 0}/100</td>
+<td style="padding:10px 12px;text-align:right;color:#94a3b8">${(c.brand.total_creatives || 0).toLocaleString()}</td>
+<td style="padding:10px 12px;text-align:right;color:#94a3b8">${c.brand.total_geos || 0}</td>
+<td style="padding:10px 12px;text-align:right;color:#94a3b8">${c.brand.total_celebrities || 0}</td>
+</tr>`).join('\n')}
+</tbody>
+</table>
+</div>
+</section>` : ''}
+
 <!-- KEY INVESTIGATION FINDINGS -->
 ${(reviewContent.experience_signals || []).length > 0 ? `
 <section style="margin-bottom:48px">
@@ -1221,6 +1296,16 @@ ${geoRegions ? `
 <p style="margin:0;padding:12px 16px 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Geographic Targeting</p>
 ${geoRegions}
 </div>` : ''}
+
+<!-- RATINGS AT A GLANCE (W5c: deterministic category sub-scores — L2) -->
+<div style="padding:16px;border-top:1px solid #1e293b">
+<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Ratings at a Glance</p>
+${categoryScores.map(c => `<div style="margin-bottom:10px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><span style="color:#94a3b8;font-size:12px">${c.label}</span><span style="color:#f8fafc;font-size:12px;font-weight:700">${c.score}/100</span></div>
+<div style="width:100%;height:5px;background:#1e293b;border-radius:3px;overflow:hidden"><div style="width:${c.score}%;height:100%;background:${c.score >= 80 ? '#dc2626' : c.score >= 60 ? '#ea580c' : c.score >= 40 ? '#d97706' : '#64748b'};border-radius:3px"></div></div>
+<p style="margin:3px 0 0;font-size:10px;color:#64748b">${escHtml(c.evidence)}</p>
+</div>`).join('\n')}
+</div>
 
 <!-- REGULATORY STATUS -->
 <div style="padding:16px;border-top:1px solid #1e293b">
@@ -1386,7 +1471,28 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       verify_tags_count: reviewContent.verify_tags_count || 0,
       reddit_test_passed: reviewContent.reddit_test_passed || false,
       information_gain_summary: reviewContent.information_gain_summary || null,
-      internal_links: reviewContent.internal_links || [],
+      // W5b: comparables are REAL published siblings — merge them into
+      // internal_links (deduped by slug) so the link graph gets them even
+      // if the writer's own suggestions missed them.
+      internal_links: (() => {
+        const links = Array.isArray(reviewContent.internal_links) ? [...reviewContent.internal_links] : []
+        // Reviewer catch (2026-07-05): review-writer links carry
+        // `target_topic` (free text), not `target_slug` — dedupe on a
+        // slugified key across BOTH shapes or the merge never dedupes.
+        const slugify = (s) => String(s || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+        const have = new Set(
+          links.map(l => slugify(l?.target_slug || l?.slug || l?.target_topic)).filter(Boolean)
+        )
+        for (const c of comparables) {
+          const key = slugify(c.slug)
+          const nameKey = slugify(c.brand.name)
+          if (!have.has(key) && !have.has(nameKey)) {
+            links.push({ anchor_text: `${c.brand.name} review`, target_slug: c.slug, source: 'comparables' })
+            have.add(key)
+          }
+        }
+        return links
+      })(),
 
       // ── Schema enrichment (migration 05: reviews_schema_enrichment_columns) ──
       // These 12 columns ship verbatim to Replit via the sync webhook and
@@ -1478,6 +1584,11 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         red_flags_distinct: redFlagAudit.ok,
         red_flags_categorized: redFlagAudit.categorized,
         red_flags_total: redFlagAudit.totalFlags,
+
+        // W5c: deterministic per-category threat sub-scores (L2). Feeds the
+        // rendered "Ratings at a Glance" block and gives sync-shape material
+        // for reviewRating.ratingExplanation.
+        category_scores: categoryScores,
 
         // audit_model / audit_score / audit_grade / audit_critical_fixes
         // are populated in phase B by /polish.
