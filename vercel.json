@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/sync-platform-aggregates",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/gsc-sync",
+      "schedule": "30 6 * * *"
     }
   ],
   "functions": {

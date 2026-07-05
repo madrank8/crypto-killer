@@ -1,0 +1,47 @@
+{
+  "ranAt": "2026-06-15T05:09:40.923Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "crypto-scam-recovery",
+      "total": 3,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://kalkinemedia.com/us/education/guides/how-to-recover-stolen-crypto-using-legal-and-technical-methods",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "social-media-crypto-scams",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.researchgate.net/publication/365518420_An_Analysis_of_Crypto_Scams_during_the_Covid-19_Pandemic_2020-2022",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scammer-list",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

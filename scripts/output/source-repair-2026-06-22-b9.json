@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-06-22T05:09:24.794Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "investment-pressure-tactics",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.thefintechtimes.com/the-red-flags-of-investment-scams-are-becoming-more-obvious-fca-puts-forward/",
+          "detail": "network: The operation was aborted due to timeout"
+        }
+      ]
+    },
+    {
+      "slug": "guaranteed-returns-crypto",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-job-posting-scams",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}

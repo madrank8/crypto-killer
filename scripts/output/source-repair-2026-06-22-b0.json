@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-06-22T05:08:55.915Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "ai-crypto-trading-bot-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.justice.gov/opa/pr/crypto-fraud-victims-receive-over-17-million-restitution-bitconnect-scheme",
+          "detail": "HTTP 400"
+        }
+      ]
+    },
+    {
+      "slug": "fake-trading-profits",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-spot-crypto-scams",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}

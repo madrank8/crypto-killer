@@ -1,0 +1,18 @@
+{
+  "ranAt": "2026-06-22T05:10:13.996Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "how-to-research-crypto-projects",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://etherscan.io/tokens",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

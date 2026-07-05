@@ -1,0 +1,19 @@
+{
+  "ranAt": "2026-06-29T07:21:26.175Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "report-scam-to-bank",
+      "total": 6,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://help.coinbase.com/en/coinbase/privacy-and-security/account-compromised/i-think-my-account-has-been-compromised",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}
