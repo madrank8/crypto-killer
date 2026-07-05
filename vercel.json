@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/gsc-sync",
       "schedule": "30 6 * * *"
+    },
+    {
+      "path": "/api/cron/advisor",
+      "schedule": "0 7 * * 1"
     }
   ],
   "functions": {

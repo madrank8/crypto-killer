@@ -417,6 +417,231 @@ function ContentOpsTab({ token }) {
   );
 }
 
+/* ═══════════════════════ Advisor tab ═══════════════════════ */
+
+const PRIORITY_STYLES = {
+  P0: 'bg-red-500/15 text-red-400 border-red-500/30',
+  P1: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  P2: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+};
+const SEVERITY_DOT = { info: 'bg-blue-500', warn: 'bg-amber-500', critical: 'bg-red-500' };
+const TREND_ARROW = { up: '↗', down: '↘', flat: '→' };
+
+function HealthDial({ score }) {
+  const color = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
+  const C = 2 * Math.PI * 26;
+  return (
+    <div className="relative w-16 h-16">
+      <svg viewBox="0 0 64 64" className="w-16 h-16 -rotate-90">
+        <circle cx="32" cy="32" r="26" fill="none" stroke="#1f2937" strokeWidth="6" />
+        <circle
+          cx="32" cy="32" r="26" fill="none" stroke={color} strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={C} strokeDashoffset={C * (1 - score / 100)}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">{score}</span>
+    </div>
+  );
+}
+
+function SuggestionCard({ s, state, onSetState }) {
+  const muted = state === 'done' || state === 'dismissed';
+  return (
+    <div className={`bg-dark-card border rounded-xl p-4 ${muted ? 'border-gray-800/50 opacity-50' : 'border-gray-800'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`px-2 py-0.5 rounded-full border text-[11px] font-bold ${PRIORITY_STYLES[s.priority]}`}>{s.priority}</span>
+          <span className="text-[11px] text-gray-500 uppercase tracking-wide">{s.impact} impact · {s.effort}</span>
+        </div>
+        <div className="flex gap-1 shrink-0">
+          {muted ? (
+            <button onClick={() => onSetState(s.fingerprint, null)} className="text-xs text-gray-500 hover:text-white px-2 py-1">
+              {state === 'done' ? '✓ done' : 'dismissed'} · undo
+            </button>
+          ) : (
+            <>
+              <button onClick={() => onSetState(s.fingerprint, 'done')} title="Mark done"
+                className="text-xs text-gray-500 hover:text-green-400 px-1.5 py-1">✓</button>
+              <button onClick={() => onSetState(s.fingerprint, 'dismissed')} title="Dismiss"
+                className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-1">✕</button>
+            </>
+          )}
+        </div>
+      </div>
+      <h4 className={`font-semibold mt-2 ${muted ? 'text-gray-500 line-through' : 'text-white'}`}>{s.title}</h4>
+      <p className="text-sm text-gray-400 mt-1.5">{s.why}</p>
+      {!muted && s.deep_link && (
+        <a href={s.deep_link}
+          className="inline-flex items-center gap-1 mt-3 text-sm font-medium text-blue-400 hover:text-blue-300">
+          Open {s.target ? <code className="text-xs bg-dark-bg px-1.5 py-0.5 rounded">{s.target}</code> : null} →
+        </a>
+      )}
+    </div>
+  );
+}
+
+function AdvisorTab({ token }) {
+  const [reports, setReports] = useState(null);
+  const [states, setStates] = useState({});
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = () => {
+    fetch('/api/admin/advisor/reports?limit=10', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
+      .then((d) => {
+        setReports(d.reports || []);
+        setStates(d.states || {});
+        setActiveIdx(0);
+      })
+      .catch((e) => setError(e.error || 'Failed to load'));
+  };
+  useEffect(load, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const run = async (force = false) => {
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/advisor/run', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
+      });
+      const data = await res.json();
+      if (res.status === 429) {
+        if (window.confirm('A report was generated in the last 30 minutes. Run again anyway?')) return run(true);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || 'Run failed');
+      load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const setState = async (fingerprint, state) => {
+    setStates((prev) => {
+      const next = { ...prev };
+      if (state === null) delete next[fingerprint];
+      else next[fingerprint] = state;
+      return next;
+    });
+    fetch('/api/admin/advisor/suggestion', {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fingerprint, state }),
+    }).catch(() => {});
+  };
+
+  if (!reports) return <TabSkeleton />;
+
+  const completed = reports.filter((r) => r.status === 'complete' && r.report);
+  const active = completed[activeIdx];
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-4">
+          {active && <HealthDial score={active.report.health_score} />}
+          <div>
+            <h2 className="text-lg font-semibold text-white">AI Advisor</h2>
+            {active ? (
+              <p className="text-xs text-gray-500">
+                {new Date(active.created_at).toLocaleString()} · {active.trigger_type} · {active.model} ·{' '}
+                {active.report.suggestions.length} suggestions
+              </p>
+            ) : (
+              <p className="text-xs text-gray-500">No reports yet</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {completed.length > 1 && (
+            <select
+              value={activeIdx}
+              onChange={(e) => setActiveIdx(+e.target.value)}
+              className="bg-dark-card border border-gray-800 rounded-lg text-xs text-gray-300 px-2 py-2"
+            >
+              {completed.map((r, i) => (
+                <option key={r.id} value={i}>
+                  {new Date(r.created_at).toLocaleDateString()} {i === 0 ? '(latest)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            onClick={() => run(false)}
+            disabled={running}
+            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium transition"
+          >
+            {running ? 'Analyzing… (~30-60s)' : 'Analyze now'}
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-red-400 text-sm">{error}</p>}
+
+      {!active && !running && (
+        <div className="bg-dark-card border border-gray-800 rounded-xl p-10 text-center">
+          <p className="text-gray-400 mb-2">The advisor reads your traffic, search and content data and returns prioritized, data-cited actions.</p>
+          <p className="text-gray-600 text-sm">Click <span className="text-blue-400">Analyze now</span> to generate the first report. It also runs automatically every Monday.</p>
+        </div>
+      )}
+
+      {active && (
+        <>
+          {/* Summary */}
+          <div className="bg-dark-card border border-gray-800 rounded-xl p-5">
+            <p className="text-gray-200 leading-relaxed">{active.report.summary}</p>
+          </div>
+
+          {/* Insights */}
+          {active.report.insights.length > 0 && (
+            <div className="grid md:grid-cols-2 gap-3">
+              {active.report.insights.map((ins, i) => (
+                <div key={i} className="bg-dark-card border border-gray-800 rounded-xl p-4 flex gap-3">
+                  <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${SEVERITY_DOT[ins.severity]}`} />
+                  <div>
+                    <span className="text-sm font-medium text-white">{TREND_ARROW[ins.trend]} {ins.title}</span>
+                    <p className="text-xs text-gray-500 mt-1">{ins.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Suggestions grouped by priority */}
+          {['P0', 'P1', 'P2'].map((prio) => {
+            const items = active.report.suggestions.filter((s) => s.priority === prio);
+            if (items.length === 0) return null;
+            return (
+              <div key={prio}>
+                <h3 className="text-sm font-semibold text-gray-400 mb-2">
+                  {prio === 'P0' ? 'Do now' : prio === 'P1' ? 'This week' : 'When you can'}
+                </h3>
+                <div className="space-y-3">
+                  {items.map((s) => (
+                    <SuggestionCard key={s.fingerprint} s={s} state={states[s.fingerprint]} onSetState={setState} />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <p className="text-xs text-gray-700">
+            {active.tokens_in ? `${fmt(active.tokens_in)} in / ${fmt(active.tokens_out)} out tokens · ` : ''}
+            period: {active.period_days}d
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════════════════ page shell ═══════════════════════ */
 
 function TabSkeleton() {
@@ -437,6 +662,7 @@ function TabSkeleton() {
 }
 
 const TABS = [
+  { id: 'advisor', label: '✦ Advisor' },
   { id: 'traffic', label: 'Traffic' },
   { id: 'search', label: 'Search' },
   { id: 'content-ops', label: 'Content Ops' },
@@ -444,7 +670,7 @@ const TABS = [
 
 export default function AnalyticsPage() {
   const { token, loading } = useAdmin();
-  const [tab, setTab] = useState('traffic');
+  const [tab, setTab] = useState('advisor');
 
   if (loading) return <TabSkeleton />;
   if (!token) return <p className="text-gray-500 text-sm">Log in to view analytics.</p>;
@@ -474,6 +700,7 @@ export default function AnalyticsPage() {
         ))}
       </div>
 
+      {tab === 'advisor' && <AdvisorTab token={token} />}
       {tab === 'traffic' && <TrafficTab token={token} />}
       {tab === 'search' && <SearchTab token={token} />}
       {tab === 'content-ops' && <ContentOpsTab token={token} />}
