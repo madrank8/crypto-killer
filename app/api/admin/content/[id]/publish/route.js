@@ -62,6 +62,19 @@ function validateForPublish(content) {
     }
   }
 
+  // 2b. Unrendered visual placeholders (audit 2026-07-05, A1). The fill
+  //     pipeline renders [TYPE NEEDED: …] markers into real charts/images;
+  //     if that pass failed (or an old row carries the legacy styled
+  //     placeholder-box markup), the marker/box survives in full_article.
+  //     Publishing a grey placeholder box is never acceptable — block.
+  const fullArticleStr = String(content.full_article || '')
+  if (/\[\s*(?:CHART|DIAGRAM|IMAGE|SCREENSHOT|PHOTO|INFOGRAPHIC|STEP-BY-STEP)\s*(?:NEEDED)?\s*:/i.test(fullArticleStr)) {
+    reasons.push('full_article contains unrendered visual placeholders ([TYPE NEEDED: …]) — re-run Generate Article (the visual pass failed) or remove the markers')
+  }
+  if (/class="(?:visual-placeholder|placeholder-box)"/i.test(fullArticleStr)) {
+    reasons.push('full_article contains legacy placeholder-box markup (grey editor boxes) — re-run Generate Article to render real visuals')
+  }
+
   // 3. Internal links must point somewhere real.
   const internalLinks = Array.isArray(content.internal_links) ? content.internal_links : []
   for (let i = 0; i < internalLinks.length; i++) {

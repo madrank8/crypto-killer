@@ -333,6 +333,36 @@ export async function POST(request) {
             send({ step: 'images_injected', progress: 84, message: 'Images embedded in article body' })
           }
 
+          // ── Phase 4d: Render visual placeholders in the BUILT html ──
+          // Audit 2026-07-05 (A1): the aux writer returns placeholders in a
+          // separate visual_placeholders array (section bodies are forbidden
+          // to contain them), so the Phase-4 section scan above always found
+          // zero and literal placeholder boxes shipped to production.
+          // buildArticleHtml now injects the raw [TYPE NEEDED: …] markers,
+          // and this pass renders them into real charts/diagrams/images.
+          try {
+            const htmlVisualResult = await processVisuals(fullArticleHtml, {
+              contentId,
+              contentType: 'content',
+              aiHelpers: { callModel, extractJSON },
+              onProgress: (step, pct, msg) => send({ step, progress: Math.max(84, pct), message: msg }),
+            })
+            if (htmlVisualResult.stats.total > 0) {
+              fullArticleHtml = htmlVisualResult.html
+              visualMeta = [...visualMeta, ...htmlVisualResult.visuals]
+              send({
+                step: 'visuals_html',
+                progress: 84,
+                message: `Article visuals rendered: ${htmlVisualResult.stats.succeeded}/${htmlVisualResult.stats.total}`,
+              })
+            }
+          } catch (htmlVizErr) {
+            // Non-fatal here — but the publish gate blocks on any surviving
+            // [TYPE NEEDED:] marker, so a total failure cannot ship.
+            console.error('[content/fill] HTML visual pass failed:', htmlVizErr.message)
+            send({ step: 'visuals_html', progress: 84, message: `Visual rendering failed: ${htmlVizErr.message} — publish gate will block until re-run` })
+          }
+
           // Quality audit
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 

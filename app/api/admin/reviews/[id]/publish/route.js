@@ -212,6 +212,12 @@ async function validateReviewReadyToPublish(review) {
     errors.push(`quality audit score ${auditScore}/100 is below the YMYL publish floor (60). Address the auditor's critical fixes and re-run Polish.`)
   } else if (Number.isFinite(auditScore) && auditScore < 80) {
     warnings.push(`quality audit score ${auditScore}/100 is below the target (80) — review the auditor's findings before publishing.`)
+  } else if (!Number.isFinite(auditScore)) {
+    // Audit 2026-07-05 (R5): an ABSENT audit used to sail through this gate
+    // — the polish route sets audit_score:null when the auditor call errors,
+    // and NaN < 60 is false. An errored/skipped audit is a failed audit,
+    // never a pass. Publishing requires a current verdict on record.
+    errors.push('no quality audit on record (trust_indicators.audit_score is missing) — re-run Polish so the auditor produces a verdict before publishing.')
   }
 
   // ─── Real ad-evidence presence (don't silently ship evidence-less) ──
@@ -297,6 +303,42 @@ export async function POST(request, { params }) {
           gate.warnings
         )
         updates.fact_check_status = 'ai_generated_with_warnings'
+      }
+
+      // ─── Deterministic schema validator (audit 2026-07-05, R4b) ────
+      // validate-publish holds the 8 Floventra-class checks (placeholder
+      // leak, celeb-count drift, citation self-contradiction, blocked
+      // grounding URLs, Dataset distribution, …) but was previously
+      // called by NOTHING. Self-fetch it here; its 422 failures block.
+      // A transport failure of the validator itself only warns — the
+      // primary gate above already ran.
+      try {
+        const origin = new URL(request.url).origin
+        const vRes = await fetch(`${origin}/api/admin/reviews/validate-publish`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: request.headers.get('authorization') || '',
+          },
+          body: JSON.stringify({ reviewId: id }),
+          signal: AbortSignal.timeout(30000),
+        })
+        const vData = await vRes.json().catch(() => null)
+        if (vRes.status === 422 && vData && Array.isArray(vData.failures)) {
+          return Response.json(
+            {
+              error: 'Review failed schema/content validation (validate-publish)',
+              failures: vData.failures,
+              review_id: id,
+            },
+            { status: 422 }
+          )
+        }
+        if (!vRes.ok && vRes.status !== 422) {
+          console.warn(`[publish] validate-publish returned ${vRes.status} — continuing (primary gate already passed)`)
+        }
+      } catch (vErr) {
+        console.warn('[publish] validate-publish unreachable (non-blocking):', vErr?.message)
       }
     }
 

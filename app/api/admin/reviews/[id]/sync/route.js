@@ -35,6 +35,41 @@ export async function POST(request, { params }) {
       return Response.json({ error: 'Review not found' }, { status: 404 });
     }
 
+    // ─── Quality gate (audit 2026-07-05, R4a) ────────────────────────
+    // This route used to ship to Replit with ZERO checks — a one-click
+    // bypass of the entire publish gate. Blockers mirror the publish
+    // route's non-negotiables. `force: true` in the body is the explicit,
+    // logged escape hatch for legacy rows that pre-date the audit system.
+    let force = false;
+    try {
+      const body = await request.json();
+      force = body?.force === true;
+    } catch { /* no body — force stays false */ }
+
+    const gateFailures = [];
+    if (review.status !== 'published') {
+      gateFailures.push(`review status is '${review.status}' — only published reviews sync to live`);
+    }
+    if (review.audit_hard_fail === true) {
+      gateFailures.push(`audit VETO on record${review.audit_hard_fail_reason ? `: ${review.audit_hard_fail_reason}` : ''}`);
+    }
+    if (/\[\s*(?:CHART|IMAGE|SCREENSHOT|DIAGRAM|PHOTO|INFOGRAPHIC|STEP-BY-STEP)\s+NEEDED/i.test(review.full_article || '')) {
+      gateFailures.push('full_article contains unfilled visual placeholders — run Polish first');
+    }
+    const auditScore = Number(review.trust_indicators?.audit_score);
+    if (!Number.isFinite(auditScore)) {
+      gateFailures.push('no quality audit on record — run Polish before syncing');
+    }
+    if (gateFailures.length > 0 && !force) {
+      return Response.json(
+        { error: 'Sync blocked by quality gate', failures: gateFailures, hint: 'Pass { "force": true } to override (logged).' },
+        { status: 422 }
+      );
+    }
+    if (gateFailures.length > 0 && force) {
+      console.warn(`[manual-sync] FORCED past quality gate for review ${id}:`, gateFailures);
+    }
+
     // Fetch associated brand data
     let brand = null;
     if (review.brand_id) {

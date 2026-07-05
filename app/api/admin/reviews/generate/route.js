@@ -828,6 +828,66 @@ ${geoSections}`
         `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 16px;border-bottom:1px solid #1e293b"><span style="color:#cbd5e1;font-size:12px;font-weight:500">${region}</span><span style="color:#64748b;font-size:12px">${codes.join(', ')}</span></div>`
       ).join('')
     })()
+    // ─── R2 fix (audit 2026-07-05): regulator status derived from REAL
+    // lookups instead of four hardcoded "None" badges. sourceLedger entries
+    // carry lookup.registry from lib/source-verify:
+    //   'fca_warning_list'      → FCA issued a warning about this brand
+    //   'fca_register' + status → register entry found / 'not_found'
+    //   'sec_edgar_fts' + hits  → EDGAR full-text mentions
+    // ASIC/CySEC have no lookup implementation → always "Not checked"
+    // (never assert "None" for a registry we did not query).
+    const regulatorStatus = (() => {
+      const fcaWarning = sourceLedger.find(s => s.lookup?.registry === 'fca_warning_list')
+      const fcaRegister = sourceLedger.find(s => s.lookup?.registry === 'fca_register')
+      const sec = sourceLedger.find(s => s.lookup?.registry === 'sec_edgar_fts')
+
+      const entries = []
+      if (fcaWarning) {
+        entries.push({ label: 'FCA: Warning issued', state: 'flagged' })
+      } else if (fcaRegister && fcaRegister.lookup.status && fcaRegister.lookup.status !== 'not_found') {
+        entries.push({ label: `FCA: Register entry (${fcaRegister.lookup.status})`, state: 'found' })
+      } else if (fcaRegister) {
+        entries.push({ label: 'FCA: Not registered', state: 'absent' })
+      } else {
+        entries.push({ label: 'FCA: Not checked', state: 'unknown' })
+      }
+      if (sec && sec.lookup.hits > 0) {
+        entries.push({ label: `SEC EDGAR: ${sec.lookup.hits} mention${sec.lookup.hits === 1 ? '' : 's'}`, state: 'found' })
+      } else if (sec) {
+        entries.push({ label: 'SEC EDGAR: No records', state: 'absent' })
+      } else {
+        entries.push({ label: 'SEC: Not checked', state: 'unknown' })
+      }
+      entries.push({ label: 'ASIC: Not checked', state: 'unknown' })
+      entries.push({ label: 'CySEC: Not checked', state: 'unknown' })
+
+      const STYLES = {
+        flagged: { icon: '⚠', iconColor: '#f87171', text: '#fca5a5', bg: 'rgba(127,29,29,0.25)', border: 'rgba(220,38,38,0.3)' },
+        absent: { icon: '✕', iconColor: '#ef4444', text: '#fca5a5', bg: 'rgba(127,29,29,0.25)', border: 'rgba(220,38,38,0.3)' },
+        found: { icon: '●', iconColor: '#fbbf24', text: '#fde68a', bg: 'rgba(120,53,15,0.25)', border: 'rgba(180,83,9,0.35)' },
+        unknown: { icon: '—', iconColor: '#64748b', text: '#94a3b8', bg: 'rgba(30,41,59,0.4)', border: 'rgba(51,65,85,0.5)' },
+      }
+      const badgesHtml = entries.map(e => {
+        const st = STYLES[e.state]
+        return `<div style="display:flex;align-items:center;gap:6px;background:${st.bg};border:1px solid ${st.border};border-radius:4px;padding:8px 10px"><span style="color:${st.iconColor};font-weight:700;font-size:11px">${st.icon}</span><span style="color:${st.text};font-size:12px;font-weight:600">${e.label}</span></div>`
+      }).join('\n')
+
+      // Prose fragment for the Investigation Summary — only claims what we
+      // actually queried, and reflects findings instead of asserting "zero".
+      let sentence
+      if (fcaWarning) {
+        sentence = 'and an FCA Warning List entry for this brand'
+      } else if (fcaRegister && fcaRegister.lookup.status && fcaRegister.lookup.status !== 'not_found') {
+        sentence = 'though an FCA register entry exists for this name (see Regulatory Status)'
+      } else if (fcaRegister || sec) {
+        const checked = [fcaRegister && 'the UK FCA register', sec && 'SEC EDGAR'].filter(Boolean).join(' and ')
+        sentence = `and no registration found in ${checked}`
+      } else {
+        sentence = 'with regulatory registration unverified at time of writing'
+      }
+      return { badgesHtml, sentence }
+    })()
+
     let fullArticle = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#f8fafc">
 
 <!-- BREADCRUMB -->
@@ -900,10 +960,15 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
 <p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(cleanCelebrityList.length, 'real celebrity', 'real celebrities')}</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. CryptoKiller's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, and zero regulatory registration across FCA, SEC, ASIC, or CySEC databases.</p>
+${threat.frameAsScam
+  ? `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. CryptoKiller's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
-</div>
+</div>`
+  : `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Fraud operations matching this advertising pattern typically allow initial deposits to succeed while withdrawal requests trigger account lockouts, fabricated compliance fees, and pressure to send additional capital. CryptoKiller's surveillance links ${escHtml(brandData.name)} to several warning indicators: ${cleanCelebrityList.length > 0 ? 'celebrity-image advertising, ' : ''}multi-country ad distribution${brandData.velocity_7d ? `, ongoing ad deployment (${brandData.velocity_7d} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}. These signals warrant caution but are not, on their own, proof of fraud.</p>
+<div style="background:rgba(15,23,42,0.8);border:1px solid rgba(180,83,9,0.4);border-radius:8px;padding:16px;margin-top:16px">
+<p style="margin:0;color:#fbbf24;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, stop sending additional funds, document all communications, and follow the protection steps below.</p>
+</div>`}
 </section>
 <!-- HOW THIS SCAM WORKS — 4-stage funnel cards -->
 ${reviewContent.how_it_works ? (() => {
@@ -913,9 +978,9 @@ ${reviewContent.how_it_works ? (() => {
     { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Success', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706',
       statValue: 'Instant', statSub: 'deposit confirmation' },
     { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Psychological Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626',
-      statValue: '5–15%', statSub: 'fake daily returns displayed' },
+      statValue: 'Fabricated', statSub: 'returns displayed on dashboard' },
     { icon: '🚨', label: 'Stage 4', title: 'The Withdrawal Trap & Fee Extraction', bg: 'rgba(136,19,55,0.3)', border: 'rgba(190,18,60,0.5)', barColor: '#be123c', labelColor: '#fb7185', iconBg: '#be123c',
-      statValue: '$500–$5k', statSub: 'unlock fees demanded' },
+      statValue: 'Escalating', statSub: 'unlock fees demanded' },
   ]
   // Split on real newlines OR literal \n\n (Claude sometimes returns either)
   let paragraphs = reviewContent.how_it_works.split(/(?:\\n){2,}|\n{2,}/).filter(p => p.trim())
@@ -1134,10 +1199,7 @@ ${geoRegions}
 <div style="padding:16px;border-top:1px solid #1e293b">
 <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Regulatory Status</p>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">FCA: None</span></div>
-<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">SEC: None</span></div>
-<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">ASIC: None</span></div>
-<div style="display:flex;align-items:center;gap:6px;background:rgba(127,29,29,0.25);border:1px solid rgba(220,38,38,0.3);border-radius:4px;padding:8px 10px"><span style="color:#ef4444;font-weight:700;font-size:11px">✕</span><span style="color:#fca5a5;font-size:12px;font-weight:600">CySEC: None</span></div>
+${regulatorStatus.badgesHtml}
 </div>
 </div>
 </div>
@@ -1148,7 +1210,7 @@ ${geoRegions}
 <span style="font-size:16px">⛔</span>
 <span style="color:#f87171;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:1px">Final Verdict</span>
 </div><p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
-<p style="margin:0 0 12px;color:#f87171;font-weight:700;font-size:14px">Do not deposit any money.</p>
+<p style="margin:0 0 12px;color:${threat.frameAsScam ? '#f87171' : '#fbbf24'};font-weight:700;font-size:14px">${threat.frameAsScam ? 'Do not deposit any money.' : 'Verify independently before depositing any money.'}</p>
 <div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
 <p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${pluralize(brandData.total_creatives || 0, 'ad creative', 'ad creatives')} across ${pluralize(brandData.total_geos || 0, 'country', 'countries')}.</p>
 </div>
@@ -1259,7 +1321,12 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       faq: reviewContent.faq,
       full_article: fullArticle,
       scam_score: brandData.scam_score || 0,
-      status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
+      // Regenerating a PUBLISHED review demotes it to draft (audit 2026-07-05
+      // R4c): fresh content cleared the old audit VETO below, so leaving it
+      // 'published' kept unaudited content live. The editor re-publishes
+      // after Polish re-audits — the live Replit page keeps serving the last
+      // synced version meanwhile, so nothing goes dark.
+      status: 'draft',
       ai_model: contentResult.model || 'claude-opus',
       ai_prompt_version: 'multi-agent-v1.3-stat-tokens',
       word_count: wordCount,
@@ -1308,12 +1375,17 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
 
       // Structured scraped ad evidence (capped) — rendered as a dedicated
       // section by the client + SSR. Replaces the old full_article grid.
-      ad_evidence: availableImages.length > 0
+      // Spread-conditional (audit 2026-07-05): when SpyOwl returns nothing
+      // (expired cookie), OMIT the key so a regen never nulls previously
+      // cached evidence — mirrors the polish route's behavior.
+      ...(availableImages.length > 0
         ? {
-            images: availableImages.map((i) => ({ geo: i.geo, celebrity: i.celebrity, url: i.url })),
-            geoCounts,
+            ad_evidence: {
+              images: availableImages.map((i) => ({ geo: i.geo, celebrity: i.celebrity, url: i.url })),
+              geoCounts,
+            },
           }
-        : null,
+        : {}),
       // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
       // once visuals/audit/hero-images are attached. UI polls on this field.
       generation_status: 'content_generated',
@@ -1425,7 +1497,7 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
             result: {
               review_id: reviewId,
               brand_slug: slug,
-              status: (Array.isArray(existingReview) && existingReview.length > 0) ? existingReview[0].status : 'draft',
+              status: 'draft',
               generation_status: 'content_generated',
               word_count: wordCount,
               images_embedded: availableImages.length,
