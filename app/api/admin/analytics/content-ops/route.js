@@ -31,7 +31,7 @@ export async function GET(request) {
   }
 
   try {
-    const [reviews, content, translations, syncRuns] = await Promise.all([
+    const [reviews, content, translations, syncRuns, regenQueue] = await Promise.all([
       supabaseRequest(
         '/reviews?select=id,status,published_at,updated_at,word_count,locale,is_master,generation_status,slug,title&limit=2000',
         { useServiceRole: true }
@@ -48,6 +48,10 @@ export async function GET(request) {
         '/sync_runs?select=started_at,finished_at,status,new_creatives,creatives_synced,new_brands,trigger_type&order=started_at.desc&limit=20',
         { useServiceRole: true }
       ),
+      supabaseRequest(
+        '/regen_queue?select=slug,priority,status,reason,note,last_error,attempts,updated_at&order=priority.asc&limit=50',
+        { useServiceRole: true }
+      ).catch(() => []),
     ])
 
     // ─── Publish velocity: trailing 12 ISO weeks ───
@@ -123,6 +127,15 @@ export async function GET(request) {
       },
       translationCoverage,
       staleness,
+      // Content-maintenance engine (2026-07-05): auto-regeneration queue
+      maintenanceQueue: {
+        counts: (regenQueue || []).reduce((m, q) => {
+          m[q.status] = (m[q.status] || 0) + 1
+          return m
+        }, {}),
+        items: (regenQueue || []).filter((q) => !['published', 'skipped'].includes(q.status)).slice(0, 15),
+        recentPublished: (regenQueue || []).filter((q) => q.status === 'published').slice(0, 5),
+      },
       scraper: (syncRuns || []).map((r) => ({
         started_at: r.started_at,
         status: r.status,

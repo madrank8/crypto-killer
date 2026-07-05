@@ -381,6 +381,45 @@ function ContentOpsTab({ token }) {
         )}
       </div>
 
+      {/* Maintenance engine queue */}
+      {data.maintenanceQueue && Object.keys(data.maintenanceQueue.counts || {}).length > 0 && (
+        <div className="bg-dark-card border border-gray-800 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">🤖 Maintenance Engine — regeneration queue</h3>
+            <div className="flex gap-2">
+              {Object.entries(data.maintenanceQueue.counts).map(([k, v]) => (
+                <span key={k} className={`px-2 py-0.5 rounded-full border text-[11px] font-medium ${
+                  k === 'published' ? 'bg-green-500/15 text-green-400 border-green-500/30'
+                  : k === 'needs_review' || k === 'failed' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                  : k === 'generating' || k === 'polishing' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                  : 'bg-gray-500/10 text-gray-400 border-gray-700'
+                }`}>{k}: {v}</span>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {(data.maintenanceQueue.items || []).map((q) => (
+              <div key={q.slug} className="flex justify-between items-center text-sm">
+                <span className="text-gray-300 truncate mr-3">
+                  <span className="text-gray-600 mr-2">#{q.priority}</span>{q.slug}
+                  {q.note && <span className="text-gray-600 text-xs ml-2">{q.note}</span>}
+                </span>
+                <span className={`shrink-0 text-xs font-medium ${
+                  q.status === 'needs_review' || q.status === 'failed' ? 'text-red-400'
+                  : q.status === 'generating' || q.status === 'polishing' ? 'text-blue-400'
+                  : 'text-gray-500'
+                }`} title={q.last_error || ''}>{q.status}{q.attempts > 0 ? ` (retry ${q.attempts})` : ''}</span>
+              </div>
+            ))}
+          </div>
+          {(data.maintenanceQueue.recentPublished || []).length > 0 && (
+            <p className="text-xs text-gray-600 mt-3">
+              Recently auto-published: {data.maintenanceQueue.recentPublished.map((q) => q.slug).join(', ')}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Staleness */}
         <div className="bg-dark-card border border-gray-800 rounded-xl p-5">

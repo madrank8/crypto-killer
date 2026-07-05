@@ -23,9 +23,16 @@
     {
       "path": "/api/cron/advisor",
       "schedule": "0 7 * * 1"
+    },
+    {
+      "path": "/api/cron/content-maintenance",
+      "schedule": "*/15 * * * *"
     }
   ],
   "functions": {
+    "app/api/cron/content-maintenance/route.js": {
+      "maxDuration": 300
+    },
     "app/api/cron/scrape/route.js": {
       "maxDuration": 300
     },
