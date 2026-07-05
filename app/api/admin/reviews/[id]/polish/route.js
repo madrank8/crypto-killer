@@ -208,10 +208,16 @@ export async function POST(request, { params }) {
               tempSchema,
             )
 
-            // Auditor runs on Claude Sonnet 4.6 (was gpt-5.4-mini primary). The
-            // audit now gates publication (validateReviewReadyToPublish), so it
-            // runs on a known-good current model, not an unverified provider pin.
-            const auditModels = ['claude-sonnet', 'claude-haiku']
+            // Cross-vendor audit restored (audit 2026-07-05, W4a): GPT-5.4
+            // Mini gives a fresh-perspective gate over Claude-written prose —
+            // same-family self-audit is systematically more lenient. The
+            // original pin was abandoned because callOpenAI sent the legacy
+            // `max_tokens` param (400s on GPT-5.x); ai-models.js now sends
+            // `max_completion_tokens`. Claude Sonnet remains the fallback so
+            // an OpenAI outage can't wedge polishing. Haiku is deliberately
+            // NOT in this chain anymore — the weakest model in the map must
+            // not be the sole publish gate.
+            const auditModels = ['gpt-5.4-mini', 'claude-sonnet']
 
             let auditResult = null
             for (const modelKey of auditModels) {

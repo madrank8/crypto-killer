@@ -8,6 +8,7 @@ import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writ
 import { runArticlePipeline } from '@/lib/article-pipeline'
 import { resolveArticleEnrichment } from '@/lib/schema-enrichment-resolver'
 import { buildArticleHtml } from '@/lib/article-html'
+import { buildAiDisclosure } from '@/lib/ai-disclosure'
 
 export const maxDuration = 300
 
@@ -398,11 +399,12 @@ export async function POST(request) {
               sourceLedger,
               {}
             )
-            // Auditor runs on Claude Sonnet 4.6 (was gpt-5.4-mini). The audit
-            // now gates publication (see validateForPublish in the publish
-            // route), so it runs on a known-good, current model rather than an
-            // unverified provider pin. effort:'medium' for sharper judgment.
-            const auditResult = await callModel('claude-sonnet', auditPrompt.system, auditMsg, {
+            // Cross-vendor audit (2026-07-05, W4a): GPT-5.4 Mini primary for
+            // a fresh-perspective gate over Claude-written prose (the old
+            // abandonment cause — wrong max_tokens param — is fixed in
+            // ai-models.js). resolveModel falls back to claude-sonnet
+            // automatically if OPENAI_API_KEY is absent.
+            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
               jsonMode: true,
               timeoutMs: 60000,
               effort: 'medium',
@@ -525,6 +527,12 @@ export async function POST(request) {
               // re-running fill regenerates from full context, not bare
               // headings.
               outline_sections: outlineSections,
+              // AI disclosure (canon Step 6.8, audit 2026-07-05 W4c)
+              ai_disclosure: buildAiDisclosure({
+                kind: 'article',
+                model: writerModelUsed,
+                personaName: personaMetadata.name,
+              }),
               updated_at: new Date().toISOString(),
             }),
           })

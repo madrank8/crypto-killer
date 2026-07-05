@@ -220,7 +220,16 @@ async function validateReviewReadyToPublish(review) {
     errors.push(`quality audit score ${auditScore}/100 is below the YMYL publish floor (60). Address the auditor's critical fixes and re-run Polish.`)
   } else if (Number.isFinite(auditScore) && auditScore < 80) {
     warnings.push(`quality audit score ${auditScore}/100 is below the target (80) — review the auditor's findings before publishing.`)
-  } else if (!Number.isFinite(auditScore)) {
+  }
+
+  // AI disclosure presence (canon Step 6.8 — MANDATORY; audit 2026-07-05
+  // W4c). Warning until the Replit renderer ships the "How this was
+  // created" block, then upgrade to a blocking error.
+  if (!review.ai_disclosure) {
+    warnings.push('ai_disclosure is missing (canon seo-blog-generator Step 6.8 marks it mandatory) — regenerate to attach it. This becomes a blocking error once the live renderer displays the block.')
+  }
+
+  if (!Number.isFinite(auditScore)) {
     // Audit 2026-07-05 (R5): an ABSENT audit used to sail through this gate
     // — the polish route sets audit_score:null when the auditor call errors,
     // and NaN < 60 is false. An errored/skipped audit is a failed audit,

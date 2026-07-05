@@ -76,6 +76,13 @@ function validateForPublish(content) {
     reasons.push('full_article contains legacy placeholder-box markup (grey editor boxes) — re-run Generate Article to render real visuals')
   }
 
+  // 2c. AI disclosure presence (canon Step 6.8 — MANDATORY; audit 2026-07-05
+  //     W4c). Warning until the Replit renderer ships the block, then a
+  //     blocking reason.
+  if (!content.ai_disclosure) {
+    warnings.push('ai_disclosure is missing (canon seo-blog-generator Step 6.8) — re-run Generate Article to attach it. Becomes blocking once the live renderer displays the block.')
+  }
+
   // 3. Internal links must point somewhere real.
   const internalLinks = Array.isArray(content.internal_links) ? content.internal_links : []
   for (let i = 0; i < internalLinks.length; i++) {

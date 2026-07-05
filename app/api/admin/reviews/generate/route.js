@@ -9,6 +9,7 @@ import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/re
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
 import { runReviewPipeline } from '@/lib/review-pipeline'
+import { buildAiDisclosure } from '@/lib/ai-disclosure'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -1358,6 +1359,15 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       word_count: wordCount,
       schema_json: schemaJsonLd,
       updated_at: new Date().toISOString(),
+      // AI disclosure (canon Step 6.8, audit 2026-07-05 W4c) — deterministic,
+      // never model-generated, rendered Replit-side near the byline.
+      ai_disclosure: buildAiDisclosure({
+        kind: 'review',
+        model: contentResult.resolvedModel || contentResult.model || 'claude-opus',
+        dateISO: currentDate,
+        hasAdEvidence: availableImages.length > 0,
+        regulatorChecked: sourceLedger.some(s => s.lookup?.registry),
+      }),
       // ── E-E-A-T fields ──
       author_name: 'Crypto Killer Research Team',
       author_credentials: 'Crypto fraud intelligence analysts — CryptoKiller ad surveillance platform, cross-checked against FCA and SEC databases',
