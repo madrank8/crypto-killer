@@ -16,6 +16,9 @@ export const maxDuration = 120
  *
  * Schedule: daily 06:30 UTC (vercel.json) — after Google finalizes the
  * previous day's data.
+ *
+ * Backfill: pass ?days=N (max 480 ≈ GSC's 16-month retention) for a
+ * one-off historical import, e.g. /api/cron/gsc-sync?days=480.
  */
 
 const LOOKBACK_DAYS = 5
@@ -41,8 +44,13 @@ export async function GET(request) {
   }
 
   try {
+    const { searchParams } = new URL(request.url)
+    const lookback = Math.min(
+      Math.max(parseInt(searchParams.get('days') || String(LOOKBACK_DAYS), 10) || LOOKBACK_DAYS, 1),
+      480
+    )
     const end = new Date(Date.now() - 24 * 3600 * 1000) // yesterday
-    const start = new Date(end.getTime() - (LOOKBACK_DAYS - 1) * 24 * 3600 * 1000)
+    const start = new Date(end.getTime() - (lookback - 1) * 24 * 3600 * 1000)
     const startDate = iso(start)
     const endDate = iso(end)
 
