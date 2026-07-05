@@ -2,7 +2,7 @@ import { revalidatePath } from 'next/cache'
 
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { lintProseFields, collectArticleProseFields } from '@/lib/content-lint'
+import { lintProseFields, collectArticleProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { verifySourceLedger } from '@/lib/source-verify'
 
 // ─── Publish quality gate ───
@@ -94,15 +94,24 @@ function validateForPublish(content) {
   reasons.push(...lint.errors)
   warnings.push(...lint.warnings)
 
+  // Structural-pollution gate: full_article must be an HTML fragment, never a
+  // full document or a serialized structured-data dump. Blocks render-breaking
+  // content from reaching the public renderer. (Audit: YMYL writing-process review.)
+  reasons.push(...detectHtmlPollution(content.full_article, 'full_article'))
+
   // 6. Per-stage deterministic fallbacks (P1-3, content-writing audit
   //    2026-06-11). The overall ai_model check in (1) only catches the
   //    all-stages-failed case. The 4-stage pipeline can fall back per
   //    section/stage — those bodies are outline briefs glued into "prose"
   //    and pass the word-count + opener checks above. The pipeline records
   //    exactly which stages fell back in ai_audit.pipeline_stages; read it.
-  //    Sections + skeleton (summary/title/takeaways) → hard block;
-  //    FAQ/aux fallbacks → warning (FAQ falls back to outline answer_hints,
-  //    which were human-approved at outline time).
+  //    ALL deterministic-fallback stages → hard block. (YMYL writing-process
+  //    review: previously FAQ/aux fallbacks were warn-only, which let a
+  //    partly-templated article publish — aux-fallback ships with no schema
+  //    enrichment / E-E-A-T fields and FAQ-fallback ships templated outline
+  //    hints rather than written answers. The review pipeline already throws
+  //    on any stage fallback; the article gate now matches that stance, so
+  //    nothing partially-templated reaches a YMYL reader.)
   const stages = Array.isArray(content.ai_audit?.pipeline_stages)
     ? content.ai_audit.pipeline_stages
     : []
@@ -118,7 +127,26 @@ function validateForPublish(content) {
     reasons.push('skeleton stage used the deterministic fallback — title/summary/key-takeaways are templates. Re-run Generate Article before publishing.')
   }
   if (detSoft.length > 0) {
-    warnings.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — review the FAQ/aux fields before publishing.`)
+    reasons.push(`${detSoft.map((s) => s.stage).join(' + ')} stage(s) used the deterministic fallback — FAQ/aux fields are templated outline hints, not written content (aux-fallback also ships no schema enrichment). Re-run Generate Article before publishing.`)
+  }
+
+  // 7. Quality-auditor verdict gate (lib/review-prompts qualityAuditorPrompt,
+  //    run on Claude Sonnet 4.6 at fill time, persisted to ai_audit). The audit
+  //    is no longer advisory: a VETO (any_hard_fail) or a clear-fail score
+  //    blocks publish. Only enforced when a verdict exists, so legacy rows
+  //    without an audit aren't retroactively blocked — re-run Generate Article
+  //    to produce a verdict.
+  const verdict = content.ai_audit && typeof content.ai_audit === 'object' ? content.ai_audit : null
+  if (verdict) {
+    if (verdict.hard_fail_checks?.any_hard_fail === true) {
+      reasons.push(`quality audit VETO — ${verdict.hard_fail_checks.hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Generate Article.`)
+    }
+    const score = Number(verdict.overall_score)
+    if (Number.isFinite(score) && score < 60) {
+      reasons.push(`quality audit score ${score}/100 is below the YMYL publish floor (60). Address the auditor's critical_fixes and re-run Generate Article.`)
+    } else if (Number.isFinite(score) && score < 80) {
+      warnings.push(`quality audit score ${score}/100 is below the target (80) — review the auditor's improvements before publishing.`)
+    }
   }
 
   return { ok: reasons.length === 0, reasons, warnings }
@@ -143,11 +171,15 @@ function validateForPublish(content) {
 async function validateSourcesForPublish(content) {
   const reasons = []
   const warnings = []
+  // Structured list of hard-dead sources, so the admin UI can offer a precise
+  // "remove this source & retry" remedy instead of forcing a full (token-
+  // expensive) article regeneration over a single bad URL.
+  const deadSources = []
 
   const sources = Array.isArray(content.sources) ? content.sources : []
   if (sources.length === 0) {
     reasons.push('content.sources is empty — a published YMYL article must cite verifiable sources')
-    return { ok: false, reasons, warnings }
+    return { ok: false, reasons, warnings, deadSources }
   }
 
   const HARD_DEAD_RE = /HTTP 404|HTTP 410|malformed URL|unverifiable domain|network:/i
@@ -157,6 +189,13 @@ async function validateSourcesForPublish(content) {
       const label = `"${(d.source?.title || d.source?.url || 'source').slice(0, 80)}" (${d.source?.url})`
       if (HARD_DEAD_RE.test(d.reason || '')) {
         reasons.push(`dead source ${label} — ${d.reason}. Replace or remove before publishing.`)
+        if (d.source?.url) {
+          deadSources.push({
+            url: d.source.url,
+            title: d.source.title || null,
+            reason: d.reason,
+          })
+        }
       } else {
         warnings.push(`unverified source ${label} — ${d.reason} (likely bot-block; verify in a browser)`)
       }
@@ -181,7 +220,7 @@ async function validateSourcesForPublish(content) {
     warnings.push(`citations (${citations.length}) and sources (${sources.length}) counts differ — schema citations may be stale relative to the ledger`)
   }
 
-  return { ok: reasons.length === 0, reasons, warnings }
+  return { ok: reasons.length === 0, reasons, warnings, deadSources }
 }
 
 async function syncToLiveBlog({ content, topic }) {
@@ -290,6 +329,9 @@ export async function POST(request, { params }) {
           error: 'Publish blocked by quality gate',
           reasons,
           warnings,
+          // Machine-actionable: lets the UI offer a one-click remove-and-retry
+          // for dead citations rather than a full article regeneration.
+          dead_sources: sourceGate.deadSources || [],
           content_id: id,
           slug: content.slug,
           ai_model: content.ai_model,

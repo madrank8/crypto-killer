@@ -1,9 +1,11 @@
 import { revalidatePath } from 'next/cache'
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
+import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
+import { dedupeCelebrityList } from '@/lib/threat-score'
+import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
 
@@ -144,6 +146,19 @@ export async function POST(request, { params }) {
               methodology: review.methodology,
               sources: review.sources || [],
               disclaimer: review.disclaimer,
+              // Include the typed entity so the auditor can confirm
+              // item_reviewed.type directly (was only visible in the truncated
+              // SCHEMA JSON-LD, causing false "not typed" hard fails).
+              item_reviewed: review.item_reviewed || null,
+            }
+
+            // Real celebrity names (the raw celebrity_list stores comma-joined
+            // compound strings, so total_celebrities under-counts — e.g. 2 array
+            // elements holding 4 names). Pass the deduped/split names so the
+            // auditor cross-checks against the true roster, not a wrong count.
+            const auditBrandData = {
+              ...brandData,
+              celebrity_names: dedupeCelebrityList(brandData.celebrity_list || []),
             }
 
             const tempSchema = buildReviewSchema({
@@ -158,21 +173,22 @@ export async function POST(request, { params }) {
             const auditPromptData = qualityAuditorPrompt()
             const auditUserMsg = auditPromptData.userTemplate(
               reviewContent,
-              brandData,
+              auditBrandData,
               review.sources || [],
               tempSchema,
             )
 
-            const availableModelsInfo = getAvailableModels()
-            const auditModels = availableModelsInfo.openai
-              ? ['gpt-5.4-mini', 'claude-sonnet']
-              : ['claude-sonnet']
+            // Auditor runs on Claude Sonnet 4.6 (was gpt-5.4-mini primary). The
+            // audit now gates publication (validateReviewReadyToPublish), so it
+            // runs on a known-good current model, not an unverified provider pin.
+            const auditModels = ['claude-sonnet', 'claude-haiku']
 
             let auditResult = null
             for (const modelKey of auditModels) {
               try {
                 auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
                   jsonMode: true,
+                  effort: 'medium',
                 })
                 break
               } catch (modelErr) {
@@ -255,6 +271,26 @@ export async function POST(request, { params }) {
             send({ step: 'images_skip', progress: 90, message: `Images skipped: ${imgError.message}` })
           }
 
+          // ─── PHASE B.3.5: RESOLVE REAL AD-CREATIVE EVIDENCE ────────────
+          // Structured evidence (fetched/cached SpyOwl creatives, capped at 5)
+          // stored in ad_evidence for the renderer to display as a dedicated
+          // section. NOT injected into full_article — that only rendered in SSR,
+          // never the React client. Reuses storage-cached creatives; only needs
+          // SpyOwl for first-time fetches. Non-fatal.
+          let adEvidence = null
+          try {
+            adEvidence = await resolveAdEvidence({ brand: brandData })
+            send({
+              step: 'evidence',
+              progress: 92,
+              message: adEvidence?.images?.length
+                ? `Resolved ${adEvidence.images.length} real ad-creative evidence image(s)`
+                : 'No ad-creative evidence (no cached creatives / SpyOwl unavailable)',
+            })
+          } catch (evErr) {
+            console.error('[polish] Ad-evidence resolve failed:', evErr.message)
+          }
+
           // ─── PHASE B.4: SAVE EVERYTHING ────────────────────────────────
           send({ step: 'saving', progress: 93, message: 'Saving polished review…' })
 
@@ -267,12 +303,26 @@ export async function POST(request, { params }) {
             audit_critical_fixes: auditReport?.critical_fixes || [],
           }
 
+          // Persist the auditor VETO verdict so the publish gate can block on
+          // it (the audit is no longer advisory-only). hard_fail_checks.any_hard_fail
+          // → audit_hard_fail; the reason → audit_hard_fail_reason.
+          const hardFail = auditReport?.hard_fail_checks?.any_hard_fail === true
+          const hardFailReason = hardFail
+            ? (auditReport?.hard_fail_checks?.hard_fail_reason || 'Quality auditor flagged a hard fail (see critical_fixes).')
+            : null
+
           const polishPatch = {
             full_article: fullArticle,
             visual_meta: visualMeta.length > 0 ? visualMeta : (review.visual_meta || null),
             trust_indicators: trustIndicators,
+            audit_hard_fail: hardFail,
+            audit_hard_fail_reason: hardFailReason,
             generation_status: 'polished',
             polish_error: null,
+            // Structured scraped ad evidence (renderer displays it as a dedicated
+            // section). Only overwrite when freshly resolved, so a transient
+            // SpyOwl failure doesn't wipe previously-stored evidence.
+            ...(adEvidence ? { ad_evidence: adEvidence } : {}),
           }
 
           if (heroImageResult) {

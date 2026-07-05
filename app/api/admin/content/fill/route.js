@@ -354,9 +354,14 @@ export async function POST(request) {
               sourceLedger,
               {}
             )
-            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
+            // Auditor runs on Claude Sonnet 4.6 (was gpt-5.4-mini). The audit
+            // now gates publication (see validateForPublish in the publish
+            // route), so it runs on a known-good, current model rather than an
+            // unverified provider pin. effort:'medium' for sharper judgment.
+            const auditResult = await callModel('claude-sonnet', auditPrompt.system, auditMsg, {
               jsonMode: true,
-              timeoutMs: 45000,
+              timeoutMs: 60000,
+              effort: 'medium',
             })
             audit = extractJSON(auditResult.text)
           } catch {

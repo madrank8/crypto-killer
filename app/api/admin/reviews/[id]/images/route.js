@@ -2,7 +2,9 @@ import { supabaseRequest, SUPABASE_URL } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 const SPYOWL_API = 'https://api.spyowl.icu'
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Service-role key for storage WRITES — the anon key is RLS-blocked on the
+// creative-images bucket (uploads silently 403'd). Service-role bypasses RLS.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 const STORAGE_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/public/creative-images`
   : ''
@@ -93,6 +95,9 @@ export async function POST(request, { params }) {
         if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
       }
     }
+    // Cap evidence to 5 creatives per review — a representative sample is
+    // enough and keeps Supabase Storage lean (no dozens of near-duplicate ads).
+    if (evidenceGrid.length > 5) evidenceGrid.length = 5
 
     if (evidenceGrid.length === 0) {
       return Response.json({
@@ -189,7 +194,7 @@ ${geoSections}`
       // Find where the evidence section ends (next <h2> or </details> or <h3 for Key Takeaways)
       const afterGrid = fullArticle.substring(gridStart)
       // Evidence grid ends at the next <h2 or <h3 section after it
-      const nextSectionMatch = afterGrid.match(/(?:^[\s\S]*?<\/div>\s*\n?)(<(?:h2|h3)\s)/)
+      const nextSectionMatch = afterGrid.match(/(?:^[\s\S]*?<\/div>\s*\n?)(<(?:h2|h3)[\s>])/)
       if (nextSectionMatch) {
         const endIdx = gridStart + afterGrid.indexOf(nextSectionMatch[1])
         fullArticle = fullArticle.substring(0, gridStart) + newGridHtml + '\n' + fullArticle.substring(endIdx)

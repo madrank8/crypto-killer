@@ -190,7 +190,9 @@ const STORAGE_BASE = SUPABASE_URL
   : ''
 const STORAGE_UPLOAD_BASE = SUPABASE_URL
   ? `${SUPABASE_URL}/storage/v1/object/creative-images`  : ''
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+// Service-role key for storage WRITES — the anon key is RLS-blocked on the
+// creative-images bucket (uploads silently 403'd). Service-role bypasses RLS.
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Phase A of the split pipeline: source research + content generation only.
 // Requires Vercel Pro Fluid Compute (800s cap). Source research + Claude
@@ -311,6 +313,9 @@ export async function POST(request) {
         if (creative) evidenceGrid.push({ geo, celebrity: celeb, id: creative.id })
       }
     }
+    // Cap evidence to 5 creatives per review — a representative sample is
+    // enough and keeps Supabase Storage lean (no dozens of near-duplicate ads).
+    if (evidenceGrid.length > 5) evidenceGrid.length = 5
 
           send({ step: 'images', progress: 25, message: `Found ${evidenceGrid.length} evidence candidates${SPYOWL_COOKIE ? '' : ' — no SpyOwl cookie (set in Settings)'}` })
 
@@ -1081,8 +1086,9 @@ ${authorBylineTemplate}
 <!-- CAMPAIGN TIMELINE -->
 ${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 
-<!-- EVIDENCE GRID -->
-${evidenceGridHtml}
+<!-- EVIDENCE: scraped ad creatives are stored in the structured ad_evidence
+     field and rendered as a dedicated section by the client + SSR — no longer
+     injected into full_article (that only rendered in SSR, never the React client). -->
 
 </div>
 <!-- RIGHT SIDEBAR -->
@@ -1300,10 +1306,23 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       quotes: Array.isArray(reviewContent.quotes) ? reviewContent.quotes : [],
       claims: Array.isArray(reviewContent.claims) ? reviewContent.claims : [],
 
+      // Structured scraped ad evidence (capped) — rendered as a dedicated
+      // section by the client + SSR. Replaces the old full_article grid.
+      ad_evidence: availableImages.length > 0
+        ? {
+            images: availableImages.map((i) => ({ geo: i.geo, celebrity: i.celebrity, url: i.url })),
+            geoCounts,
+          }
+        : null,
       // Phase-A marker. The /polish endpoint flips this to 'polishing' → 'polished'
       // once visuals/audit/hero-images are attached. UI polls on this field.
       generation_status: 'content_generated',
       polish_error: null,
+      // Regenerated content invalidates the previous audit verdict — clear the
+      // stale VETO so the publish gate can't block fresh content on an old
+      // audit. The auditor re-runs at Polish and sets a current verdict.
+      audit_hard_fail: false,
+      audit_hard_fail_reason: null,
       trust_indicators: {
         creatives_analyzed: brandData.total_creatives,
         countries_scanned: brandData.total_geos,

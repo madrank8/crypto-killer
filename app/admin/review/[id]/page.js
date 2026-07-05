@@ -553,10 +553,13 @@ export default function ReviewEditor({ params }) {
     fetchReview();
   }, [fetchReview]);
 
-  // Auto-fire /polish when the review lands in the editor with phase A just done.
-  // Triggers on: explicit ?polish=auto query param OR a stored generation_status
-  // that indicates work is still pending.
+  // Auto-polish is DISABLED (per request): polishing runs ONLY when the user
+  // clicks the Polish button — never automatically on load/refresh or after an
+  // AI Generate. This keeps the token-spending audit/visuals/evidence pass under
+  // explicit control. Flip AUTO_POLISH back to true to restore chain-on-generate.
   useEffect(() => {
+    const AUTO_POLISH = false;
+    if (!AUTO_POLISH) return;
     if (!review || polishAutoTriggered || polishProgress.isPolishing) return;
     const status = review.generation_status;
     const shouldAutoPolish =
@@ -569,13 +572,85 @@ export default function ReviewEditor({ params }) {
     polishProgress.polish(id);
   }, [review, polishQueryParam, polishAutoTriggered, polishProgress, id]);
 
-  // When the polish stream ends successfully, reload the review so the editor
-  // shows the rendered visuals, audit score, and hero image.
+  // After polish, apply the SEO/AEO auto-fixes the sidebar audit recommends, so
+  // a Polish run actually improves the page's SEO — not just visuals/evidence.
+  // Only the SAFE STRUCTURAL categories are auto-applied (extractive answers,
+  // question-shaped headings, BLUF/answer-first opening, formatting). The
+  // generative categories (attribution, freshness, surface) are deliberately
+  // EXCLUDED — they invent sources/claims/sections and would trip the
+  // fabrication/fake-freshness VETOs in the publish gate. Cheap (claude-haiku,
+  // targeted HTML patches). Reads from the freshly-fetched review to avoid any
+  // stale-state. Non-fatal: polish already succeeded if this no-ops.
+  const runSeoAutoFix = useCallback(async (fresh) => {
+    let article = fresh?.full_article;
+    if (!article || !token) return;
+    // 1. Apply the safe SEO/AEO fixes to the freshly-polished article.
+    try {
+      const res = await fetch('/api/admin/aeo-fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          fullArticle: article,
+          title: fresh.title || '',
+          keyword: fresh.brand_name || fresh.brand?.name || '',
+          metaDescription: fresh.meta_description || '',
+          fixes: ['extractive', 'headings', 'bluf', 'formatting'],
+          contentType: 'review',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      // Guard: SEO/AEO fixes only ADD content (extractive answers, headings,
+      // BLUF). A result shorter than the input means the patcher dropped
+      // article content — reject it and keep the polished article intact.
+      const fixedOk =
+        res.ok && data.fixedArticle &&
+        data.fixedArticle !== article &&
+        data.fixedArticle.length >= article.length * 0.9;
+      if (fixedOk) {
+        article = data.fixedArticle;
+        setFullArticle(article);
+        setEditorKey((k) => k + 1);
+        // Persist the SEO fix (explicit value — avoids stale editor state).
+        await fetch(`/api/admin/reviews/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ full_article: article }),
+        }).catch(() => {});
+      }
+    } catch {
+      /* non-fatal — polish already succeeded */
+    }
+    // 2. Auto-sync to the live renderer when the review is already published,
+    // so a re-polish (evidence + SEO fixes) reflects on cryptokiller.org without
+    // a separate manual "Sync to Live" step. Drafts just await the user's Save.
+    if (fresh.status === 'published') {
+      try {
+        const r = await fetch(`/api/admin/reviews/${id}/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+        const d = await r.json().catch(() => ({}));
+        setSyncMsg(r.ok && d.success
+          ? '✓ Polished, SEO-fixed & synced to live'
+          : `Polished & SEO-fixed — auto-sync failed (${d.error || 'click Sync to Live'})`);
+      } catch {
+        setSyncMsg('Polished & SEO-fixed — auto-sync failed, click Sync to Live');
+      }
+      await fetchReview().catch(() => {}); // refresh editor + saved-snapshot
+    } else {
+      setSyncMsg('SEO/AEO auto-fixes applied. Review & Save.');
+    }
+    setTimeout(() => setSyncMsg(''), 9000);
+  }, [token, id, fetchReview]);
+
+  // When the polish stream ends successfully, reload the review (so the editor
+  // shows rendered visuals, audit score, hero image, and embedded evidence),
+  // then run the SEO/AEO auto-fix on the fresh content.
   useEffect(() => {
     if (polishProgress.step === 'done' && !polishProgress.error) {
-      fetchReview();
+      fetchReview().then((fresh) => { if (fresh) runSeoAutoFix(fresh); });
     }
-  }, [polishProgress.step, polishProgress.error, fetchReview]);
+  }, [polishProgress.step, polishProgress.error, fetchReview, runSeoAutoFix]);
 
   const handleRetryPolish = useCallback(() => {
     setPolishBannerDismissed(false);
@@ -1149,6 +1224,23 @@ export default function ReviewEditor({ params }) {
               <><span className="animate-spin">⟳</span> Generating...</>
             ) : (
               <><span>✦</span> AI Generate</>
+            )}
+          </button>
+
+          {/* Polish — re-run visuals + quality audit + ad-evidence embedding
+             WITHOUT regenerating the article text. Cheap (no writer LLM calls),
+             and the way to (re)embed real scraped ad creatives after a content
+             generate or a SpyOwl cookie refresh. */}
+          <button
+            onClick={() => { setPolishBannerDismissed(false); polishProgress.polish(id); }}
+            disabled={polishProgress.isPolishing || gen.isGenerating}
+            title="Re-run visuals, quality audit & ad-evidence embedding — without regenerating the article text (saves tokens)"
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-sky-600/10 text-sky-400 hover:bg-sky-600/20 border border-sky-600/20 transition disabled:opacity-50"
+          >
+            {polishProgress.isPolishing ? (
+              <><span className="animate-spin">⟳</span> Polishing...</>
+            ) : (
+              <><span>✨</span> Polish</>
             )}
           </button>
 

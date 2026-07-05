@@ -3,7 +3,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { headCheckUrl } from '@/lib/source-verify'
-import { lintProseFields } from '@/lib/content-lint'
+import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
 
 // Supabase → Replit shape transform lives in lib/sync-shape.js, shared
 // with the /sync route. That module handles field renames, funnel-stage
@@ -138,6 +138,11 @@ async function validateReviewReadyToPublish(review) {
       `Run AI Generate/Fill, save, and retry publish.`
     )
   }
+  // Structural-pollution gate: the body is an HTML fragment, never a full
+  // document or a structured-data dump. Blocks render-breaking content
+  // (embedded <html>/<body>, raw <script>, JSON-LD blobs) from being synced
+  // to the public renderer. (Audit: YMYL writing-process review.)
+  errors.push(...detectHtmlPollution(fullArticle, 'full_article'))
 
   // ─── (2) Citation URL validation (HEAD + blocked-domain check) ─
   const citations = Array.isArray(review.citations) ? review.citations : []
@@ -191,6 +196,37 @@ async function validateReviewReadyToPublish(review) {
   const hkOutside = /creatives?\s+distributed\s+outside/i.test(allText)
   if (hkExclusive && hkOutside) {
     warnings.push('Possible self-contradiction: text claims "all N creatives target X exclusively" AND "creatives distributed outside X" in the same review.')
+  }
+
+  // ─── Quality-auditor verdict gate ───────────────────────────────
+  // The Phase-5 auditor (Claude Sonnet 4.6, run at polish time) persists a VETO
+  // flag (audit_hard_fail) and score (trust_indicators.audit_score). The audit
+  // is no longer advisory — a VETO or a clear-fail score blocks publish.
+  if (review.audit_hard_fail === true) {
+    errors.push(
+      `quality audit VETO — ${review.audit_hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Polish.`
+    )
+  }
+  const auditScore = Number(review?.trust_indicators?.audit_score)
+  if (Number.isFinite(auditScore) && auditScore < 60) {
+    errors.push(`quality audit score ${auditScore}/100 is below the YMYL publish floor (60). Address the auditor's critical fixes and re-run Polish.`)
+  } else if (Number.isFinite(auditScore) && auditScore < 80) {
+    warnings.push(`quality audit score ${auditScore}/100 is below the target (80) — review the auditor's findings before publishing.`)
+  }
+
+  // ─── Real ad-evidence presence (don't silently ship evidence-less) ──
+  // Celebrity-impersonation reviews should embed the real scraped ad creatives
+  // (the SpyOwl screenshots) as first-party evidence. The generate route embeds
+  // them when the SpyOwl fetch succeeds, but that fetch can fail silently
+  // (expired cookie / SpyOwl down) and ship a review with NO evidence images.
+  // Surface that as a warning so it's caught, not missed. (Warning, not block,
+  // because SpyOwl is an external dependency and shouldn't be able to wedge
+  // publishing.)
+  const itemListItems = Array.isArray(review.item_list?.items) ? review.item_list.items : []
+  const isCelebrityCase = Number(review.item_list?.numberOfItems) > 0 || itemListItems.length > 0
+  const embeddedEvidence = (String(review.full_article || '').match(/\/creative-images\//g) || []).length
+  if (isCelebrityCase && embeddedEvidence === 0) {
+    warnings.push('No scraped ad-creative evidence embedded — this is a celebrity-impersonation review but full_article has 0 SpyOwl creative images. Refresh the SpyOwl cookie in Settings and re-embed (regenerate or "Embed Ad Evidence") so the real evidence ships on the live review.')
   }
 
   return { errors, warnings, issues }
