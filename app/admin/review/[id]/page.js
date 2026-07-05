@@ -1,6 +1,7 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
+import { truncateAtBoundary } from '@/lib/sync-shape';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -1508,6 +1509,7 @@ export default function ReviewEditor({ params }) {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value.substring(0, 60))}
+                  onBlur={(e) => setTitle(truncateAtBoundary(e.target.value, 60))}
                   placeholder="SEO title"
                   className="search-input w-full text-sm py-2"
                 />

@@ -652,7 +652,10 @@ export async function POST(request) {
           celebrities: cleanCelebrityList.length,
           creatives: brandData.total_creatives || 0,
           geos: brandData.total_geos || 0,
-          velocity: brandData.velocity_7d || 0,
+          // Audit 2026-07-05 (R10a): validator reads `canonical.velocity7d` —
+          // the old `velocity` key never matched, so "N new creatives" drift
+          // was never autofixed.
+          velocity7d: brandData.velocity_7d || 0,
           longevity: longevityDays,
         },
         'autofix',

@@ -167,6 +167,14 @@ async function validateReviewReadyToPublish(review) {
         continue
       }
       if (!r.value.ok) {
+        // Audit 2026-07-05 (A8 parity): transient network failures
+        // (timeouts/resets on bot-hostile gov hosts) soft-warn instead of
+        // blocking — same policy as the content publish gate. Permanent
+        // failures (404/410/DNS/unverifiable) still block.
+        if (/^network-transient:/i.test(r.value.reason || '')) {
+          warnings.push(`Citation URL check timed out (transient) — ${url}: ${r.value.reason}. Verify manually if it persists.`)
+          continue
+        }
         issues.push({
           code: 'INVALID_CITATION_URL',
           url,

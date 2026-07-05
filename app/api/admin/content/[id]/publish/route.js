@@ -4,6 +4,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { lintProseFields, collectArticleProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { verifySourceLedger } from '@/lib/source-verify'
+import { shapeContentForSync } from '@/lib/content-sync-shape'
 
 // ─── Publish quality gate ───
 //
@@ -195,7 +196,11 @@ async function validateSourcesForPublish(content) {
     return { ok: false, reasons, warnings, deadSources }
   }
 
-  const HARD_DEAD_RE = /HTTP 404|HTTP 410|malformed URL|unverifiable domain|network:/i
+  // Audit 2026-07-05 (A8): 'network-transient:' (timeouts/resets on slow gov
+  // hosts) is deliberately EXCLUDED — those soft-warn instead of blocking.
+  // Note `network:` below uses a negative lookahead so it doesn't match the
+  // transient prefix.
+  const HARD_DEAD_RE = /HTTP 404|HTTP 410|malformed URL|unverifiable domain|network(?!-transient):/i
   try {
     const { dropped } = await verifySourceLedger(sources)
     for (const d of dropped) {
@@ -256,8 +261,10 @@ async function syncToLiveBlog({ content, topic }) {
     return result
   }
 
+  // Audit 2026-07-05 (A4): canonicalize the two schema-shape generations
+  // (legacy flat vs resolver JSON-LD) before the row leaves for Replit.
   const payload = {
-    content,
+    content: shapeContentForSync(content),
     topic,
     destination: 'blog',
     url: `/blog/${content.slug}`,

@@ -1,5 +1,6 @@
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
+import { shapeContentForSync } from '@/lib/content-sync-shape';
 
 /**
  * POST /api/admin/content/[id]/sync
@@ -45,9 +46,10 @@ export async function POST(request, { params }) {
       topic = topicRows?.[0];
     }
 
-    // Build sync payload
+    // Build sync payload — schema columns canonicalized to the resolver
+    // JSON-LD shapes (audit 2026-07-05, A4).
     const payload = {
-      content,
+      content: shapeContentForSync(content),
       topic,
       destination: 'blog',
       url: `/blog/${content.slug}`,
