@@ -31,7 +31,7 @@
   ],
   "functions": {
     "app/api/cron/content-maintenance/route.js": {
-      "maxDuration": 300
+      "maxDuration": 700
     },
     "app/api/cron/scrape/route.js": {
       "maxDuration": 300

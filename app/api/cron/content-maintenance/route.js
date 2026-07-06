@@ -41,7 +41,15 @@ export const maxDuration = 300
 const AUDIT_PUBLISH_FLOOR = 80
 const MAX_STAGE_ATTEMPTS = 2
 const STUCK_MINUTES = 30
-const SSE_BUDGET_MS = 240000 // leave ~60s headroom inside the 300s lambda
+// The SSE budget MUST cover the full generate stage (route maxDuration=600s).
+// The old 240000 (240s) aborted generate mid-run: on Vercel, aborting the
+// cron's inbound-consuming fetch cancels the generate invocation before it
+// PATCHes the review row, so content was never persisted, the item went
+// stale, and every queue item parked as "stage 'generating' stuck twice".
+// generate now runs to completion in-tick (result.done fires, row written,
+// item advances same tick). Kept below the cron's own maxDuration (700s in
+// vercel.json) so a genuinely-hung stage still aborts cleanly with headroom.
+const SSE_BUDGET_MS = 680000
 
 function nowIso() {
   return new Date().toISOString()
