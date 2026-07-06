@@ -31,7 +31,10 @@ export async function GET(request, { params }) {
 
     if (run.status === 'awaiting_approval') {
       if (run.current_stage === 'competitor_gap') {
-        // Checkpoint A (after serp_clustering): pool + cluster review
+        // Checkpoint A (after serp_clustering): pool + cluster review.
+        // Includes member keywords + the unclustered list so the dashboard
+        // can offer per-keyword editing before approval.
+        const poolByKeyword = new Map((a.pool || []).map((e) => [e.keyword, e]))
         view.checkpoint_data = {
           checkpoint: 'pool_review',
           pool_size: (a.pool || []).length,
@@ -42,7 +45,17 @@ export async function GET(request, { params }) {
             keyword_count: c.keywords.length,
             dominant_intent: c.dominant_intent,
             aio_risk: c.aio_risk,
+            authority: c.authority || null,
+            keywords: c.keywords.map((k) => ({
+              keyword: k.keyword,
+              search_volume: k.search_volume ?? null,
+              keyword_difficulty: k.keyword_difficulty ?? null,
+            })),
           })),
+          unclustered: (a.unclustered || []).slice(0, 100).map((kw) => {
+            const e = poolByKeyword.get(kw)
+            return { keyword: kw, search_volume: e?.search_volume ?? null }
+          }),
           unclustered_count: (a.unclustered || []).length,
         }
       } else if (run.current_stage === 'save') {

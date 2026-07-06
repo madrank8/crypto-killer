@@ -413,6 +413,193 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
   );
 }
 
+// ─── Checkpoint A: editable keyword pool review ───
+
+const aioColor = (risk) =>
+  risk === 'critical' ? 'text-red-400' : risk === 'high' ? 'text-orange-400' : risk === 'medium' ? 'text-amber-400' : 'text-green-400';
+
+function PoolReviewCard({ checkpoint, onApprove, onCancel }) {
+  const [removedClusters, setRemovedClusters] = useState(() => new Set());
+  const [removedKeywords, setRemovedKeywords] = useState(() => new Set());
+  const [promoted, setPromoted] = useState(() => new Set());
+  const [expandedKey, setExpandedKey] = useState(null);
+  const [addText, setAddText] = useState('');
+  const [showUnclustered, setShowUnclustered] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const toggleSet = (setter) => (value) =>
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value); else next.add(value);
+      return next;
+    });
+  const toggleCluster = toggleSet(setRemovedClusters);
+  const toggleKeyword = toggleSet(setRemovedKeywords);
+  const togglePromoted = toggleSet(setPromoted);
+
+  const addedList = addText
+    .split('\n')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const editCount = removedClusters.size + removedKeywords.size + promoted.size + addedList.length;
+
+  const submit = async () => {
+    setSubmitting(true);
+    try {
+      await onApprove({
+        removed_cluster_keys: [...removedClusters],
+        removed_keywords: [...removedKeywords],
+        promoted_keywords: [...promoted],
+        added_keywords: addedList,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">
+      <p className="text-amber-300 text-sm font-medium">Keyword pool review</p>
+      <p className="text-xs text-gray-400 mt-1">
+        {checkpoint.pool_size} keywords → {checkpoint.clusters?.length || 0} SERP clusters
+        ({checkpoint.unclustered_count} unclustered). Click a cluster to expand its keywords;
+        remove what you don't want, add what's missing.
+      </p>
+
+      {/* Clusters */}
+      <div className="mt-2 max-h-64 overflow-y-auto space-y-0.5 pr-1">
+        {(checkpoint.clusters || []).map((c) => {
+          const clusterRemoved = removedClusters.has(c.cluster_key);
+          const isExpanded = expandedKey === c.cluster_key;
+          return (
+            <div key={c.cluster_key} className={`rounded-md ${clusterRemoved ? 'opacity-40' : ''}`}>
+              <div className="flex items-center gap-2 text-[11px] text-gray-400 py-0.5">
+                <button
+                  type="button"
+                  className="text-gray-500 hover:text-white flex-shrink-0 w-4"
+                  onClick={() => setExpandedKey(isExpanded ? null : c.cluster_key)}
+                  title="Show keywords"
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </button>
+                <span className={`text-gray-200 truncate flex-1 ${clusterRemoved ? 'line-through' : ''}`}>{c.head_keyword}</span>
+                <span className="tabular-nums">{c.keyword_count} kw</span>
+                <span className="tabular-nums">vol {c.total_volume?.toLocaleString?.() ?? c.total_volume}</span>
+                {c.authority?.dr_min != null && (
+                  <span className={c.authority.dr_min < 30 ? 'text-green-400' : c.authority.dr_min < 50 ? 'text-amber-400' : 'text-gray-500'} title="Weakest DR in top 10 — lower is easier to win">
+                    DR≥{c.authority.dr_min}
+                  </span>
+                )}
+                <span className={aioColor(c.aio_risk)}>AIO:{c.aio_risk}</span>
+                <button
+                  type="button"
+                  className={`flex-shrink-0 px-1 ${clusterRemoved ? 'text-green-400 hover:text-green-300' : 'text-gray-600 hover:text-red-400'}`}
+                  title={clusterRemoved ? 'Restore cluster' : 'Remove cluster'}
+                  onClick={() => toggleCluster(c.cluster_key)}
+                >
+                  {clusterRemoved ? '↺' : '✕'}
+                </button>
+              </div>
+              {isExpanded && !clusterRemoved && (
+                <div className="ml-6 mb-1 flex flex-wrap gap-1">
+                  {(c.keywords || []).map((k) => {
+                    const kwRemoved = removedKeywords.has(k.keyword);
+                    return (
+                      <button
+                        key={k.keyword}
+                        type="button"
+                        onClick={() => toggleKeyword(k.keyword)}
+                        title={kwRemoved ? 'Restore keyword' : 'Remove keyword'}
+                        className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+                          kwRemoved
+                            ? 'border-red-500/40 text-red-400 line-through'
+                            : 'border-gray-700/60 text-gray-300 hover:border-red-400/50 hover:text-red-300'
+                        }`}
+                      >
+                        {k.keyword}
+                        {k.search_volume != null && <span className="text-gray-500"> {k.search_volume}</span>}
+                        <span className="ml-1">{kwRemoved ? '↺' : '✕'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Unclustered */}
+      {(checkpoint.unclustered || []).length > 0 && (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="text-[11px] text-gray-400 hover:text-white"
+            onClick={() => setShowUnclustered(!showUnclustered)}
+          >
+            {showUnclustered ? '▾' : '▸'} Unclustered keywords ({checkpoint.unclustered_count}) — click + to include as standalone topics
+          </button>
+          {showUnclustered && (
+            <div className="mt-1 flex flex-wrap gap-1 max-h-32 overflow-y-auto pr-1">
+              {checkpoint.unclustered.map((u) => {
+                const isPromoted = promoted.has(u.keyword);
+                const isRemoved = removedKeywords.has(u.keyword);
+                if (isRemoved) return null;
+                return (
+                  <button
+                    key={u.keyword}
+                    type="button"
+                    onClick={() => togglePromoted(u.keyword)}
+                    title={isPromoted ? 'Undo include' : 'Include as its own topic'}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
+                      isPromoted
+                        ? 'border-green-500/50 text-green-300 bg-green-900/20'
+                        : 'border-gray-700/60 text-gray-400 hover:border-green-400/50 hover:text-green-300'
+                    }`}
+                  >
+                    {isPromoted ? '✓ ' : '+ '}{u.keyword}
+                    {u.search_volume != null && <span className="text-gray-500"> {u.search_volume}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Add keywords */}
+      <label className="block text-[11px] text-gray-400 mt-3 mb-1">
+        Add keywords (one per line, max 50) — grounded with real DataForSEO/Ahrefs metrics on approve
+      </label>
+      <textarea
+        className="search-input w-full text-xs min-h-[52px]"
+        value={addText}
+        onChange={(e) => setAddText(e.target.value)}
+        placeholder={'crypto scam recovery uk\nhow to report a crypto scammer'}
+      />
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          disabled={submitting}
+          className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white disabled:opacity-50"
+          onClick={submit}
+        >
+          {submitting ? 'Applying…' : editCount > 0 ? `Approve with ${editCount} edit${editCount === 1 ? '' : 's'} & continue` : 'Approve pool & continue'}
+        </button>
+        <button
+          type="button"
+          className="px-3 py-2 rounded-lg text-sm text-gray-500 hover:text-red-400"
+          onClick={onCancel}
+          title="Cancel this run"
+        >
+          Cancel run
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ChevronToggle({ expanded, size = 'md' }) {
   const cls = size === 'sm' ? 'w-3 h-3' : 'w-4 h-4';
   return (
@@ -677,6 +864,21 @@ export default function TopicalMapPage() {
       setRunError(null);
       await driveRun(run.id);
     }
+  };
+
+  const cancelRun = async () => {
+    if (!run?.id) return;
+    if (!window.confirm('Cancel this run? It will stop here and cannot be resumed.')) return;
+    try {
+      await fetch(`/api/admin/topical-map/runs/${run.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch { /* best-effort */ }
+    setCheckpoint(null);
+    setRunOpen(false);
+    setRun(null);
+    setRunError(null);
   };
 
   // Phase 4 — create a free-form topic + draft content via the dual-mode
@@ -986,30 +1188,9 @@ export default function TopicalMapPage() {
               })}
             </div>
 
-            {/* Checkpoint A: pool + cluster review */}
+            {/* Checkpoint A: editable pool + cluster review */}
             {checkpoint?.checkpoint === 'pool_review' && (
-              <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">
-                <p className="text-amber-300 text-sm font-medium">Keyword pool review</p>
-                <p className="text-xs text-gray-400 mt-1">
-                  {checkpoint.pool_size} keywords → {checkpoint.clusters?.length || 0} SERP clusters
-                  ({checkpoint.unclustered_count} unclustered).
-                </p>
-                <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
-                  {(checkpoint.clusters || []).slice(0, 40).map((c) => (
-                    <div key={c.cluster_key} className="flex items-center gap-2 text-[11px] text-gray-400">
-                      <span className="text-gray-200 truncate flex-1">{c.head_keyword}</span>
-                      <span className="tabular-nums">{c.keyword_count} kw</span>
-                      <span className="tabular-nums">vol {c.total_volume?.toLocaleString?.() ?? c.total_volume}</span>
-                      <span className={
-                        c.aio_risk === 'critical' ? 'text-red-400' : c.aio_risk === 'high' ? 'text-orange-400' : c.aio_risk === 'medium' ? 'text-amber-400' : 'text-green-400'
-                      }>AIO:{c.aio_risk}</span>
-                    </div>
-                  ))}
-                </div>
-                <button type="button" className="mt-3 w-full py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white" onClick={() => approveCheckpoint()}>
-                  Approve pool & continue
-                </button>
-              </div>
+              <PoolReviewCard checkpoint={checkpoint} onApprove={approveCheckpoint} onCancel={cancelRun} />
             )}
 
             {/* Checkpoint B: QA report review */}
