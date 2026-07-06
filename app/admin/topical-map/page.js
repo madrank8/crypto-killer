@@ -439,11 +439,13 @@ export default function TopicalMapPage() {
   const [editingId, setEditingId] = useState(null);
   const [statusFilter, setStatusFilter] = useState('');
 
-  const [genOpen, setGenOpen] = useState(false);
-  const [genProgress, setGenProgress] = useState(0);
-  const [genStep, setGenStep] = useState('');
-  const [genMessage, setGenMessage] = useState('');
-  const [genError, setGenError] = useState(null);
+  // v2 staged-pipeline run state
+  const [runOpen, setRunOpen] = useState(false);
+  const [run, setRun] = useState(null); // { id, status, current_stage, map_id }
+  const [stages, setStages] = useState([]);
+  const [stageResults, setStageResults] = useState({}); // stageKey → { summary, ms }
+  const [checkpoint, setCheckpoint] = useState(null); // checkpoint_data from GET run
+  const [runError, setRunError] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [writingId, setWritingId] = useState(null);
   const [seedOpen, setSeedOpen] = useState(false);
@@ -558,66 +560,122 @@ export default function TopicalMapPage() {
     router.replace(`/admin/topical-map?${params.toString()}`);
   };
 
-  const runGenerate = async (topicKeyword) => {
+  // \u2500\u2500 v2 staged-pipeline run driver \u2500\u2500
+  // create run \u2192 loop /advance \u2192 pause at checkpoints \u2192 /approve \u2192 continue.
+  // Failed stages are resumable (advance retries the current stage).
+
+  const selectGeneratedMap = useCallback((newId) => {
+    setMapId(newId);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('map_id', newId);
+    router.replace(`/admin/topical-map?${params.toString()}`);
+    loadMaps();
+    loadTopicsForMap(newId);
+  }, [searchParams, router, loadMaps, loadTopicsForMap]);
+
+  const fetchCheckpoint = async (runId) => {
+    const res = await fetch(`/api/admin/topical-map/runs/${runId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    setCheckpoint(data.run?.checkpoint_data || null);
+  };
+
+  const driveRun = async (runId) => {
+    setGenerating(true);
+    setRunError(null);
+    try {
+      // Hard bound: more iterations than stages can ever need.
+      for (let i = 0; i < 15; i++) {
+        const res = await fetch(`/api/admin/topical-map/runs/${runId}/advance`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (Array.isArray(data.stages) && data.stages.length) setStages(data.stages);
+        setStageResults((prev) => ({
+          ...prev,
+          [data.executed_stage]: { summary: data.summary, ms: data.ms, ok: true },
+        }));
+        setRun((prev) => ({
+          ...(prev || {}),
+          id: runId,
+          status: data.status,
+          current_stage: data.current_stage,
+          map_id: data.map_id || prev?.map_id || null,
+        }));
+        if (data.status === 'awaiting_approval') {
+          await fetchCheckpoint(runId);
+          return;
+        }
+        if (data.done) {
+          if (data.map_id) selectGeneratedMap(data.map_id);
+          return;
+        }
+      }
+      throw new Error('Run did not complete within the expected number of stages');
+    } catch (e) {
+      setRunError(e.message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const startRun = async (topicKeyword) => {
     if (!token) return;
     const keyword = String(topicKeyword || '').trim();
     if (!keyword) { setSeedError('Topic / keyword is required'); return; }
 
-    setGenerating(true);
-    setGenOpen(true);
-    setGenError(null);
-    setGenProgress(2);
-    setGenStep('init');
-    setGenMessage(`Starting with seed topic: "${keyword}"\u2026`);
     setSeedOpen(false);
     setSeedError('');
+    setRunOpen(true);
+    setRun(null);
+    setStageResults({});
+    setCheckpoint(null);
+    setRunError(null);
+    setGenerating(true);
 
     try {
-      const res = await fetch('/api/admin/topical-map/generate', {
+      const res = await fetch('/api/admin/topical-map/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ topic_keyword: keyword }),
+        body: JSON.stringify({ seed_keyword: keyword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setStages(data.stages || []);
+      setRun(data.run);
+      await driveRun(data.run.id);
+    } catch (e) {
+      setRunError(e.message);
+      setGenerating(false);
+    }
+  };
+
+  const approveCheckpoint = async (edits = {}) => {
+    if (!run?.id) return;
+    setCheckpoint(null);
+    try {
+      const res = await fetch(`/api/admin/topical-map/runs/${run.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(edits),
       });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errData.error || `HTTP ${res.status}`);
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || 'Approve failed');
       }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (typeof data.progress === 'number') setGenProgress(data.progress);
-              if (data.step) setGenStep(data.step);
-              if (data.message) setGenMessage(data.message);
-              if (data.error) setGenError(data.message || 'Error');
-              if (data.result?.map_id) {
-                const newId = data.result.map_id;
-                setMapId(newId);
-                const params = new URLSearchParams(searchParams.toString());
-                params.set('map_id', newId);
-                router.replace(`/admin/topical-map?${params.toString()}`);
-                loadMaps();
-                loadTopicsForMap(newId);
-              }
-            } catch { /* ignore */ }
-          }
-        }
-      }
+      await driveRun(run.id);
     } catch (e) {
-      setGenError(e.message);
-      setGenStep('error');
-    } finally {
-      setGenerating(false);
+      setRunError(e.message);
+    }
+  };
+
+  const resumeRun = async () => {
+    if (run?.id) {
+      setRunError(null);
+      await driveRun(run.id);
     }
   };
 
@@ -891,19 +949,110 @@ export default function TopicalMapPage() {
 
       {/* ── Modals ── */}
 
-      {/* Map generation progress */}
-      {genOpen && (
+      {/* v2 staged pipeline run panel */}
+      {runOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 shadow-xl">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-lg mx-4 shadow-xl max-h-[85vh] overflow-y-auto">
             <h3 className="text-white font-semibold text-lg">
-              {genError ? 'Generation failed' : genStep === 'done' ? 'Map ready' : 'Generating topical map'}
+              {runError ? 'Pipeline stage failed' : run?.status === 'completed' ? 'Map ready' : checkpoint ? 'Checkpoint — your review needed' : 'Building topical map (v2 pipeline)'}
             </h3>
-            <p className="text-gray-500 text-sm mt-1">{genMessage}</p>
-            <div className="mt-4 h-2 bg-dark-bg rounded-full overflow-hidden border border-gray-800">
-              <div className={`h-full rounded-full transition-all ${genError ? 'bg-red-500' : 'bg-red-600'}`} style={{ width: `${genProgress}%` }} />
+            {run?.seed_keyword && <p className="text-gray-500 text-sm mt-0.5">Seed: {run.seed_keyword}</p>}
+
+            {/* Stage timeline */}
+            <div className="mt-4 space-y-1.5">
+              {stages.map((s) => {
+                const result = stageResults[s.key];
+                const isCurrent = run?.current_stage === s.key && run?.status !== 'completed';
+                const failed = isCurrent && !!runError;
+                return (
+                  <div key={s.key} className={`flex items-start gap-2.5 px-3 py-2 rounded-lg border text-sm ${
+                    failed ? 'border-red-600/40 bg-red-900/20'
+                      : result ? 'border-green-700/30 bg-green-900/10'
+                      : isCurrent ? 'border-blue-600/40 bg-blue-900/10'
+                      : 'border-gray-800/50'
+                  }`}>
+                    <span className="mt-0.5 flex-shrink-0">
+                      {failed ? <span className="text-red-400">✕</span>
+                        : result ? <span className="text-green-400">✓</span>
+                        : isCurrent && generating ? <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                        : <span className="text-gray-600">○</span>}
+                    </span>
+                    <div className="min-w-0">
+                      <p className={result || isCurrent ? 'text-gray-200' : 'text-gray-500'}>{s.label}</p>
+                      {result?.summary && <p className="text-[11px] text-gray-500 mt-0.5">{result.summary}{result.ms ? ` · ${(result.ms / 1000).toFixed(1)}s` : ''}</p>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            {(genError || genStep === 'done' || (!generating && genStep === 'error')) && (
-              <button type="button" className="mt-4 w-full py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setGenOpen(false); setGenError(null); }}>
+
+            {/* Checkpoint A: pool + cluster review */}
+            {checkpoint?.checkpoint === 'pool_review' && (
+              <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">
+                <p className="text-amber-300 text-sm font-medium">Keyword pool review</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {checkpoint.pool_size} keywords → {checkpoint.clusters?.length || 0} SERP clusters
+                  ({checkpoint.unclustered_count} unclustered).
+                </p>
+                <div className="mt-2 max-h-48 overflow-y-auto space-y-1">
+                  {(checkpoint.clusters || []).slice(0, 40).map((c) => (
+                    <div key={c.cluster_key} className="flex items-center gap-2 text-[11px] text-gray-400">
+                      <span className="text-gray-200 truncate flex-1">{c.head_keyword}</span>
+                      <span className="tabular-nums">{c.keyword_count} kw</span>
+                      <span className="tabular-nums">vol {c.total_volume?.toLocaleString?.() ?? c.total_volume}</span>
+                      <span className={
+                        c.aio_risk === 'critical' ? 'text-red-400' : c.aio_risk === 'high' ? 'text-orange-400' : c.aio_risk === 'medium' ? 'text-amber-400' : 'text-green-400'
+                      }>AIO:{c.aio_risk}</span>
+                    </div>
+                  ))}
+                </div>
+                <button type="button" className="mt-3 w-full py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white" onClick={() => approveCheckpoint()}>
+                  Approve pool & continue
+                </button>
+              </div>
+            )}
+
+            {/* Checkpoint B: QA report review */}
+            {checkpoint?.checkpoint === 'qa_review' && (
+              <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">
+                <p className="text-amber-300 text-sm font-medium">QA report</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {checkpoint.qa_report?.clean_nodes}/{checkpoint.qa_report?.total_nodes} nodes clean.
+                </p>
+                {checkpoint.qa_report?.counts && Object.keys(checkpoint.qa_report.counts).length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {Object.entries(checkpoint.qa_report.counts).map(([type, count]) => (
+                      <span key={type} className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                        {type.replace(/_/g, ' ')}: {count}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                  {(checkpoint.qa_report?.flags || []).slice(0, 30).map((f, i) => (
+                    <p key={i} className="text-[11px] text-gray-400"><span className="text-gray-200">{f.title}</span> — {f.detail}</p>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-2">Flags are saved onto each topic (qa_flags) — you can resolve them after the map is created.</p>
+                <button type="button" className="mt-3 w-full py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white" onClick={() => approveCheckpoint()}>
+                  Approve & save map
+                </button>
+              </div>
+            )}
+
+            {runError && (
+              <div className="mt-4 p-3 rounded-lg border border-red-600/30 bg-red-900/10">
+                <p className="text-red-300 text-sm">{runError}</p>
+                {run?.id && (
+                  <button type="button" className="mt-2 w-full py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white" onClick={resumeRun}>
+                    Resume from failed stage
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!generating && !checkpoint && (
+              <button type="button" className="mt-4 w-full py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setRunOpen(false); setRunError(null); }}>
                 Close
               </button>
             )}
@@ -1017,11 +1166,11 @@ export default function TopicalMapPage() {
               onChange={(e) => setSeedKeyword(e.target.value)}
               placeholder="e.g. pig butchering scam"
               className="search-input w-full mt-4"
-              onKeyDown={(e) => { if (e.key === 'Enter') runGenerate(seedKeyword); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') startRun(seedKeyword); }}
             />
             {seedError && <p className="text-red-400 text-sm mt-2">{seedError}</p>}
             <div className="mt-4 flex gap-2">
-              <button type="button" className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white" onClick={() => runGenerate(seedKeyword)}>Generate</button>
+              <button type="button" className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white" onClick={() => startRun(seedKeyword)}>Generate</button>
               <button type="button" className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setSeedOpen(false); setSeedError(''); }}>Cancel</button>
             </div>
           </div>
