@@ -46,10 +46,12 @@ export async function GET(request, { params }) {
             dominant_intent: c.dominant_intent,
             aio_risk: c.aio_risk,
             authority: c.authority || null,
+            covered_count: c.covered_count || 0,
             keywords: c.keywords.map((k) => ({
               keyword: k.keyword,
               search_volume: k.search_volume ?? null,
               keyword_difficulty: k.keyword_difficulty ?? null,
+              covered_by: k.covered_by || null,
             })),
           })),
           unclustered: (a.unclustered || []).slice(0, 100).map((kw) => {

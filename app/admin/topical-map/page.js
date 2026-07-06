@@ -98,6 +98,36 @@ function StatusBadge({ status }) {
   );
 }
 
+// content_role taxonomy: money (monetization), pillar (authority hubs),
+// supporting (informational fan-out), trust (E-E-A-T builders)
+const roleColors = {
+  money: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25',
+  pillar: 'bg-purple-500/10 text-purple-300 border-purple-500/25',
+  supporting: 'bg-gray-500/10 text-gray-400 border-gray-600/30',
+  trust: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+};
+
+function RoleBadge({ role, expandsSlug }) {
+  if (!role && !expandsSlug) return null;
+  return (
+    <>
+      {role && (
+        <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${roleColors[role] || roleColors.supporting}`}>
+          {role}
+        </span>
+      )}
+      {expandsSlug && (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border bg-blue-500/10 text-blue-300 border-blue-500/25"
+          title={`Expands existing page: /${expandsSlug}`}
+        >
+          \u2197 expands
+        </span>
+      )}
+    </>
+  );
+}
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -222,6 +252,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <div className="flex items-center gap-2.5">
               <span className="text-white font-semibold text-base truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
+              <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
               <StatusBadge status={topic.content_status} />
             </div>
             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
@@ -283,6 +314,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <div className="flex items-center gap-2">
               <span className="text-white text-sm font-medium truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
+              <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
               <StatusBadge status={topic.content_status} />
               <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
             </div>
@@ -333,6 +365,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           <div className="flex items-center gap-2">
             <span className="text-gray-200 text-sm truncate">{topic.title}</span>
             <TypeBadge contentType={topic.content_type} />
+            <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
           </div>
           {topic.target_keyword && topic.target_keyword !== topic.title && (
             <p className="text-[11px] text-gray-600 mt-0.5 truncate">{topic.target_keyword}</p>
@@ -485,6 +518,11 @@ function PoolReviewCard({ checkpoint, onApprove, onCancel }) {
                 <span className={`text-gray-200 truncate flex-1 ${clusterRemoved ? 'line-through' : ''}`}>{c.head_keyword}</span>
                 <span className="tabular-nums">{c.keyword_count} kw</span>
                 <span className="tabular-nums">vol {c.total_volume?.toLocaleString?.() ?? c.total_volume}</span>
+                {c.covered_count > 0 && (
+                  <span className="text-blue-400" title={`${c.covered_count} keyword(s) already covered by live pages — new nodes will expand them, not duplicate`}>
+                    {c.covered_count} live
+                  </span>
+                )}
                 {c.authority?.dr_min != null && (
                   <span className={c.authority.dr_min < 30 ? 'text-green-400' : c.authority.dr_min < 50 ? 'text-amber-400' : 'text-gray-500'} title="Weakest DR in top 10 — lower is easier to win">
                     DR≥{c.authority.dr_min}
@@ -513,10 +551,12 @@ function PoolReviewCard({ checkpoint, onApprove, onCancel }) {
                         className={`text-[10px] px-1.5 py-0.5 rounded border transition ${
                           kwRemoved
                             ? 'border-red-500/40 text-red-400 line-through'
-                            : 'border-gray-700/60 text-gray-300 hover:border-red-400/50 hover:text-red-300'
+                            : k.covered_by
+                              ? 'border-blue-500/40 text-blue-300 hover:border-red-400/50 hover:text-red-300'
+                              : 'border-gray-700/60 text-gray-300 hover:border-red-400/50 hover:text-red-300'
                         }`}
                       >
-                        {k.keyword}
+                        {k.covered_by ? '◉ ' : ''}{k.keyword}
                         {k.search_volume != null && <span className="text-gray-500"> {k.search_volume}</span>}
                         <span className="ml-1">{kwRemoved ? '↺' : '✕'}</span>
                       </button>
