@@ -8,6 +8,7 @@ import { classifyThreat, computeCategoryScores, dedupeCelebrityList, pluralize }
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
+import { fetchRecencyEvidence } from '@/lib/recency-evidence'
 import { runReviewPipeline } from '@/lib/review-pipeline'
 import { buildAiDisclosure } from '@/lib/ai-disclosure'
 
@@ -525,6 +526,36 @@ export async function POST(request) {
             }
           } catch (filterErr) {
             console.error('[generate] brand-owned source filter failed (non-fatal):', filterErr.message)
+          }
+
+          // ═══════════════════════════════════════════════════════════════
+          // PHASE 2.6: RECENCY EVIDENCE MERGE (last30days → storm-research)
+          //
+          // Read the pre-grounded community pool for this brand (populated by
+          // the Cowork pre-pass, see last30days-integration-plan.md) and merge
+          // it into the ledger as a `community_report` class. Regulator/news
+          // sources stay FIRST; community entries are capped + appended so they
+          // corroborate (experience signal) without crowding out authority.
+          //
+          // Gated by RECENCY_EVIDENCE_ENABLED (default off) — fetchRecencyEvidence
+          // returns an empty result when the flag is unset, so this is a no-op in
+          // production until the writer-side prompt rules are reviewed and the
+          // flag is flipped. Best-effort: never throws.
+          // ═══════════════════════════════════════════════════════════════
+          try {
+            const recency = await fetchRecencyEvidence(brandData.id)
+            if (recency.entries.length > 0) {
+              // Authority first, community after — the writer prompt relies on
+              // this ordering to keep regulator findings visually primary.
+              sourceLedger = [...sourceLedger, ...recency.entries]
+              send({
+                step: 'sources_recency',
+                progress: 44,
+                message: `Merged ${recency.entries.length} community report${recency.entries.length === 1 ? '' : 's'} from the last-30-day pool${recency.stale ? ' (stale window — down-weighted)' : ''}`,
+              })
+            }
+          } catch (recencyErr) {
+            console.error('[generate] recency merge failed (non-fatal):', recencyErr.message)
           }
 
           // ═══ PHASE 3 WRITER MODE SWITCH (P0-2, skill audit) ═══
