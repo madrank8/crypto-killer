@@ -2,6 +2,7 @@ import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
+import { computePlatformAggregates } from '@/lib/platform-aggregates'
 import { headCheckUrl } from '@/lib/source-verify'
 import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
 
@@ -445,7 +446,7 @@ export async function POST(request, { params }) {
           // each other, both soft-fail to empty arrays, both feed the Replit
           // payload. Cuts ~100ms off every publish round-trip vs sequential.
           const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-          const [translations, recentAds] = await Promise.all([
+          const [translations, recentAds, platformStats] = await Promise.all([
             // Published translations only — drafts never reach Replit.
             supaFetch(
               `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
@@ -490,6 +491,13 @@ export async function POST(request, { params }) {
                     return []
                   })
               : Promise.resolve([]),
+
+            // Platform aggregates for sync-time {{platform_stat:*}} token
+            // resolution (2026-07-08) — see sync route for rationale.
+            computePlatformAggregates().catch((e) => {
+              console.warn('[publish] platform aggregates fetch failed (non-fatal):', e?.message)
+              return null
+            }),
           ])
 
           if (brand) {
@@ -498,7 +506,7 @@ export async function POST(request, { params }) {
             const syncReview = shapeReviewForSync(
               { ...review, ...updates },
               brand,
-              { landingUrls, translations, recentAds },
+              { landingUrls, translations, recentAds, platformStats },
             )
 
             const syncRes = await fetch(`${replitUrl}/api/sync/review`, {

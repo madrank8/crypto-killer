@@ -1,6 +1,7 @@
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape';
+import { computePlatformAggregates } from '@/lib/platform-aggregates';
 
 /**
  * POST /api/admin/reviews/[id]/sync
@@ -108,7 +109,7 @@ export async function POST(request, { params }) {
     // pre-sync prep step. Each lookup soft-fails to its empty-array fallback;
     // they're independently optional and never block the sync.
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [translations, recentAds] = await Promise.all([
+    const [translations, recentAds, platformStats] = await Promise.all([
       // Published translations only — drafts stay on Vercel and are never
       // canonical-synced. Drives hreflang, notranslate, and locale routes.
       supaFetch(
@@ -154,11 +155,21 @@ export async function POST(request, { params }) {
           console.warn('[manual-sync] recent ads fetch failed (non-fatal):', e?.message);
           return [];
         }),
+
+      // Platform-wide aggregates so sync-shape can resolve
+      // {{platform_stat:*}} tokens into literal numbers before the payload
+      // leaves Vercel (2026-07-08: Replit's render-time resolver missed
+      // total_brands_tracked and shipped the raw token to the public page).
+      // Non-fatal: null → tokens pass through unchanged.
+      computePlatformAggregates().catch((e) => {
+        console.warn('[manual-sync] platform aggregates fetch failed (non-fatal):', e?.message);
+        return null;
+      }),
     ]);
 
     // Call Replit sync webhook — shape Supabase review + brand into the
     // decomposed payload Replit's sync/review endpoint expects.
-    const syncReview = shapeReviewForSync(review, brand, { landingUrls, translations, recentAds });
+    const syncReview = shapeReviewForSync(review, brand, { landingUrls, translations, recentAds, platformStats });
     const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
       method: 'POST',
       headers: {

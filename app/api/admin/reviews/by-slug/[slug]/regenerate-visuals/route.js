@@ -3,6 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { supaFetch } from '@/lib/supabase'
 import { processVisuals } from '@/lib/visual-generator'
 import { normalizeBrandLandingUrls, shapeReviewForSync } from '@/lib/sync-shape'
+import { computePlatformAggregates } from '@/lib/platform-aggregates'
 
 export const maxDuration = 300
 
@@ -23,7 +24,11 @@ async function syncPublishedReview(review, brand) {
     console.error('[regenerate-visuals] brand_landing_pages fetch failed:', err?.message)
   }
 
-  const syncReview = shapeReviewForSync(review, brand, { landingUrls })
+  const platformStats = await computePlatformAggregates().catch((err) => {
+    console.warn('[regenerate-visuals] platform aggregates fetch failed (non-fatal):', err?.message)
+    return null
+  })
+  const syncReview = shapeReviewForSync(review, brand, { landingUrls, platformStats })
   const res = await fetch(`${replitUrl}/api/sync/review`, {
     method: 'POST',
     headers: {
