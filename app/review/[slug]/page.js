@@ -30,6 +30,22 @@ import {
 export const revalidate = 60
 export const dynamicParams = true
 
+/** ISO-3166 alpha-2 → emoji flag (regional indicator symbols). No assets. */
+function flagEmoji(code) {
+  const cc = String(code || '').trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(cc)) return '🏳️'
+  return String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65))
+}
+
+/** ISO-3166 alpha-2 → English country name (server-side Intl, no lookup table). */
+function countryName(code) {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(String(code).toUpperCase()) || code
+  } catch {
+    return code
+  }
+}
+
 function truncate(str, max) {
   if (!str || typeof str !== 'string') return ''
   const t = str.trim()
@@ -253,7 +269,7 @@ export default async function ReviewPage({ params }) {
     if (review.brand_id) {
       try {
         const brands = await supabaseRequest(
-          `/scam_brands?id=eq.${review.brand_id}&select=id,slug,name,total_geos,total_creatives,total_celebrities,velocity_trend,scam_score,status,first_seen_at,last_seen_at`
+          `/scam_brands?id=eq.${review.brand_id}&select=id,slug,name,total_geos,total_creatives,total_celebrities,velocity_trend,velocity_7d,geo_breakdown,scam_score,status,first_seen_at,last_seen_at`
         )
         if (brands && brands.length > 0) {
           brand = brands[0]
@@ -262,6 +278,21 @@ export default async function ReviewPage({ params }) {
         console.error('Error fetching brand:', err)
       }
     }
+
+    // ── Geo pressure: top-5 targeted countries for the flags widget ──
+    // Mirrors the geo_pressure field shipped to Replit via sync-shape.js so
+    // the Vercel preview matches production. Empty → widget hidden.
+    const geoPressure = Array.isArray(brand?.geo_breakdown)
+      ? brand.geo_breakdown
+          .filter((g) => g && typeof g.geo === 'string' && g.geo.trim() && Number.isFinite(Number(g.n)))
+          .slice(0, 5)
+          .map((g) => ({
+            code: g.geo.trim().toUpperCase(),
+            ads: Number(g.n),
+            share: Number.isFinite(Number(g.share)) ? Number(g.share) : 0,
+          }))
+      : []
+    const geoPressureMax = geoPressure.length > 0 ? geoPressure[0].ads : 0
 
     // ── Internal-linking flywheel (Task 10) — extra /review + /scams links, no schema change ──
     let recentReviewsRows = []
@@ -451,6 +482,82 @@ export default async function ReviewPage({ params }) {
                   value={brand.total_celebrities?.toLocaleString() || '0'}
                   colorClass="text-blue-500"
                 />
+              </div>
+            )}
+
+            {/* Ad velocity + heaviest-hit countries (flags widget, 2026-07-08).
+               Mirrors the production Replit card so the preview is faithful.
+               Hidden entirely when the brand has no geo_breakdown. */}
+            {brand && geoPressure.length > 0 && (
+              <div className="mt-4 bg-slate-950/60 border border-slate-800 rounded-2xl px-6 py-5 flex flex-wrap items-center gap-6">
+                <div className="min-w-[180px]">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <TrendingUp size={15} className="text-amber-500" />
+                    <span className="text-[11px] tracking-[0.12em] font-medium text-slate-400">AD VELOCITY</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                    <span className="text-2xl font-medium text-slate-50">{(brand.velocity_7d ?? 0).toLocaleString()}</span>
+                    <span className="text-[13px] text-slate-400">new ads this week</span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    {brand.name} ad campaign activity in the last 7 days
+                  </p>
+                </div>
+
+                <div className="flex-1 min-w-[280px]">
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <Globe size={14} className="text-red-400" />
+                    <span className="text-[11px] tracking-[0.12em] font-medium text-slate-400">HEAVIEST-HIT COUNTRIES</span>
+                    {brand.total_creatives > 0 && (
+                      <span className="text-[11px] text-slate-500">· share of {brand.total_creatives.toLocaleString()} scraped ads</span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {geoPressure.map((g, i) => (
+                      <div
+                        key={g.code}
+                        title={`${countryName(g.code)}: ${g.ads} scam ad creatives (${Math.round(g.share * 100)}% of all ads scraped for ${brand.name})`}
+                        className={`rounded-xl px-3 py-2 min-w-[76px] border ${
+                          i === 0
+                            ? 'bg-amber-500/10 border-amber-500/40'
+                            : 'bg-slate-900/50 border-slate-800'
+                        }`}
+                      >
+                        <div className="text-xl leading-none" aria-hidden="true">{flagEmoji(g.code)}</div>
+                        <div className={`text-xs font-medium mt-1.5 ${i === 0 ? 'text-amber-400' : 'text-slate-200'}`}>
+                          {countryName(g.code)}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {g.ads.toLocaleString()} ads · {Math.round(g.share * 100)}%
+                        </div>
+                        <div className="h-[3px] bg-slate-800 rounded-sm mt-1.5">
+                          <div
+                            className={`h-[3px] rounded-sm ${i === 0 ? 'bg-amber-500' : 'bg-red-400'}`}
+                            style={{ width: `${geoPressureMax > 0 ? Math.max(8, Math.round((g.ads / geoPressureMax) * 100)) : 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {brand.velocity_trend && (
+                  <div className="self-start">
+                    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border ${
+                      brand.velocity_trend === 'surging' || brand.velocity_trend === 'rising'
+                        ? 'bg-amber-500/10 border-amber-500/40 text-amber-400'
+                        : brand.velocity_trend === 'declining' || brand.velocity_trend === 'dead'
+                          ? 'bg-slate-800/60 border-slate-700 text-slate-400'
+                          : 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                    }`}>
+                      {brand.velocity_trend === 'declining' || brand.velocity_trend === 'dead'
+                        ? <TrendingDown size={14} />
+                        : <TrendingUp size={14} />}
+                      {brand.velocity_trend.charAt(0).toUpperCase() + brand.velocity_trend.slice(1)}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

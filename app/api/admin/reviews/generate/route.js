@@ -1444,6 +1444,15 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
       wordCount,
       longevityDays,
       threat,
+      // Enrichment payload (2026-07-08): previously omitted, so the stored
+      // schema_json shipped without Dataset/ItemList/ClaimReview/citation
+      // nodes even when the writer produced them. Mirrors the polish route.
+      dataset: reviewContent.dataset || null,
+      claims: Array.isArray(reviewContent.claims) ? reviewContent.claims : [],
+      itemList: Array.isArray(reviewContent.item_list?.items)
+        ? reviewContent.item_list.items
+        : (Array.isArray(reviewContent.item_list) ? reviewContent.item_list : []),
+      typedCitations: Array.isArray(reviewContent.citations) ? reviewContent.citations : [],
     })
 
           send({ step: 'saving', progress: 90, message: 'Saving to database...' })

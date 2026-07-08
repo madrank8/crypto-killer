@@ -1207,6 +1207,44 @@ export default function ReviewEditor({ params }) {
         />
       )}
 
+      {/* Quality-audit VETO banner (2026-07-08). Previously audit_hard_fail
+         was completely invisible in the editor: the review looked polished
+         and healthy, and the author only discovered the veto when Publish
+         returned an error — reviews appeared silently "stuck" (fbbd3800).
+         Surface the veto + reason + the auditor's critical fixes up front. */}
+      {review.audit_hard_fail === true && (
+        <div className="rounded-xl border border-red-700/50 bg-red-950/40 p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-red-400 text-lg leading-none mt-0.5">⛔</span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-red-300 mb-1">
+                Publish blocked — quality audit VETO
+              </p>
+              <p className="text-xs text-red-200/90 leading-relaxed whitespace-pre-wrap">
+                {review.audit_hard_fail_reason || 'The quality auditor flagged a hard fail (see critical fixes).'}
+              </p>
+              {Array.isArray(review.trust_indicators?.audit_critical_fixes) &&
+                review.trust_indicators.audit_critical_fixes.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-xs font-medium text-red-300/80 cursor-pointer hover:text-red-200">
+                    {review.trust_indicators.audit_critical_fixes.length} critical fix
+                    {review.trust_indicators.audit_critical_fixes.length !== 1 ? 'es' : ''} from the auditor
+                  </summary>
+                  <ul className="mt-1.5 space-y-1 text-xs text-red-200/80 list-disc pl-4">
+                    {review.trust_indicators.audit_critical_fixes.map((fix, i) => (
+                      <li key={i}>{typeof fix === 'string' ? fix : (fix?.issue || fix?.fix || JSON.stringify(fix))}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              <p className="text-xs text-red-300/70 mt-2">
+                Fix the flagged issues (edit the content or the brand data), then re-run <b>Polish</b> to re-audit. Publish stays blocked until the audit passes.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">

@@ -4,7 +4,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { dedupeCelebrityList } from '@/lib/threat-score'
+import { dedupeCelebrityList, classifyThreat } from '@/lib/threat-score'
 import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
@@ -180,6 +180,21 @@ export async function POST(request, { params }) {
               // item_reviewed.type directly (was only visible in the truncated
               // SCHEMA JSON-LD, causing false "not typed" hard fails).
               item_reviewed: review.item_reviewed || null,
+              // Schema enrichment fields (audit 2026-07-08): the hard-fail
+              // rules check schema_enrichment.dataset.spatialCoverage,
+              // schema_enrichment.claims[i].* and item_list counts. These
+              // live on the review row but were previously invisible to the
+              // re-audit (the rebuilt tempSchema omitted them and the 12k
+              // JSON-LD slice truncates the tail of the @graph), so every
+              // re-polish false-hard-failed with "spatialCoverage missing"
+              // even when the stored dataset had full coverage — the veto
+              // loop that stranded review fbbd3800.
+              schema_enrichment: {
+                dataset: review.dataset || null,
+                claims: review.claims || [],
+                item_list: review.item_list || null,
+                citations: review.citations || [],
+              },
             }
 
             // Real celebrity names (the raw celebrity_list stores comma-joined
@@ -198,6 +213,21 @@ export async function POST(request, { params }) {
               currentDate,
               wordCount: review.word_count || 0,
               longevityDays,
+              // Keep schema polarity aligned with the stored tier instead of
+              // buildReviewSchema's internal fallback.
+              threat: classifyThreat(brandData.scam_score ?? 0),
+              // Enrichment payload from the review row (audit 2026-07-08):
+              // without these the rebuilt schema shipped NO Dataset/ItemList/
+              // citation nodes, so the auditor hard-failed spatialCoverage on
+              // every re-polish even though the row's dataset had it.
+              dataset: review.dataset || null,
+              claims: Array.isArray(review.claims) ? review.claims : [],
+              // item_list is stored as { name, description, items: [...] };
+              // buildReviewSchema wants the flat items array.
+              itemList: Array.isArray(review.item_list?.items)
+                ? review.item_list.items
+                : (Array.isArray(review.item_list) ? review.item_list : []),
+              typedCitations: Array.isArray(review.citations) ? review.citations : [],
             })
 
             const auditPromptData = qualityAuditorPrompt()
@@ -390,7 +420,13 @@ export async function POST(request, { params }) {
           send({
             step: 'done',
             progress: 100,
-            message: 'Polish complete!',
+            // Surface the auditor VETO in the completion message (2026-07-08):
+            // previously the banner said "Polish complete!" even when the
+            // audit hard-failed, and the user only discovered the veto when
+            // Publish errored — the review looked silently "stuck".
+            message: hardFail
+              ? `Polish complete — but the quality audit VETOED publish: ${hardFailReason}`
+              : 'Polish complete!',
             result: {
               review_id: id,
               brand_slug: review.slug,
@@ -398,6 +434,8 @@ export async function POST(request, { params }) {
               visuals_rendered: finalStats.visuals,
               audit_grade: auditReport?.grade || 'skipped',
               audit_score: auditReport?.overall_score || null,
+              audit_hard_fail: hardFail,
+              audit_hard_fail_reason: hardFailReason,
               hero_image: heroImageResult?.url || null,
               pipeline_version: PIPELINE_VERSION,
               models_used: {
