@@ -5,6 +5,7 @@ import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { dedupeCelebrityList, classifyThreat } from '@/lib/threat-score'
+import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
@@ -417,6 +418,16 @@ export async function POST(request, { params }) {
           }
 
           await patchReview(id, polishPatch)
+
+          // Visible update provenance (2026-07-08): only when this run
+          // actually changed what readers see (new inline visuals or new
+          // hero/content imagery) — a pure re-audit leaves no entry.
+          if (fullArticleChanged || heroImageResult) {
+            const bits = []
+            if (finalStats.visuals > 0) bits.push(`${finalStats.visuals} data visual${finalStats.visuals !== 1 ? 's' : ''} rendered`)
+            if (heroImageResult) bits.push('imagery refreshed')
+            await appendUpdateHistory(id, makeEntry('visuals_updated', `Visual evidence updated: ${bits.join(', ')}`))
+          }
 
           // Flush public caches now that the article is actually presentable.
           try {

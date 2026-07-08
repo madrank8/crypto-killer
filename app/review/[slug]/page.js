@@ -256,7 +256,7 @@ function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
 export default async function ReviewPage({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at,hero_image_url,hero_image_alt,hero_image_credit,content_images`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at,hero_image_url,hero_image_alt,hero_image_credit,content_images,update_history,stats_synced_at`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -293,6 +293,19 @@ export default async function ReviewPage({ params }) {
           }))
       : []
     const geoPressureMax = geoPressure.length > 0 ? geoPressure[0].ads : 0
+
+    // Visible update provenance (2026-07-08): newest-first, latest 5.
+    const updateHistory = (Array.isArray(review.update_history) ? review.update_history : [])
+      .filter((e) => e && e.date && e.summary)
+      .slice(-5)
+      .reverse()
+    const UPDATE_TYPE_LABELS = {
+      published: 'Published',
+      regenerated: 'Investigation refreshed',
+      visuals_updated: 'Visuals updated',
+      edited: 'Editorial update',
+      stats_update: 'Surveillance update',
+    }
 
     // ── Internal-linking flywheel (Task 10) — extra /review + /scams links, no schema change ──
     let recentReviewsRows = []
@@ -557,6 +570,38 @@ export default async function ReviewPage({ params }) {
                       {brand.velocity_trend.charAt(0).toUpperCase() + brand.velocity_trend.slice(1)}
                     </span>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* Update history — visible provenance for every content change
+               plus the surveillance-data freshness line (2026-07-08). */}
+            {(updateHistory.length > 0 || review.stats_synced_at) && (
+              <div className="mt-4 bg-slate-950/40 border border-slate-800/70 rounded-xl px-5 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <Clock size={13} className="text-slate-500" />
+                    <span className="text-[11px] tracking-[0.12em] font-medium text-slate-400">UPDATE HISTORY</span>
+                  </div>
+                  {review.stats_synced_at && (
+                    <span className="text-[11px] text-slate-500">
+                      Surveillance data refreshed {new Date(review.stats_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+                {updateHistory.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {updateHistory.map((e, i) => (
+                      <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[13px]">
+                        <time dateTime={e.date} className="text-slate-500 tabular-nums shrink-0">
+                          {new Date(`${e.date}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </time>
+                        <span className="text-slate-600">·</span>
+                        <span className="text-slate-400 font-medium shrink-0">{UPDATE_TYPE_LABELS[e.type] || 'Update'}</span>
+                        <span className="text-slate-500">— {e.summary}</span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

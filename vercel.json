@@ -9,6 +9,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/stats-refresh",
+      "schedule": "0 2 * * *"
+    },
+    {
       "path": "/api/cron/archive-landing-pages",
       "schedule": "30 2 * * *"
     },

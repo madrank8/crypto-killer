@@ -1,5 +1,6 @@
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { appendUpdateHistory, makeEntry, EDITORIAL_FIELDS } from '@/lib/update-history'
 
 /**
  * GET /api/admin/reviews/[id]
@@ -80,6 +81,18 @@ export async function PATCH(request, { params }) {
         headers: { 'Prefer': 'return=minimal' },
       }
     )
+
+    // Visible update provenance (2026-07-08): a manual editor save that
+    // touches content fields lands as an "Editorial update" entry in
+    // update_history, rendered on the article. Metadata-only saves
+    // (status flips, image URLs, audit fields) don't pollute the log.
+    const touched = EDITORIAL_FIELDS.filter((f) => f in updates)
+    if (touched.length > 0) {
+      const label = touched.length > 3
+        ? `Editorial update across ${touched.length} sections`
+        : `Editorial update: ${touched.join(', ').replace(/_/g, ' ')}`
+      await appendUpdateHistory(id, makeEntry('edited', label, 'editor'), { fetcher: supabaseRequest })
+    }
 
     return Response.json({
       success: true,

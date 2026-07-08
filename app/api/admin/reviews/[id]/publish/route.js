@@ -3,6 +3,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { computePlatformAggregates } from '@/lib/platform-aggregates'
+import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { headCheckUrl } from '@/lib/source-verify'
 import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
 
@@ -369,6 +370,16 @@ export async function POST(request, { params }) {
         body: JSON.stringify(updates),
       }
     )
+
+    // Visible update provenance (2026-07-08): seed the update log on FIRST
+    // publish only (re-publishes after regeneration already got their
+    // 'regenerated' entry from the generate route).
+    if (action === 'publish' && review && !review.published_at) {
+      const newHistory = await appendUpdateHistory(id, makeEntry('published', 'Investigation published'))
+      // Fold into `updates` so the sync below ({ ...review, ...updates })
+      // ships the seeded log to Replit in this same request.
+      if (newHistory) updates.update_history = newHistory
+    }
 
     // Also mirror the publish state onto the linked scam_brand row.
     // The Replit live-site sync runs a two-phase job: Phase A walks

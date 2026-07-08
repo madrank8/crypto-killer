@@ -5,6 +5,7 @@ import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
 import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, computeCategoryScores, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
+import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
@@ -1643,6 +1644,13 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
         body: JSON.stringify(reviewPayload),
         headers: { 'Prefer': 'return=minimal' },
       })
+      // Visible update provenance (2026-07-08): a regeneration replaces the
+      // whole investigation — the strongest possible update entry.
+      await appendUpdateHistory(
+        reviewId,
+        makeEntry('regenerated', 'Full investigation refreshed with latest surveillance evidence'),
+        { fetcher: supabaseRequest },
+      )
     } else {
       // New review → try INSERT, fall back to PATCH on slug collision
       try {
