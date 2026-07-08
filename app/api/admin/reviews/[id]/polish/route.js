@@ -110,6 +110,13 @@ export async function POST(request, { params }) {
           const brandData = brandRows[0]
 
           let fullArticle = review.full_article || ''
+          // Lost-update guard (2026-07-08): polish holds this in-memory copy
+          // for minutes while Imagen/audit run. It used to ALWAYS write it
+          // back in phase B.4, silently reverting any edit that landed on the
+          // row mid-run (admin editor save, ops SQL patch — this reverted the
+          // fbbd3800 stat-token patch). Only write full_article when THIS run
+          // actually changed it (visual placeholders resolved).
+          let fullArticleChanged = false
           let visualMeta = []
           let auditReport = null
           let auditActualModel = null
@@ -134,6 +141,7 @@ export async function POST(request, { params }) {
 
             if (vizResult.stats.total > 0) {
               fullArticle = vizResult.html
+              fullArticleChanged = true
               visualMeta = vizResult.visuals
               finalStats.visuals = vizResult.stats.succeeded
               send({
@@ -378,7 +386,9 @@ export async function POST(request, { params }) {
             : null
 
           const polishPatch = {
-            full_article: fullArticle,
+            // Only persist full_article when this run modified it — see the
+            // lost-update guard comment at the top of the stream handler.
+            ...(fullArticleChanged ? { full_article: fullArticle } : {}),
             visual_meta: visualMeta.length > 0 ? visualMeta : (review.visual_meta || null),
             trust_indicators: trustIndicators,
             audit_hard_fail: hardFail,
