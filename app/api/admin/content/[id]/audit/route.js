@@ -65,9 +65,9 @@ export async function POST(request, { params }) {
       content.schema_json || {}
     )
 
-    // Claude Sonnet 4.7 at high effort, with Sonnet 4.6 as a reliability
-    // fallback (matches the fill auditor).
-    const auditModels = ['claude-sonnet-4-7', 'claude-sonnet']
+    // GPT-5.4 (latest) at high reasoning effort — cross-vendor judge — with
+    // Claude Sonnet 4.7 as the reliability fallback (matches the fill auditor).
+    const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
     let audit = null
     let auditError = null
     try {

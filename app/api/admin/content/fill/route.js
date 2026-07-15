@@ -418,12 +418,13 @@ export async function POST(request) {
             // single-model + 60s-timeout call produced ZERO verdicts across all
             // 35 content rows, while the review path (same prompt, this
             // fallback chain, no short timeout) scores reliably.
-            // Auditor: Claude Sonnet 4.7 at high effort (a deep, fresh-
-            // perspective gate over the written prose), with Sonnet 4.6 as a
-            // reliability fallback so a single-model failure can't silently
-            // wipe the verdict — the bug that left all 35 content rows
-            // verdict-less.
-            const auditModels = ['claude-sonnet-4-7', 'claude-sonnet']
+            // Auditor: GPT-5.4 (latest) at high reasoning effort — a
+            // CROSS-VENDOR, fresh-perspective gate over Claude-written prose
+            // (same-family self-audit is systematically more lenient). Claude
+            // Sonnet 4.7 is the reliability fallback so a single-model failure
+            // can't silently wipe the verdict — the bug that left all 35
+            // content rows verdict-less (single model + 60s cap + no fallback).
+            const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
             let auditResult = null
             for (const modelKey of auditModels) {
               try {
