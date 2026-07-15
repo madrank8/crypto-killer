@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-07-13T05:08:11.957Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "crypto-trading-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "list-of-fake-crypto-exchanges",
+      "total": 6,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "remove",
+          "url": "https://moneysmart.gov.au/investments-and-scams/crypto-asset-scams",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

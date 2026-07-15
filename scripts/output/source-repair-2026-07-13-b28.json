@@ -1,0 +1,25 @@
+{
+  "ranAt": "2026-07-13T05:08:23.264Z",
+  "apply": true,
+  "articles": [
+    {
+      "slug": "fake-crypto-website",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-list",
+      "total": 3,
+      "dead": 1,
+      "changes": [
+        {
+          "kind": "remove",
+          "url": "https://www.investor.gov/introduction-investing/general-resources/news-alerts/alerts-bulletins/investor-alerts/investor-alert-10",
+          "detail": "HTTP 404",
+          "inBody": false
+        }
+      ]
+    }
+  ]
+}

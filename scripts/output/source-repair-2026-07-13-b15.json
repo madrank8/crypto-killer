@@ -1,0 +1,46 @@
+{
+  "ranAt": "2026-07-13T05:06:46.501Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "what-to-do-if-you-get-scammed-out-of-crypto",
+      "total": 6,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.ohioattorneygeneral.gov/getmedia/e942c8d2-5a7c-4029-9c59-d8e7c10b65f7/Cryptocurrency-fraud-What-to-do-after-a-financial-loss.aspx",
+          "detail": "network: fetch failed"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.sofi.com/learn/content/how-to-report-crypto-scam/",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://cyberclaims.co/blog/cryptocurrency-scam-recovery",
+          "detail": "network: fetch failed"
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scam-evidence",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scams/how-to-report-crypto-scams/",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "report-scam-to-bank",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}
