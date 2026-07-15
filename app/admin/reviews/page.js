@@ -177,7 +177,7 @@ export default function ReviewsPage() {
                   <span>Score: {review.scam_score}</span>
                   <span>{review.total_creatives} ads</span>
                   {review.total_geos > 0 && <span>{review.total_geos} countries</span>}
-                  <span>{review.word_count.toLocaleString()} words</span>
+                  <span>{Number(review.word_count) > 0 ? `${Number(review.word_count).toLocaleString()} words` : 'Empty'}</span>
                   <span className="text-gray-600">Updated {timeAgo(review.updated_at)}</span>
                 </div>
               </div>

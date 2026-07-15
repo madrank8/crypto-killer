@@ -482,6 +482,7 @@ export default function ReviewEditor({ params }) {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState('');
   const [publishIssues, setPublishIssues] = useState([]);
+  const [publishOverridable, setPublishOverridable] = useState(false);
   const [autoFixing, setAutoFixing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
@@ -806,9 +807,10 @@ export default function ReviewEditor({ params }) {
     }
   };
 
-  const handlePublish = async () => {
+  const handlePublish = async ({ override = false } = {}) => {
     setPublishError('');
     setPublishIssues([]);
+    setPublishOverridable(false);
     setSyncMsg('');
     setPublishing(true);
     try {
@@ -820,19 +822,20 @@ export default function ReviewEditor({ params }) {
       const res = await fetch(`/api/admin/reviews/${id}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action: 'publish' }),
+        body: JSON.stringify({ action: 'publish', ...(override ? { override: true } : {}) }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setReview((r) => ({ ...r, status: 'published' }));
         setPublishIssues([]);
+        const overNote = data.overridden ? ' (published via override — gate bypassed)' : '';
         // Show live sync feedback
         if (data.live_sync?.success) {
-          setSyncMsg('✓ Synced to live site');
+          setSyncMsg('✓ Synced to live site' + overNote);
           setTimeout(() => setSyncMsg(''), 5000);
         } else if (data.live_sync?.error) {
-          setSyncMsg(`⚠ Live sync failed: ${data.live_sync.error}`);
+          setSyncMsg(`⚠ Published${overNote}, but live sync failed: ${data.live_sync.error}. Use the Sync button to retry.`);
         } else if (!data.live_sync) {
           setSyncMsg('⚠ Live sync skipped — REPLIT_SITE_URL not configured');
         }
@@ -840,6 +843,8 @@ export default function ReviewEditor({ params }) {
         const parsed = await parseAdminApiError(res, 'Publish failed');
         setPublishError(parsed.message);
         setPublishIssues(parsed.issues || []);
+        // Gate blocks are overridable — the operator is never trapped.
+        setPublishOverridable(res.status === 422 && parsed.payload?.overridable !== false);
       }
     } catch (err) {
       setPublishError(err?.message || 'Network error while publishing');
@@ -1392,6 +1397,28 @@ export default function ReviewEditor({ params }) {
       {(publishError || saveError) && (
         <div className="py-2 px-3 bg-red-900/20 border border-red-600/30 rounded-lg text-red-400 text-sm max-h-64 overflow-y-auto whitespace-pre-wrap break-words">
           {publishError || saveError}
+        </div>
+      )}
+
+      {/* Escape hatch — the operator is never trapped by the gate. Ships past
+          it, recording the bypassed reasons on the row's update log. */}
+      {publishOverridable && (
+        <div className="flex items-center justify-between gap-3 py-2 px-3 bg-red-950/30 border border-red-800/40 rounded-lg">
+          <span className="text-xs text-red-200/80">
+            Verified this is safe to publish? You can bypass the gate — the blocked reasons are recorded on the review.
+          </span>
+          <button
+            type="button"
+            disabled={publishing || autoFixing}
+            onClick={() => {
+              if (window.confirm('Publish anyway, bypassing the integrity gate?\n\nThe blocked reasons will be recorded on this review for the audit trail. Only do this if you have manually verified the content is safe to publish.')) {
+                handlePublish({ override: true });
+              }
+            }}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-lg border border-red-700/60 text-red-300 hover:text-white hover:bg-red-700/40 disabled:opacity-50"
+          >
+            {publishing ? 'Publishing…' : 'Publish anyway (override)'}
+          </button>
         </div>
       )}
 

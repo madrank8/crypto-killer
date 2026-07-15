@@ -59,8 +59,13 @@ const navItems = [
   { href: '/admin/scraper', label: 'Scraper', icon: icons.scraper },
   { href: '/admin/brands', label: 'Funnels', icon: icons.funnels },
   { href: '/admin/reviews', label: 'Reviews', icon: icons.reviews },
+  // Content (blog/investigation articles) index — closes the discoverability
+  // gap where free-form articles had no admin entry point. Reuses the freed
+  // work-plan icon.
+  { href: '/admin/content', label: 'Content', icon: icons.workPlan },
   { href: '/admin/topical-map', label: 'Topical Map', icon: icons.topicalMap },
-  { href: '/admin/work-plan', label: 'Work Plan', icon: icons.workPlan },
+  // Work Plan is a Phase-2 stub (app/admin/work-plan/page.js) — hidden from nav
+  // until the board ships so the link doesn't dead-end on an empty page.
   { href: '/admin/analytics', label: 'Analytics', icon: icons.analytics },
   { href: '/admin/settings', label: 'Settings', icon: icons.settings },
 ];

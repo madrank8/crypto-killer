@@ -411,19 +411,47 @@ export async function POST(request) {
             // Cross-vendor audit (2026-07-05, W4a): GPT-5.4 Mini primary for
             // a fresh-perspective gate over Claude-written prose (the old
             // abandonment cause — wrong max_tokens param — is fixed in
-            // ai-models.js). resolveModel falls back to claude-sonnet
-            // automatically if OPENAI_API_KEY is absent.
-            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
-              jsonMode: true,
-              timeoutMs: 60000,
-              effort: 'medium',
-            })
+            // ai-models.js). Mirror the WORKING review-polish path: loop over
+            // [gpt-5.4-mini, claude-sonnet] so a primary failure falls back to
+            // Claude, and drop the hard 60s cap that was silently killing the
+            // audit on long articles. Verified against the live DB, the old
+            // single-model + 60s-timeout call produced ZERO verdicts across all
+            // 35 content rows, while the review path (same prompt, this
+            // fallback chain, no short timeout) scores reliably.
+            // Auditor: Claude Sonnet 4.7 at high effort (a deep, fresh-
+            // perspective gate over the written prose), with Sonnet 4.6 as a
+            // reliability fallback so a single-model failure can't silently
+            // wipe the verdict — the bug that left all 35 content rows
+            // verdict-less.
+            const auditModels = ['claude-sonnet-4-7', 'claude-sonnet']
+            let auditResult = null
+            for (const modelKey of auditModels) {
+              try {
+                auditResult = await callModel(modelKey, auditPrompt.system, auditMsg, {
+                  jsonMode: true,
+                  timeoutMs: 150000,
+                  effort: 'high',
+                })
+                break
+              } catch (modelErr) {
+                if (modelKey === auditModels[auditModels.length - 1]) throw modelErr
+              }
+            }
             audit = extractJSON(auditResult.text)
-          } catch {
-            audit = null
+          } catch (auditErr) {
+            // Preserve WHY the auditor failed. Critically, do NOT collapse a
+            // failed/absent audit into a bare {} — the publish gate would then
+            // read that empty object as a passing verdict (undefined
+            // any_hard_fail, NaN score) and skip the YMYL floor entirely.
+            audit = { audit_status: 'failed', audit_error: String(auditErr?.message || auditErr).slice(0, 200) }
           }
           // ── ADD PERSONA METADATA + WRITER ATTEMPTS TO AUDIT ──
-          if (!audit) audit = {}
+          // Mark provenance so the publish gate can tell "auditor ran and
+          // passed" apart from "auditor never produced a verdict".
+          if (!audit || typeof audit !== 'object') {
+            audit = { audit_status: 'failed', audit_error: 'auditor returned no parseable verdict' }
+          }
+          if (!audit.audit_status) audit.audit_status = 'ok'
           audit.social_proof = article.social_proof || []
           audit.writer_persona = {
             id: personaMetadata.id,

@@ -159,14 +159,35 @@ function validateForPublish(content) {
   //    to produce a verdict.
   const verdict = content.ai_audit && typeof content.ai_audit === 'object' ? content.ai_audit : null
   if (verdict) {
-    if (verdict.hard_fail_checks?.any_hard_fail === true) {
-      reasons.push(`quality audit VETO — ${verdict.hard_fail_checks.hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Generate Article.`)
-    }
     const score = Number(verdict.overall_score)
-    if (Number.isFinite(score) && score < 60) {
-      reasons.push(`quality audit score ${score}/100 is below the YMYL publish floor (60). Address the auditor's critical_fixes and re-run Generate Article.`)
-    } else if (Number.isFinite(score) && score < 80) {
-      warnings.push(`quality audit score ${score}/100 is below the target (80) — review the auditor's improvements before publishing.`)
+    // An auditor that we KNOW errored must not sail through as a pass. `fill`
+    // (and the Re-run Audit route) now stamp audit_status:'failed' when the
+    // auditor throws — that explicit marker is what we block on. This is a
+    // recoverable block: "Re-run Audit" (re-runs just the auditor, cheap) or
+    // "Publish anyway" to override.
+    //
+    // We deliberately do NOT block on a merely-absent verdict (no
+    // overall_score, no hard_fail_checks): verified against the live DB, ALL
+    // existing content rows are in that state (the content auditor has never
+    // persisted a verdict — see the separate diagnosis), so blocking on
+    // absence would retroactively trap every published article on republish.
+    // Legacy rows therefore keep their current pass-through behavior; only a
+    // fresh, explicitly-failed audit blocks.
+    if (verdict.audit_status === 'failed') {
+      reasons.push(
+        'quality audit did not complete — no verdict on record' +
+        (verdict.audit_error ? ` (${verdict.audit_error})` : '') +
+        '. Click "Re-run Audit" to re-run just the auditor, or use "Publish anyway" to override. A failed audit is not a passing audit.'
+      )
+    } else {
+      if (verdict.hard_fail_checks?.any_hard_fail === true) {
+        reasons.push(`quality audit VETO — ${verdict.hard_fail_checks.hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Generate Article.`)
+      }
+      if (Number.isFinite(score) && score < 60) {
+        reasons.push(`quality audit score ${score}/100 is below the YMYL publish floor (60). Address the auditor's critical_fixes and re-run Generate Article.`)
+      } else if (Number.isFinite(score) && score < 80) {
+        warnings.push(`quality audit score ${score}/100 is below the target (80) — review the auditor's improvements before publishing.`)
+      }
     }
   }
 
@@ -333,10 +354,17 @@ export async function POST(request, { params }) {
     verifyAdmin(request)
 
     const { id } = await params
-    const { action } = await request.json()
+    const { action, override } = await request.json()
     if (!['publish', 'unpublish'].includes(action)) {
       return Response.json({ error: 'Invalid action. Use publish or unpublish' }, { status: 400 })
     }
+    // Operator escape hatch: an explicit override lets a solo editor ship past
+    // the quality gate rather than dead-ending on a flaky auditor or a source
+    // check they've manually verified. It is deliberately loud — the bypassed
+    // reasons are recorded on the row (ai_audit.published_override) for a
+    // permanent audit trail — and never silent.
+    const overrideGate = action === 'publish' && override === true
+    let overrideRecord = null
 
     const rows = await supaFetch(`/content?id=eq.${id}&select=*&limit=1`)
     const content = Array.isArray(rows) ? rows[0] : null
@@ -351,11 +379,15 @@ export async function POST(request, { params }) {
       const sourceGate = await validateSourcesForPublish(content)
       const reasons = [...gate.reasons, ...sourceGate.reasons]
       const warnings = [...(gate.warnings || []), ...(sourceGate.warnings || [])]
-      if (reasons.length > 0) {
+      if (reasons.length > 0 && !overrideGate) {
         return Response.json({
           error: 'Publish blocked by quality gate',
           reasons,
           warnings,
+          // Every gate block is overridable — the operator is never trapped.
+          // The UI re-POSTs { action:'publish', override:true } after showing
+          // these reasons.
+          overridable: true,
           // Machine-actionable: lets the UI offer a one-click remove-and-retry
           // for dead citations rather than a full article regeneration.
           dead_sources: sourceGate.deadSources || [],
@@ -363,6 +395,16 @@ export async function POST(request, { params }) {
           slug: content.slug,
           ai_model: content.ai_model,
         }, { status: 422 })
+      }
+      if (reasons.length > 0 && overrideGate) {
+        // Bypassing the gate — record exactly what was skipped, by whom-context
+        // and when, onto the row's ai_audit for a durable trail.
+        console.warn(`[publish] content ${id} published via OVERRIDE, bypassing:`, JSON.stringify(reasons))
+        overrideRecord = {
+          at: new Date().toISOString(),
+          bypassed_reasons: reasons,
+          bypassed_warnings: warnings,
+        }
       }
       if (warnings.length > 0) {
         // Non-blocking — log for ops visibility; the admin UI may surface
@@ -377,6 +419,13 @@ export async function POST(request, { params }) {
       action === 'publish'
         ? { status: 'published', published_at: nowIso, updated_at: nowIso }
         : { status: 'draft', published_at: null, updated_at: nowIso }
+
+    // Persist the override trail onto the row so a bypassed publish is always
+    // reconstructable (what was skipped, when) — never a silent flip.
+    if (overrideRecord) {
+      const baseAudit = content.ai_audit && typeof content.ai_audit === 'object' ? content.ai_audit : {}
+      contentUpdates.ai_audit = { ...baseAudit, published_override: overrideRecord }
+    }
 
     // Update datePublished/dateModified in embedded JSON-LD schema
     if (action === 'publish' && content.full_article) {
@@ -441,12 +490,22 @@ export async function POST(request, { params }) {
       console.error('revalidate failed:', e.message)
     }
 
+    // The DB flip succeeded (success:true), but that is NOT the same as the
+    // live site receiving the article. syncToLiveBlog returns {success:false}
+    // when every Replit endpoint fails; surface that explicitly so the caller
+    // and UI can prompt a Re-sync instead of assuming the article is live.
+    const syncOk = action === 'unpublish' ? true : liveSync?.success !== false
     return Response.json({
       success: true,
       id,
       action,
       status: contentUpdates.status,
       published_at: contentUpdates.published_at,
+      overridden: !!overrideRecord,
+      override: overrideRecord,
+      // true only when the article actually reached the live site.
+      sync_ok: syncOk,
+      sync_error: syncOk ? null : (liveSync?.error || liveSync?.message || 'live-site sync failed — use Re-sync to retry'),
       live_sync: liveSync,
       blog_url: `https://cryptokiller.org/blog/${content.slug}`,
     })

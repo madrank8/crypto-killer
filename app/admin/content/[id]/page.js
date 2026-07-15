@@ -462,8 +462,11 @@ export default function ContentEditorPage({ params }) {
     }
   };
 
-  /* -- Publish / Unpublish -- */
-  const publishAction = async (action) => {
+  /* -- Publish / Unpublish --
+     `override:true` ships past the quality gate (the operator's escape hatch,
+     re-POSTed from the gate panel after the reasons are shown). The server
+     records the bypassed reasons on the row for a durable trail. */
+  const publishAction = async (action, { override = false } = {}) => {
     setPublishing(true);
     setError('');
     setMsg('');
@@ -473,7 +476,7 @@ export default function ContentEditorPage({ params }) {
       const res = await fetch(`/api/admin/content/${id}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, ...(override ? { override: true } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -485,6 +488,7 @@ export default function ContentEditorPage({ params }) {
             error: data.error || 'Publish blocked by quality gate',
             reasons: data.reasons,
             dead_sources: Array.isArray(data.dead_sources) ? data.dead_sources : [],
+            overridable: data.overridable !== false,
             ai_model: data.ai_model || null,
             slug: data.slug || null,
           });
@@ -495,11 +499,14 @@ export default function ContentEditorPage({ params }) {
 
       setContent((prev) => ({ ...prev, status: data.status, published_at: data.published_at }));
 
+      const overNote = data.overridden ? ' (published via override — gate bypassed)' : '';
       if (action === 'publish') {
-        if (data.live_sync?.success) {
-          setMsg('\u2713 Published & synced to live site');
+        // sync_ok is the honest signal: the DB flip can succeed while the live
+        // site never received the article. Offer a Re-sync when that happens.
+        if (data.sync_ok) {
+          setMsg('\u2713 Published & synced to live site' + overNote);
         } else {
-          setMsg(`Published locally, but live sync failed: ${data.live_sync?.error || 'unknown'}`);
+          setMsg(`\u26a0 Published${overNote}, but LIVE SYNC FAILED: ${data.sync_error || data.live_sync?.error || 'unknown'}. Click "Sync to Live" to retry \u2014 the live site is stale until it succeeds.`);
         }
       } else {
         if (data.live_sync?.success) {
@@ -552,6 +559,34 @@ export default function ContentEditorPage({ params }) {
       }));
       setPublishGate(null);
       // Re-run the publish gate against the cleaned ledger.
+      await publishAction('publish');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  /* -- Re-run ONLY the quality auditor (cheap recovery) --
+     When the gate blocks on "quality audit did not complete", regenerating the
+     whole article can time out again. This re-runs just the auditor, then
+     retries publish if a verdict was produced. */
+  const rerunAuditAndRetry = async () => {
+    setPublishing(true);
+    setError('');
+    setMsg('Re-running quality audit…');
+    try {
+      const res = await fetch(`/api/admin/content/${id}/audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Re-audit failed');
+      if (data.audit_status !== 'ok') {
+        setMsg(`Auditor still failing (${data.audit_error || 'no verdict'}). Retry, or use "Publish anyway" to override.`);
+        return;
+      }
+      setPublishGate(null);
       await publishAction('publish');
     } catch (e) {
       setError(e.message);
@@ -1012,6 +1047,39 @@ export default function ContentEditorPage({ params }) {
             >
               Edit Outline First
             </button>
+            {/* Cheap recovery for "quality audit did not complete": re-run
+                only the auditor (no full regeneration, which can time out
+                again) then retry the gate. */}
+            {publishGate.reasons.some((r) => /quality audit did not complete/i.test(r)) && (
+              <button
+                type="button"
+                onClick={rerunAuditAndRetry}
+                disabled={publishing || saving}
+                className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50"
+              >
+                {publishing ? 'Auditing…' : 'Re-run Audit'}
+              </button>
+            )}
+            {/* Escape hatch — never trapped. Ships past the gate, recording the
+                bypassed reasons on the row. Deliberately styled as a
+                last-resort, not a primary action. */}
+            {publishGate.overridable && publishGate.action === 'publish' && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm(
+                    'Publish anyway, bypassing the quality gate?\n\nThe blocked reasons will be recorded on this article for the audit trail. Only do this if you have manually verified the content is safe to publish.'
+                  )) {
+                    publishAction('publish', { override: true });
+                  }
+                }}
+                disabled={publishing || saving}
+                className="text-xs px-3 py-1.5 rounded-lg border border-red-700/60 text-red-300 hover:text-white hover:bg-red-700/40 disabled:opacity-50"
+                title="Bypass the quality gate and publish. Records the bypassed reasons on the row."
+              >
+                Publish anyway (override)
+              </button>
+            )}
           </div>
         </div>
       )}
