@@ -36,6 +36,19 @@ test('every flag type fires on the right node; exemptions keep nodes clean', () 
   })
   assert.equal(r.total_nodes, 8)
   assert.equal(r.clean_nodes, 2) // Alpha (clean) + Theta (brand_review exempt)
+  // Pin WHICH node gets each flag (not just the counts) so a future reorder
+  // that changes iteration order or population is caught, not silently passed.
+  assert.deepEqual(
+    r.flags.map((f) => [f.slug, f.type]),
+    [
+      ['beta', 'intra_map_duplicate'],
+      ['gamma', 'keyword_collision'],
+      ['dup-slug', 'slug_collision'],
+      ['eps', 'title_similarity'],
+      ['zeta', 'zero_demand'],
+      ['eta', 'unverified_keyword'],
+    ]
+  )
 })
 
 test('expands_slug exemption: declaring the page you extend suppresses keyword_collision', () => {
