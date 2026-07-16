@@ -1233,6 +1233,52 @@ export default function TopicalMapPage() {
               <PoolReviewCard checkpoint={checkpoint} onApprove={approveCheckpoint} onCancel={cancelRun} />
             )}
 
+            {/* Checkpoint: cannibalization review (Phase 5, before the map builds) */}
+            {checkpoint?.checkpoint === 'cannibalization_review' && (
+              <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">
+                <p className="text-amber-300 text-sm font-medium">Cannibalization review</p>
+                {checkpoint.guard_kept_all ? (
+                  <p className="text-xs text-amber-300/90 mt-1">
+                    Every cluster was flagged — nothing was dropped (guard kept them all). Review before building.
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1">
+                    {checkpoint.kept} clusters kept · {checkpoint.dropped} dropped · {checkpoint.pruned.length} pruned.
+                    These are removed before the map is built. Approve to build, or cancel to adjust.
+                  </p>
+                )}
+                {checkpoint.dropped_detail.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wide">Dropped clusters</p>
+                    {checkpoint.dropped_detail.slice(0, 40).map((d, i) => (
+                      <p key={i} className="text-[11px] text-gray-400">
+                        <span className="text-gray-200 font-mono">{d.cluster_key}</span> — {d.reason.replace(/_/g, ' ')}
+                        {Array.isArray(d.removed_keywords) && d.removed_keywords.length > 0 ? ` (${d.removed_keywords.join(', ')})` : ''}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {checkpoint.pruned.length > 0 && (
+                  <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+                    <p className="text-[11px] text-gray-500 uppercase tracking-wide">Pruned keywords (cluster kept, colliding keyword removed)</p>
+                    {checkpoint.pruned.slice(0, 40).map((p, i) => (
+                      <p key={i} className="text-[11px] text-gray-400">
+                        <span className="text-gray-200 font-mono">{p.cluster_key}</span> — removed {p.removed_keywords.join(', ')}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button type="button" className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-sm text-white" onClick={() => approveCheckpoint()}>
+                    Approve & build map
+                  </button>
+                  <button type="button" className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white text-sm" onClick={cancelRun}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Checkpoint B: QA report review */}
             {checkpoint?.checkpoint === 'qa_review' && (
               <div className="mt-4 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10">

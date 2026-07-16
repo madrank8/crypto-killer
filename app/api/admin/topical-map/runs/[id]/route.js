@@ -60,6 +60,20 @@ export async function GET(request, { params }) {
           }),
           unclustered_count: (a.unclustered || []).length,
         }
+      } else if (run.current_stage === 'structure') {
+        // Checkpoint (after cannibalization, before the map is built): show the
+        // operator which clusters were dropped and which keywords were pruned,
+        // so the Phase-5 dedup is reviewed rather than silently applied.
+        const pc = a.pool_cannibalization || {}
+        view.checkpoint_data = {
+          checkpoint: 'cannibalization_review',
+          surviving_clusters: (a.clusters || []).length,
+          kept: pc.kept ?? (a.clusters || []).length,
+          dropped: pc.dropped ?? 0,
+          dropped_detail: Array.isArray(pc.dropped_detail) ? pc.dropped_detail : [],
+          pruned: Array.isArray(pc.pruned) ? pc.pruned : [],
+          guard_kept_all: !!pc.guard_kept_all,
+        }
       } else if (run.current_stage === 'save') {
         // Checkpoint B (after qa): QA report review
         view.checkpoint_data = { checkpoint: 'qa_review', qa_report: a.qa_report || null }
