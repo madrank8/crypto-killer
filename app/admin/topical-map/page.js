@@ -1252,7 +1252,7 @@ export default function TopicalMapPage() {
                     <p className="text-[11px] text-gray-500 uppercase tracking-wide">Dropped clusters</p>
                     {checkpoint.dropped_detail.slice(0, 40).map((d, i) => (
                       <p key={i} className="text-[11px] text-gray-400">
-                        <span className="text-gray-200 font-mono">{d.cluster_key}</span> — {d.reason.replace(/_/g, ' ')}
+                        <span className="text-gray-200 font-mono">{d.cluster_key}</span> — {String(d.reason || '').replace(/_/g, ' ')}
                         {Array.isArray(d.removed_keywords) && d.removed_keywords.length > 0 ? ` (${d.removed_keywords.join(', ')})` : ''}
                       </p>
                     ))}
@@ -1263,7 +1263,7 @@ export default function TopicalMapPage() {
                     <p className="text-[11px] text-gray-500 uppercase tracking-wide">Pruned keywords (cluster kept, colliding keyword removed)</p>
                     {checkpoint.pruned.slice(0, 40).map((p, i) => (
                       <p key={i} className="text-[11px] text-gray-400">
-                        <span className="text-gray-200 font-mono">{p.cluster_key}</span> — removed {p.removed_keywords.join(', ')}
+                        <span className="text-gray-200 font-mono">{p.cluster_key}</span> — removed {(p.removed_keywords || []).join(', ')}
                       </p>
                     ))}
                   </div>
