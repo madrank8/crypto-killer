@@ -256,10 +256,11 @@ export async function POST(request, { params }) {
             // an OpenAI outage can't wedge polishing. Haiku is deliberately
             // NOT in this chain anymore — the weakest model in the map must
             // not be the sole publish gate.
-            // GPT-5.4 (latest) at high reasoning effort — cross-vendor judge —
-            // with Claude Sonnet 4.7 as the reliability fallback. Kept in sync
-            // with the content auditor (content/fill + content/[id]/audit).
-            const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
+            // GPT-5.4 Mini at high reasoning effort — cross-vendor judge — with
+            // Claude Sonnet (4.6) as the reliability fallback. Kept in sync with
+            // the content auditor (content/fill + content/[id]/audit). These are
+            // the callable IDs; `gpt-5.4`/`claude-sonnet-4-7` 403/404'd live.
+            const auditModels = ['gpt-5.4-mini', 'claude-sonnet']
 
             let auditResult = null
             for (const modelKey of auditModels) {

@@ -65,9 +65,11 @@ export async function POST(request, { params }) {
       content.schema_json || {}
     )
 
-    // GPT-5.4 (latest) at high reasoning effort — cross-vendor judge — with
-    // Claude Sonnet 4.7 as the reliability fallback (matches the fill auditor).
-    const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
+    // GPT-5.4 Mini at high reasoning effort — cross-vendor judge — with Claude
+    // Sonnet (4.6) as the reliability fallback (matches the fill auditor). These
+    // are the IDs the accounts can actually call; `gpt-5.4`/`claude-sonnet-4-7`
+    // 403/404 and broke the live auditor.
+    const auditModels = ['gpt-5.4-mini', 'claude-sonnet']
     let audit = null
     let auditError = null
     let auditModelUsed = null
