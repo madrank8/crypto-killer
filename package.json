@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node --test test/",
-    "test:watch": "node --test --watch test/"
+    "test:watch": "node --test --watch test/",
+    "methodology:sync": "node scripts/methodology-sync.mjs"
   },
   "dependencies": {
     "@tiptap/extension-code-block-lowlight": "^3.21.0",
