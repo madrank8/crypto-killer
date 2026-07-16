@@ -21,6 +21,17 @@ export async function POST(request) {
     verifyAdmin(request);
     const body = await request.json();
 
+    // Validate IDs before they're interpolated into PostgREST filter strings.
+    // Both feed a PATCH (?id=eq.${...}); an unvalidated value could alter the
+    // WHERE clause and broaden the update beyond the intended row.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (body.review_id && !UUID_RE.test(String(body.review_id))) {
+      return Response.json({ error: 'Invalid review_id' }, { status: 400 });
+    }
+    if (body.content_id && !UUID_RE.test(String(body.content_id))) {
+      return Response.json({ error: 'Invalid content_id' }, { status: 400 });
+    }
+
     // ─── Mode 1: Generate for a specific review ───
     if (body.review_id) {
       const reviews = await supabaseRequest(

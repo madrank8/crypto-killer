@@ -269,7 +269,7 @@ export async function POST(request, { params }) {
     verifyAdmin(request)
 
     const { id } = await params
-    const { action } = await request.json()
+    const { action, override } = await request.json()
 
     if (!action || !['publish', 'unpublish'].includes(action)) {
       return Response.json(
@@ -277,6 +277,14 @@ export async function POST(request, { params }) {
         { status: 400 }
       )
     }
+
+    // Operator escape hatch (parity with the content publish route): an
+    // explicit override ships past the integrity gate rather than dead-ending
+    // on a flaky auditor / "re-run Polish" loop. Loud, not silent — the
+    // bypassed reasons are recorded on the row (audit_hard_fail_reason keeps
+    // its meaning; we stamp a published_override marker).
+    const overrideGate = action === 'publish' && override === true
+    let overrideRecord = null
 
     // Prepare update payload
     const updates = {}
@@ -301,7 +309,7 @@ export async function POST(request, { params }) {
     // Unpublish bypasses — we want an emergency unpublish to always work.
     if (action === 'publish' && review) {
       const gate = await validateReviewReadyToPublish(review)
-      if (gate.errors.length > 0) {
+      if (gate.errors.length > 0 && !overrideGate) {
         return Response.json(
           {
             error: 'Review failed publish-time integrity gate',
@@ -309,10 +317,23 @@ export async function POST(request, { params }) {
             errors: gate.errors,
             warnings: gate.warnings,
             issues: gate.issues || [],
+            // Every gate block is overridable — the operator is never trapped.
+            // The UI re-POSTs { action:'publish', override:true } after showing
+            // these reasons.
+            overridable: true,
             review_id: id,
           },
           { status: 422 }
         )
+      }
+      if (gate.errors.length > 0 && overrideGate) {
+        console.warn(`[publish] review ${id} published via OVERRIDE, bypassing:`, JSON.stringify(gate.errors))
+        overrideRecord = {
+          at: new Date().toISOString(),
+          bypassed_reasons: gate.errors,
+          bypassed_warnings: gate.warnings || [],
+        }
+        updates.fact_check_status = 'ai_generated_with_warnings'
       }
       if (gate.warnings.length > 0) {
         // Warnings don't block. They ride along in the success response
@@ -344,14 +365,24 @@ export async function POST(request, { params }) {
         })
         const vData = await vRes.json().catch(() => null)
         if (vRes.status === 422 && vData && Array.isArray(vData.failures)) {
-          return Response.json(
-            {
-              error: 'Review failed schema/content validation (validate-publish)',
-              failures: vData.failures,
-              review_id: id,
-            },
-            { status: 422 }
-          )
+          if (!overrideGate) {
+            return Response.json(
+              {
+                error: 'Review failed schema/content validation (validate-publish)',
+                failures: vData.failures,
+                overridable: true,
+                review_id: id,
+              },
+              { status: 422 }
+            )
+          }
+          console.warn(`[publish] review ${id} OVERRIDE bypassing validate-publish failures:`, JSON.stringify(vData.failures))
+          overrideRecord = {
+            at: overrideRecord?.at || new Date().toISOString(),
+            bypassed_reasons: [...(overrideRecord?.bypassed_reasons || []), ...vData.failures.map((f) => (typeof f === 'string' ? f : JSON.stringify(f)))],
+            bypassed_warnings: overrideRecord?.bypassed_warnings || [],
+          }
+          updates.fact_check_status = 'ai_generated_with_warnings'
         }
         if (!vRes.ok && vRes.status !== 422) {
           console.warn(`[publish] validate-publish returned ${vRes.status} — continuing (primary gate already passed)`)
@@ -378,6 +409,13 @@ export async function POST(request, { params }) {
       const newHistory = await appendUpdateHistory(id, makeEntry('published', 'Investigation published'))
       // Fold into `updates` so the sync below ({ ...review, ...updates })
       // ships the seeded log to Replit in this same request.
+      if (newHistory) updates.update_history = newHistory
+    }
+
+    // Durable trail for an override publish — never a silent gate bypass.
+    if (action === 'publish' && overrideRecord) {
+      const note = `Published via OVERRIDE — bypassed: ${overrideRecord.bypassed_reasons.slice(0, 6).join(' | ')}`
+      const newHistory = await appendUpdateHistory(id, makeEntry('published_override', note))
       if (newHistory) updates.update_history = newHistory
     }
 
@@ -632,6 +670,8 @@ export async function POST(request, { params }) {
       ...(action === 'publish' && updates.fact_check_status === 'ai_generated_with_warnings'
         ? { warnings: 'Review published with non-blocking warnings (plural agreement, coherence heuristics). See server logs.' }
         : {}),
+      overridden: !!overrideRecord,
+      override: overrideRecord,
     })
   } catch (error) {
     if (String(error?.message || '').includes('Unauthorized')) {

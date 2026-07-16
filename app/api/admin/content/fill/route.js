@@ -382,6 +382,7 @@ export async function POST(request) {
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 
           let audit = null
+          let auditModelUsed = null
           try {
             const auditPrompt = qualityAuditorPrompt()
             // W5a reviewer catch (2026-07-05): the auditor's Koray checks
@@ -408,22 +409,49 @@ export async function POST(request) {
               sourceLedger,
               {}
             ) + discoverAuditNote
-            // Cross-vendor audit (2026-07-05, W4a): GPT-5.4 Mini primary for
-            // a fresh-perspective gate over Claude-written prose (the old
-            // abandonment cause — wrong max_tokens param — is fixed in
-            // ai-models.js). resolveModel falls back to claude-sonnet
-            // automatically if OPENAI_API_KEY is absent.
-            const auditResult = await callModel('gpt-5.4-mini', auditPrompt.system, auditMsg, {
-              jsonMode: true,
-              timeoutMs: 60000,
-              effort: 'medium',
-            })
+            // Auditor: GPT-5.4 (latest) at high reasoning effort — a
+            // CROSS-VENDOR, fresh-perspective gate over Claude-written prose
+            // (same-family self-audit is systematically more lenient; the
+            // 2026-07-05 W4a note). Claude Sonnet 4.7 is the reliability
+            // fallback so a single-model failure can't silently wipe the
+            // verdict — verified against the live DB, the old single-model +
+            // 60s-cap call produced ZERO verdicts across all 35 content rows.
+            const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
+            let auditResult = null
+            for (const modelKey of auditModels) {
+              try {
+                auditResult = await callModel(modelKey, auditPrompt.system, auditMsg, {
+                  jsonMode: true,
+                  timeoutMs: 150000,
+                  effort: 'high',
+                })
+                auditModelUsed = auditResult.model || modelKey
+                break
+              } catch (modelErr) {
+                // Loud, not silent: a primary failure means the cross-vendor
+                // judge was skipped and a same-family Claude fallback graded.
+                console.warn(`[fill] audit model ${modelKey} failed: ${modelErr.message} — falling back`)
+                if (modelKey === auditModels[auditModels.length - 1]) throw modelErr
+              }
+            }
             audit = extractJSON(auditResult.text)
-          } catch {
-            audit = null
+          } catch (auditErr) {
+            // Preserve WHY the auditor failed. Critically, do NOT collapse a
+            // failed/absent audit into a bare {} — the publish gate would then
+            // read that empty object as a passing verdict (undefined
+            // any_hard_fail, NaN score) and skip the YMYL floor entirely.
+            audit = { audit_status: 'failed', audit_error: String(auditErr?.message || auditErr).slice(0, 200) }
           }
           // ── ADD PERSONA METADATA + WRITER ATTEMPTS TO AUDIT ──
-          if (!audit) audit = {}
+          // Mark provenance so the publish gate can tell "auditor ran and
+          // passed" apart from "auditor never produced a verdict".
+          if (!audit || typeof audit !== 'object') {
+            audit = { audit_status: 'failed', audit_error: 'auditor returned no parseable verdict' }
+          }
+          if (!audit.audit_status) audit.audit_status = 'ok'
+          // Which model actually produced the verdict — makes a silent
+          // fallback from the cross-vendor judge to Claude visible on the row.
+          audit.audit_model = auditModelUsed
           audit.social_proof = article.social_proof || []
           audit.writer_persona = {
             id: personaMetadata.id,
