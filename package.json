@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test test/",
+    "test": "node scripts/methodology-check.mjs && node --test test/",
     "test:watch": "node --test --watch test/",
     "methodology:sync": "node scripts/methodology-sync.mjs",
     "methodology:check": "node scripts/methodology-check.mjs"
