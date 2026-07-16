@@ -1,7 +1,7 @@
 # Vendored methodology (topical-map-creation)
 
-These files are a **read-only copy** of `~/.claude/skills/topical-map-creation`,
-pinned at the version in `VERSION`. They are DATA, not code: never `require()`
+The adjacent `methodology/` directory is a **read-only copy** of `~/.claude/skills/topical-map-creation`,
+pinned at the version in `VERSION`. Its contents are DATA, not code: never `require()`
 them. The pipeline reads them as text at runtime.
 
 ## Why vendored
