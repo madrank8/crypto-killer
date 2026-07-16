@@ -11,9 +11,12 @@ This copy makes the methodology available at runtime and makes drift visible.
 ## Updating to a new skill version
 1. `npm run methodology:sync`   # re-copies + rewrites VERSION and manifest.json
 2. Review the diff (this is a deliberate methodology change).
-3. Update `scripts/methodology-sync.mjs` VERSION const if the version changed.
+3. If the version changed, update BOTH the `VERSION` const in
+   `scripts/methodology-sync.mjs` AND the hardcoded version assertion in
+   `test/topical-map/methodology-vendored.test.js` (else that test goes red).
 4. `npm run methodology:check`  # must pass
-5. Commit.
+5. `npm test`  # must pass
+6. Commit.
 
 ## Guardrail
 `npm run methodology:check` fails if the vendored tree does not match its
