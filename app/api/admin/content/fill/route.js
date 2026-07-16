@@ -382,6 +382,7 @@ export async function POST(request) {
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })
 
           let audit = null
+          let auditModelUsed = null
           try {
             const auditPrompt = qualityAuditorPrompt()
             // W5a reviewer catch (2026-07-05): the auditor's Koray checks
@@ -408,22 +409,13 @@ export async function POST(request) {
               sourceLedger,
               {}
             ) + discoverAuditNote
-            // Cross-vendor audit (2026-07-05, W4a): GPT-5.4 Mini primary for
-            // a fresh-perspective gate over Claude-written prose (the old
-            // abandonment cause — wrong max_tokens param — is fixed in
-            // ai-models.js). Mirror the WORKING review-polish path: loop over
-            // [gpt-5.4-mini, claude-sonnet] so a primary failure falls back to
-            // Claude, and drop the hard 60s cap that was silently killing the
-            // audit on long articles. Verified against the live DB, the old
-            // single-model + 60s-timeout call produced ZERO verdicts across all
-            // 35 content rows, while the review path (same prompt, this
-            // fallback chain, no short timeout) scores reliably.
             // Auditor: GPT-5.4 (latest) at high reasoning effort — a
             // CROSS-VENDOR, fresh-perspective gate over Claude-written prose
-            // (same-family self-audit is systematically more lenient). Claude
-            // Sonnet 4.7 is the reliability fallback so a single-model failure
-            // can't silently wipe the verdict — the bug that left all 35
-            // content rows verdict-less (single model + 60s cap + no fallback).
+            // (same-family self-audit is systematically more lenient; the
+            // 2026-07-05 W4a note). Claude Sonnet 4.7 is the reliability
+            // fallback so a single-model failure can't silently wipe the
+            // verdict — verified against the live DB, the old single-model +
+            // 60s-cap call produced ZERO verdicts across all 35 content rows.
             const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
             let auditResult = null
             for (const modelKey of auditModels) {
@@ -433,8 +425,12 @@ export async function POST(request) {
                   timeoutMs: 150000,
                   effort: 'high',
                 })
+                auditModelUsed = auditResult.model || modelKey
                 break
               } catch (modelErr) {
+                // Loud, not silent: a primary failure means the cross-vendor
+                // judge was skipped and a same-family Claude fallback graded.
+                console.warn(`[fill] audit model ${modelKey} failed: ${modelErr.message} — falling back`)
                 if (modelKey === auditModels[auditModels.length - 1]) throw modelErr
               }
             }
@@ -453,6 +449,9 @@ export async function POST(request) {
             audit = { audit_status: 'failed', audit_error: 'auditor returned no parseable verdict' }
           }
           if (!audit.audit_status) audit.audit_status = 'ok'
+          // Which model actually produced the verdict — makes a silent
+          // fallback from the cross-vendor judge to Claude visible on the row.
+          audit.audit_model = auditModelUsed
           audit.social_proof = article.social_proof || []
           audit.writer_persona = {
             id: personaMetadata.id,

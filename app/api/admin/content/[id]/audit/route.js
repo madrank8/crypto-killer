@@ -70,6 +70,7 @@ export async function POST(request, { params }) {
     const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
     let audit = null
     let auditError = null
+    let auditModelUsed = null
     try {
       let res = null
       for (const modelKey of auditModels) {
@@ -79,8 +80,12 @@ export async function POST(request, { params }) {
             timeoutMs: 150000,
             effort: 'high',
           })
+          auditModelUsed = res.model || modelKey
           break
         } catch (modelErr) {
+          // Loud, not silent: a primary failure means the cross-vendor judge
+          // was skipped and a same-family Claude fallback graded instead.
+          console.warn(`[audit] model ${modelKey} failed: ${modelErr.message} — falling back`)
           if (modelKey === auditModels[auditModels.length - 1]) throw modelErr
         }
       }
@@ -100,6 +105,9 @@ export async function POST(request, { params }) {
         ...audit,
         audit_status: 'ok',
         audit_error: null,
+        // Which model actually produced this verdict. Makes a silent fallback
+        // to the same-family Claude judge visible instead of invisible.
+        audit_model: auditModelUsed,
         // keep provenance that lives outside the auditor's own output
         pipeline_stages: prev.pipeline_stages,
         writer_attempts: prev.writer_attempts,
@@ -120,6 +128,9 @@ export async function POST(request, { params }) {
       ok: merged.audit_status === 'ok',
       audit_status: merged.audit_status,
       audit_error: merged.audit_error || null,
+      // Echo the judge so a smoke test can confirm the cross-vendor model ran
+      // (vs. having silently fallen back to Claude).
+      audit_model: merged.audit_model || null,
       overall_score: Number.isFinite(score) ? score : null,
       any_hard_fail: merged.hard_fail_checks?.any_hard_fail ?? null,
       hard_fail_reason: merged.hard_fail_checks?.hard_fail_reason || null,

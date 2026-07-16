@@ -586,6 +586,9 @@ export default function ContentEditorPage({ params }) {
         setMsg(`Auditor still failing (${data.audit_error || 'no verdict'}). Retry, or use "Publish anyway" to override.`);
         return;
       }
+      // Name the judge: if the cross-vendor model was unavailable this silently
+      // fell back to Claude, which grades its own family more leniently.
+      setMsg(`✓ Audit complete — ${data.overall_score ?? '?'}/100 (judge: ${data.audit_model || 'unknown'}). Retrying publish…`);
       setPublishGate(null);
       await publishAction('publish');
     } catch (e) {
