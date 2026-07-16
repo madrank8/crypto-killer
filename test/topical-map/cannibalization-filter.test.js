@@ -46,3 +46,12 @@ test('empty input', () => {
   assert.deepEqual(dropped, [])
   assert.deepEqual(pruned, [])
 })
+
+test('a pruned cluster that is then dropped (zero_demand) is NOT also listed in pruned', () => {
+  // head 'binance scam' collides -> pruned; only survivor 'zero vol kw' has 0 volume -> total_volume 0 -> zero_demand drop
+  const clusters = [{ cluster_key: 'A', head_keyword: 'binance scam', total_volume: 500, keywords: [{ keyword: 'binance scam', search_volume: 500 }, { keyword: 'zero vol kw', search_volume: 0 }] }]
+  const { survivors, dropped, pruned } = filterClustersByCannibalization(clusters, { existingKeywords: new Map([['binance scam', 'x']]), existingSlugs: new Set(), existingTitleTokens: [] })
+  assert.equal(survivors.length, 0)
+  assert.deepEqual(dropped, [{ cluster_key: 'A', reason: 'zero_demand' }])
+  assert.deepEqual(pruned, []) // A was dropped, so it must NOT appear in pruned
+})
