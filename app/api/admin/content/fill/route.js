@@ -409,14 +409,17 @@ export async function POST(request) {
               sourceLedger,
               {}
             ) + discoverAuditNote
-            // Auditor: GPT-5.4 (latest) at high reasoning effort — a
-            // CROSS-VENDOR, fresh-perspective gate over Claude-written prose
-            // (same-family self-audit is systematically more lenient; the
-            // 2026-07-05 W4a note). Claude Sonnet 4.7 is the reliability
-            // fallback so a single-model failure can't silently wipe the
-            // verdict — verified against the live DB, the old single-model +
-            // 60s-cap call produced ZERO verdicts across all 35 content rows.
-            const auditModels = ['gpt-5.4', 'claude-sonnet-4-7']
+            // Auditor: GPT-5.4 Mini at high reasoning effort — a CROSS-VENDOR,
+            // fresh-perspective gate over Claude-written prose (same-family
+            // self-audit is systematically more lenient; 2026-07-05 W4a). Claude
+            // Sonnet (4.6) is the reliability fallback so a single-model failure
+            // can't silently wipe the verdict — the old single-model + 60s-cap
+            // call produced ZERO verdicts across all 35 content rows.
+            // NOTE: these are the model IDs the OpenAI/Anthropic accounts
+            // actually have access to. The flagship `gpt-5.4` returns 403
+            // (no project access) and `claude-sonnet-4-7` does not exist (404) —
+            // both were tried and reverted after breaking the live auditor.
+            const auditModels = ['gpt-5.4-mini', 'claude-sonnet']
             let auditResult = null
             for (const modelKey of auditModels) {
               try {
