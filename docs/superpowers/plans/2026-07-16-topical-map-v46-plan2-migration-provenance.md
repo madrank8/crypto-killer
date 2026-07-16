@@ -4,7 +4,7 @@
 
 **Goal:** Add the genuinely-missing topic/run columns for the v4.6 port, and ship a pure provenance module that makes the skill's HONESTY RULES structural — a metric value with no measured/estimated source can never be read as fact.
 
-**Architecture:** One idempotent SQL migration (`db-migrations/018_...sql`, applied via Supabase, matching the repo's existing convention) plus a dependency-free CommonJS module `lib/topical-map/provenance.js` with full `node:test` coverage. No pipeline wiring in this plan — later plans consume the module.
+**Architecture:** One idempotent SQL migration (`migrations/018_...sql`, applied via Supabase, matching the repo's existing convention) plus a dependency-free CommonJS module `lib/topical-map/provenance.js` with full `node:test` coverage. No pipeline wiring in this plan — later plans consume the module.
 
 **Tech Stack:** Node 20 (`node:test`), CommonJS `lib/`, idempotent SQL applied to Supabase project `rqyfuioazbdixflqngcs`.
 
@@ -12,7 +12,7 @@
 
 - **No new dependencies.** Node built-ins only (test harness from Plan 1 is live: `npm test` runs `node scripts/methodology-check.mjs && node --test test/`).
 - **`lib/` is CommonJS** (`require`/`module.exports`).
-- **Migrations** live in `db-migrations/`, are idempotent (`ADD COLUMN IF NOT EXISTS`), numbered; next free number is **018**. Header convention: `-- Run in Supabase SQL Editor. Idempotent.`
+- **Migrations** live in `migrations/`, are idempotent (`ADD COLUMN IF NOT EXISTS`), numbered; next free number is **018**. Header convention: `-- Run in Supabase SQL Editor. Idempotent.`
 - **Provenance levels are exactly** `measured` | `estimated` | `unresolved`. Absence of provenance is `unresolved` — never treated as fact (spec section 6).
 - **Live-schema reality (verified 2026-07-16):** `topics` ALREADY has `node_type`, `aio_risk`, `fan_out_tag`, `page_role`, `macro_vector`, `format_code`, `search_intent`, `cluster_key`, `publication_wave`, `keyword_data_source`, etc. (migrations 014-016). Do NOT re-add them. This plan adds ONLY the columns confirmed absent.
 
@@ -31,7 +31,7 @@ Spec section 7 was written from `stages.js`, before checking the live DB. Agains
 
 ## File Structure
 
-- `db-migrations/018_topical_map_v46_provenance.sql` — the migration (new).
+- `migrations/018_topical_map_v46_provenance.sql` — the migration (new).
 - `lib/topical-map/provenance.js` — pure provenance helper (new, CommonJS).
 - `test/topical-map/provenance.test.js` — tests (new).
 
@@ -40,7 +40,7 @@ Spec section 7 was written from `stages.js`, before checking the live DB. Agains
 ### Task 1: Migration 018 (author + apply + verify)
 
 **Files:**
-- Create: `db-migrations/018_topical_map_v46_provenance.sql`
+- Create: `migrations/018_topical_map_v46_provenance.sql`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -50,7 +50,7 @@ Migrations here are not unit-tested (repo convention: idempotent SQL applied in 
 
 - [ ] **Step 1: Write the migration**
 
-Create `db-migrations/018_topical_map_v46_provenance.sql`:
+Create `migrations/018_topical_map_v46_provenance.sql`:
 
 ```sql
 -- Migration: 018_topical_map_v46_provenance.sql
@@ -109,7 +109,7 @@ Expected: 6 rows (5 topics + 1 run). `metric_provenance` type `jsonb`, `rpp_scor
 - [ ] **Step 4: Commit**
 
 ```bash
-git add db-migrations/018_topical_map_v46_provenance.sql
+git add migrations/018_topical_map_v46_provenance.sql
 git commit -m "feat(topical-map): migration 018 - node_function, rpp_score, provenance columns"
 ```
 
