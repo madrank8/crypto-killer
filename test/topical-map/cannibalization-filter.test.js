@@ -1,41 +1,57 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { filterClustersByCannibalization, DROP_FLAGS } = require('../../lib/topical-map/cannibalization')
+const { filterClustersByCannibalization, CLUSTER_DROP_FLAGS } = require('../../lib/topical-map/cannibalization')
 
 function ctx() {
-  return { existingKeywords: new Map([['taken kw', 'live-slug']]), existingSlugs: new Set(), existingTitleTokens: [] }
+  return { existingKeywords: new Map([['binance scam', 'x'], ['taken kw', 'y']]), existingSlugs: new Set(), existingTitleTokens: [] }
 }
 
-test('DROP_FLAGS is exactly the three unambiguous flags', () => {
-  assert.deepEqual([...DROP_FLAGS].sort(), ['intra_map_duplicate', 'keyword_collision', 'zero_demand'])
+test('CLUSTER_DROP_FLAGS no longer includes keyword_collision', () => {
+  assert.deepEqual([...CLUSTER_DROP_FLAGS].sort(), ['intra_map_duplicate', 'zero_demand'])
 })
 
-test('drops intra-dup / keyword-collision / zero-demand; keeps clean + unverified', () => {
+test('per-keyword: head collision prunes the keyword and re-heads instead of dropping the cluster', () => {
   const clusters = [
-    { cluster_key: 'c1', head_keyword: 'alpha kw', total_volume: 500, keywords: [{ keyword: 'alpha kw' }] }, // clean -> keep
-    { cluster_key: 'c2', head_keyword: 'alpha kw', total_volume: 400, keywords: [{ keyword: 'alpha kw' }] }, // intra_map_duplicate -> drop
-    { cluster_key: 'c3', head_keyword: 'taken kw', total_volume: 200, keywords: [{ keyword: 'taken kw' }] },  // keyword_collision -> drop
-    { cluster_key: 'c4', head_keyword: 'zeta kw', total_volume: 0, keywords: [{ keyword: 'zeta kw' }] },      // zero_demand -> drop
-    { cluster_key: 'c5', head_keyword: 'eta kw', total_volume: 50, keywords: [{ keyword: 'eta kw', keyword_data_source: 'llm-estimated' }] }, // unverified -> KEEP
+    { cluster_key: 'A', head_keyword: 'binance scam', total_volume: 600, keywords: [{ keyword: 'binance scam', search_volume: 500 }, { keyword: 'binance withdrawal scam', search_volume: 100 }] },
   ]
-  const { survivors, dropped, report } = filterClustersByCannibalization(clusters, ctx())
-  assert.deepEqual(survivors.map((c) => c.cluster_key), ['c1', 'c5'])
-  assert.deepEqual(dropped.map((c) => c.cluster_key), ['c2', 'c3', 'c4'])
-  assert.deepEqual(report.counts, { intra_map_duplicate: 1, keyword_collision: 1, zero_demand: 1, unverified_keyword: 1 })
+  const { survivors, pruned } = filterClustersByCannibalization(clusters, ctx())
+  assert.equal(survivors.length, 1)
+  assert.equal(survivors[0].head_keyword, 'binance withdrawal scam') // re-headed to top surviving
+  assert.equal(survivors[0].total_volume, 100)                       // recomputed
+  assert.deepEqual(survivors[0].keywords.map((k) => k.keyword), ['binance withdrawal scam'])
+  assert.deepEqual(pruned, [{ cluster_key: 'A', removed_keywords: ['binance scam'] }])
 })
 
-test('empty input yields empty survivors/dropped', () => {
-  const { survivors, dropped } = filterClustersByCannibalization([], ctx())
+test('cluster emptied by collision is dropped with reason', () => {
+  const clusters = [{ cluster_key: 'B', head_keyword: 'taken kw', total_volume: 200, keywords: [{ keyword: 'taken kw', search_volume: 200 }] }]
+  const { survivors, dropped } = filterClustersByCannibalization(clusters, ctx())
+  assert.equal(survivors.length, 0)
+  assert.deepEqual(dropped, [{ cluster_key: 'B', reason: 'emptied_by_collision', removed_keywords: ['taken kw'] }])
+})
+
+test('intra_map_duplicate and zero_demand still drop whole clusters (post-prune)', () => {
+  const clusters = [
+    { cluster_key: 'C', head_keyword: 'clean kw', total_volume: 300, keywords: [{ keyword: 'clean kw', search_volume: 300 }] },
+    { cluster_key: 'D', head_keyword: 'zero kw', total_volume: 0, keywords: [{ keyword: 'zero kw', search_volume: 0 }] },
+    { cluster_key: 'E', head_keyword: 'clean kw', total_volume: 250, keywords: [{ keyword: 'clean kw', search_volume: 250 }] },
+  ]
+  const { survivors, dropped } = filterClustersByCannibalization(clusters, ctx())
+  assert.deepEqual(survivors.map((c) => c.cluster_key), ['C'])
+  assert.deepEqual(dropped.map((d) => `${d.cluster_key}:${d.reason}`).sort(), ['D:zero_demand', 'E:intra_map_duplicate'])
+})
+
+test('empty input', () => {
+  const { survivors, dropped, pruned } = filterClustersByCannibalization([], ctx())
   assert.deepEqual(survivors, [])
   assert.deepEqual(dropped, [])
+  assert.deepEqual(pruned, [])
 })
 
-test('all-cannibalizing input drops all (the stage, not the filter, guards emptying)', () => {
-  const clusters = [
-    { cluster_key: 'z1', head_keyword: 'a', total_volume: 0, keywords: [{ keyword: 'a' }] },
-    { cluster_key: 'z2', head_keyword: 'b', total_volume: 0, keywords: [{ keyword: 'b' }] },
-  ]
-  const { survivors, dropped } = filterClustersByCannibalization(clusters, { existingKeywords: new Map(), existingSlugs: new Set(), existingTitleTokens: [] })
+test('a pruned cluster that is then dropped (zero_demand) is NOT also listed in pruned', () => {
+  // head 'binance scam' collides -> pruned; only survivor 'zero vol kw' has 0 volume -> total_volume 0 -> zero_demand drop
+  const clusters = [{ cluster_key: 'A', head_keyword: 'binance scam', total_volume: 500, keywords: [{ keyword: 'binance scam', search_volume: 500 }, { keyword: 'zero vol kw', search_volume: 0 }] }]
+  const { survivors, dropped, pruned } = filterClustersByCannibalization(clusters, { existingKeywords: new Map([['binance scam', 'x']]), existingSlugs: new Set(), existingTitleTokens: [] })
   assert.equal(survivors.length, 0)
-  assert.equal(dropped.length, 2)
+  assert.deepEqual(dropped, [{ cluster_key: 'A', reason: 'zero_demand' }])
+  assert.deepEqual(pruned, []) // A was dropped, so it must NOT appear in pruned
 })
