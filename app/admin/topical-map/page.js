@@ -128,6 +128,184 @@ function RoleBadge({ role, expandsSlug }) {
   );
 }
 
+// node_function taxonomy (lib/topical-map/node-function.js): the page a node
+// plays in the authority graph. Orthogonal to content_type / content_role.
+const nodeFunctionColors = {
+  authority: 'bg-purple-500/10 text-purple-300 border-purple-500/25',
+  commercial: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25',
+  entity: 'bg-red-500/10 text-red-300 border-red-500/25',
+  retrieval: 'bg-sky-500/10 text-sky-300 border-sky-500/25',
+  reinforcement: 'bg-gray-500/10 text-gray-400 border-gray-600/30',
+};
+
+function NodeFunctionBadge({ fn }) {
+  if (!fn) return null;
+  return (
+    <span
+      title="Node function — role in the authority graph"
+      className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${nodeFunctionColors[fn] || nodeFunctionColors.reinforcement}`}
+    >
+      {fn}
+    </span>
+  );
+}
+
+// Content Format / format_code (Plan 3d-3). Shows the terse code compactly with
+// the human-readable production format on hover.
+function FormatBadge({ formatCode, contentFormat }) {
+  if (!formatCode && !contentFormat) return null;
+  return (
+    <span
+      title={contentFormat ? `Content format: ${contentFormat}` : undefined}
+      className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+    >
+      {formatCode || contentFormat}
+    </span>
+  );
+}
+
+function SchemaBadge({ schemaType }) {
+  if (!schemaType) return null;
+  return (
+    <span
+      title="schema.org type"
+      className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border bg-slate-500/10 text-slate-300 border-slate-600/30"
+    >
+      {schemaType}
+    </span>
+  );
+}
+
+// v4.6 production metadata badges. Each renders null when its field is empty
+// (honesty rule — never a placeholder), so sparse topics stay uncluttered.
+function MetaBadges({ topic }) {
+  return (
+    <>
+      <NodeFunctionBadge fn={topic.node_function} />
+      <FormatBadge formatCode={topic.format_code} contentFormat={topic.content_format} />
+      <SchemaBadge schemaType={topic.schema_type} />
+    </>
+  );
+}
+
+// Metric provenance vocabulary (lib/topical-map/provenance.js): a metric is
+// measured (a tool returned it), estimated (a model produced it), or unresolved
+// (no grounded source). Shown so a reader never mistakes an estimate for fact.
+const provenanceStyle = {
+  measured: 'text-emerald-400/80',
+  estimated: 'text-amber-400/80',
+  unresolved: 'text-gray-500',
+};
+const provenanceMark = { measured: '✓', estimated: '≈', unresolved: '?' };
+const metricAbbr = { search_volume: 'SV', keyword_difficulty: 'KD', cpc: 'CPC', traffic_potential: 'TP', rpp_score: 'RPP', volume_trend_yearly: 'trend' };
+
+// True when a topic has any metric worth a chip. Shared so a row wrapper can
+// decide whether to render the meta line without duplicating the logic.
+function hasMetricChips(topic) {
+  const hasAio = !!topic.aio_risk;
+  const hasPrio = typeof topic.priority_score === 'number' && topic.priority_score > 0;
+  const provCount = topic.metric_provenance && typeof topic.metric_provenance === 'object'
+    ? Object.values(topic.metric_provenance).filter(Boolean).length
+    : 0;
+  return hasAio || hasPrio || provCount > 0;
+}
+
+// Per-topic metric chips: AIO-Overview risk, priority score, and metric
+// provenance. Renders null when the topic carries none of them (honesty rule).
+function MetricChips({ topic }) {
+  const hasAio = !!topic.aio_risk;
+  const hasPrio = typeof topic.priority_score === 'number' && topic.priority_score > 0;
+  const provEntries = topic.metric_provenance && typeof topic.metric_provenance === 'object'
+    ? Object.entries(topic.metric_provenance).filter(([, lvl]) => lvl)
+    : [];
+  if (!hasAio && !hasPrio && provEntries.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {hasAio && (
+        <span className={`text-[10px] font-medium ${aioColor(topic.aio_risk)}`} title="AI Overview risk">AIO:{topic.aio_risk}</span>
+      )}
+      {hasPrio && (
+        <span className="text-[10px] text-gray-400" title="Priority score">P:{topic.priority_score}</span>
+      )}
+      {provEntries.length > 0 && (
+        <span className="inline-flex items-center gap-1" title="Metric provenance: measured (tool) / estimated (model) / unresolved">
+          {provEntries.map(([field, level]) => (
+            <span key={field} className={`text-[10px] ${provenanceStyle[level] || provenanceStyle.unresolved}`}>
+              {metricAbbr[field] || field}{provenanceMark[level] || provenanceMark.unresolved}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// Content-brief preview: fetches the deterministic brief (the same projection the
+// outline generator receives) so the user sees exactly what a topic hands the
+// writer before generating. Read-only; the server omits empty fields (honesty).
+function BriefPanel({ topic, token }) {
+  const [state, setState] = useState({ loading: true, error: null, brief: null });
+
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true, error: null, brief: null });
+    fetch(`/api/admin/topical-map/topics/${topic.id}/brief`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (alive) setState({ loading: false, error: null, brief: data.brief || {} });
+      })
+      .catch((err) => { if (alive) setState({ loading: false, error: err.message, brief: null }); });
+    return () => { alive = false; };
+  }, [topic.id, token]);
+
+  const { loading, error, brief } = state;
+  const card = 'mt-2 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10 text-xs';
+
+  if (loading) return <div className={`${card} text-gray-400`}>Loading brief…</div>;
+  if (error) return <div className={`${card} text-red-300`}>Brief unavailable: {error}</div>;
+
+  const Row = ({ label, children }) => (
+    <div className="flex gap-2 py-0.5">
+      <span className="text-amber-300/70 font-medium shrink-0 w-28">{label}</span>
+      <span className="text-gray-300 min-w-0">{children}</span>
+    </div>
+  );
+
+  // Build only the production-directive rows. Emptiness is decided by what
+  // ACTUALLY renders — buildContentBrief always carries identity.raw_topic /
+  // priority_score, which aren't shown here, so counting brief keys would falsely
+  // treat a title-only topic as "has a brief" and render a blank card.
+  const b = brief || {};
+  const rows = [];
+  if (b.production?.content_format) rows.push(<Row key="fmt" label="Target format">{b.production.content_format}{b.production.format_code ? ` (${b.production.format_code})` : ''}</Row>);
+  if (b.production?.schema_type) rows.push(<Row key="schema" label="Schema">{b.production.schema_type}</Row>);
+  if (b.placement) rows.push(<Row key="place" label="Map placement">{[b.placement.node_function && `function ${b.placement.node_function}`, b.placement.node_type && `node ${b.placement.node_type}`, b.placement.page_role && `role ${b.placement.page_role}`, b.placement.section].filter(Boolean).join(' · ')}{b.placement.parent ? ` — under “${b.placement.parent}”` : ''}</Row>);
+  if (b.targeting?.search_intent) rows.push(<Row key="intent" label="Search intent">{b.targeting.search_intent}</Row>);
+  if (b.targeting?.secondary_keywords) rows.push(<Row key="kw" label="Secondary kw">{b.targeting.secondary_keywords.join(', ')}</Row>);
+  if (b.heading_seeds) rows.push(<Row key="paa" label="Must cover (PAA)">{b.heading_seeds.join(' · ')}</Row>);
+  if (b.aio_directive) rows.push(<Row key="aio" label="AIO">{b.aio_directive}</Row>);
+  if (b.internal_link_targets) rows.push(<Row key="links" label="Internal links">{b.internal_link_targets.join(', ')}</Row>);
+  if (b.identity?.url_path) rows.push(<Row key="url" label="URL path">{b.identity.url_path}</Row>);
+
+  if (rows.length === 0) {
+    return <div className={`${card} text-gray-500`}>No map metadata on this topic yet — nothing to brief. Regenerate the map to populate production fields.</div>;
+  }
+
+  return (
+    <div className={card}>
+      <p className="text-amber-300 font-semibold mb-1.5">Content Brief — what the writer receives</p>
+      {rows}
+    </div>
+  );
+}
+
+// Override option lists (mirror the server taxonomies in lib/topical-map/*).
+const NODE_FUNCTION_OPTIONS = ['authority', 'reinforcement', 'retrieval', 'entity', 'commercial'];
+const CONTENT_FORMAT_OPTIONS = ['Evergreen Article', 'Comparison Table', 'Step-by-step Guide', 'FAQ Hub', 'Listicle', 'Calculator / Interactive Tool', 'Landing Page (Commercial)', 'News / Update'];
+const SCHEMA_TYPE_OPTIONS = ['Article', 'FAQPage', 'HowTo', 'ItemList', 'Review', 'NewsArticle', 'WebApplication'];
+const SEARCH_INTENT_OPTIONS = ['informational', 'commercial', 'transactional', 'navigational'];
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -153,8 +331,16 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
   const [keyword, setKeyword] = useState(topic.target_keyword || '');
   const [priority, setPriority] = useState(String(topic.priority_score ?? 0));
   const [notes, setNotes] = useState(topic.notes || '');
+  const [nodeFunction, setNodeFunction] = useState(topic.node_function || '');
+  const [contentFormat, setContentFormat] = useState(topic.content_format || '');
+  const [schemaType, setSchemaType] = useState(topic.schema_type || '');
+  const [searchIntent, setSearchIntent] = useState(topic.search_intent || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+
+  // Preserve an existing value that isn't one of the known options (so an
+  // override never silently drops an LLM-produced value the UI doesn't list).
+  const withCurrent = (options, current) => (current && !options.includes(current) ? [current, ...options] : options);
 
   const save = async () => {
     setSaving(true);
@@ -168,6 +354,10 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
           target_keyword: keyword || null,
           priority_score: parseInt(priority, 10) || 0,
           notes: notes || null,
+          node_function: nodeFunction || null,
+          content_format: contentFormat || null,
+          schema_type: schemaType || null,
+          search_intent: searchIntent || null,
         }),
       });
       if (!res.ok) {
@@ -190,6 +380,32 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
         <input className="search-input w-full text-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Target keyword" />
         <input className="search-input w-full text-sm" value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="Priority" type="number" />
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[11px] text-gray-500">Node function
+          <select className="search-input w-full text-sm mt-0.5" value={nodeFunction} onChange={(e) => setNodeFunction(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(NODE_FUNCTION_OPTIONS, nodeFunction).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Search intent
+          <select className="search-input w-full text-sm mt-0.5" value={searchIntent} onChange={(e) => setSearchIntent(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(SEARCH_INTENT_OPTIONS, searchIntent).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Content format
+          <select className="search-input w-full text-sm mt-0.5" value={contentFormat} onChange={(e) => setContentFormat(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(CONTENT_FORMAT_OPTIONS, contentFormat).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Schema type
+          <select className="search-input w-full text-sm mt-0.5" value={schemaType} onChange={(e) => setSchemaType(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(SCHEMA_TYPE_OPTIONS, schemaType).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+      </div>
       <textarea className="search-input w-full text-sm min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" />
       <div className="flex gap-2">
         <button type="button" onClick={save} disabled={saving} className="btn btn-primary text-sm px-3 py-1.5">
@@ -209,6 +425,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
   const editing = editingId === topic.id;
   const descendants = descendantCountById.get(topic.id) || 0;
   const [expanded, setExpanded] = useState(depth < 1); // only auto-expand first level
+  const [briefOpen, setBriefOpen] = useState(false);
 
   // Filter children if status filter is active
   const filteredChildren = useMemo(() => {
@@ -253,13 +470,15 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <span className="text-white font-semibold text-base truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+              <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
             </div>
-            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
+            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3 flex-wrap">
               {topic.target_keyword && <span className="text-gray-400">{topic.target_keyword}</span>}
               <span>{totalCount} topics</span>
               <span className="text-green-400/70">{pubCount} published</span>
               {typeof topic.search_volume === 'number' && <span>vol: {topic.search_volume.toLocaleString()}</span>}
+              <MetricChips topic={topic} />
             </div>
           </div>
 
@@ -272,6 +491,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               onDelete={onDelete}
               onWriteArticle={onWriteArticle}
               writingId={writingId}
+              briefOpen={briefOpen}
+              onToggleBrief={() => setBriefOpen(o => !o)}
             />
             <ChevronToggle expanded={expanded} />
           </div>
@@ -280,6 +501,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
         {editing && (
           <div className="px-5 pb-4">
             <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {briefOpen && (
+          <div className="px-5 pb-4">
+            <BriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -315,12 +542,14 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <span className="text-white text-sm font-medium truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+              <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
               <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
             </div>
-            {topic.target_keyword && (
-              <p className="text-[11px] text-gray-500 mt-0.5 truncate">{topic.target_keyword}</p>
-            )}
+            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+              {topic.target_keyword && <span className="text-[11px] text-gray-500 truncate">{topic.target_keyword}</span>}
+              <MetricChips topic={topic} />
+            </div>
           </div>
           <TopicActions
             topic={topic}
@@ -330,12 +559,20 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             onDelete={onDelete}
             onWriteArticle={onWriteArticle}
             writingId={writingId}
+            briefOpen={briefOpen}
+            onToggleBrief={() => setBriefOpen(o => !o)}
           />
         </div>
 
         {editing && (
           <div className="px-4 pb-3">
             <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {briefOpen && (
+          <div className="px-4 pb-2">
+            <BriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -366,10 +603,14 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <span className="text-gray-200 text-sm truncate">{topic.title}</span>
             <TypeBadge contentType={topic.content_type} />
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+            <MetaBadges topic={topic} />
           </div>
-          {topic.target_keyword && topic.target_keyword !== topic.title && (
-            <p className="text-[11px] text-gray-600 mt-0.5 truncate">{topic.target_keyword}</p>
-          )}
+          {(topic.target_keyword && topic.target_keyword !== topic.title) || hasMetricChips(topic) ? (
+            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+              {topic.target_keyword && topic.target_keyword !== topic.title && <span className="text-[11px] text-gray-600 truncate">{topic.target_keyword}</span>}
+              <MetricChips topic={topic} />
+            </div>
+          ) : null}
         </div>
         <TopicActions
           topic={topic}
@@ -380,6 +621,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           onWriteArticle={onWriteArticle}
           writingId={writingId}
           compact
+          briefOpen={briefOpen}
+          onToggleBrief={() => setBriefOpen(o => !o)}
         />
       </div>
 
@@ -388,16 +631,31 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
         </div>
       )}
+
+      {briefOpen && (
+        <div className="px-4 pb-2">
+          <BriefPanel topic={topic} token={token} />
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Action Buttons ───
 
-function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact }) {
+function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief }) {
   const editing = editingId === topic.id;
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <button
+        type="button" title={briefOpen ? 'Hide content brief' : 'Show content brief (what the writer receives)'}
+        className={`p-1 transition ${briefOpen ? 'text-amber-300' : 'text-gray-600 hover:text-white'}`}
+        onClick={() => onToggleBrief && onToggleBrief()}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      </button>
       <button
         type="button" title="Edit"
         className="text-gray-600 hover:text-white p-1 transition"
