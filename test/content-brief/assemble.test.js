@@ -7,8 +7,9 @@ const TOPIC = {
   section: 'core', topic_type: 'cluster', node_type: 'standard', node_function: 'reinforcement',
   priority_score: 75, search_intent: 'informational', content_format: 'Evergreen Article',
   schema_type: 'Article', paa_questions: ['What is a rug pull?', 'How do I spot a rug pull?'],
-  serp_features: ['people_also_ask', 'ai_overview'], serp_authority: { dr_min: 42 },
-  internal_links_to: ['/guides/spot-a-scam'], dependencies: ['/crypto-scams/'], fan_out_tag: null,
+  serp_features: ['people_also_ask', 'ai_overview'], serp_authority: { dr_min: 42, dr_median: 55 },
+  // NOTE: stageLinking persists these as BARE SLUGS, not paths. Fixtures mirror reality.
+  internal_links_to: ['spot-a-scam'], dependencies: ['crypto-scams'], fan_out_tag: null,
 }
 const PARENT = { title: 'Crypto Scams', url_path: '/crypto-scams/' }
 const SULLIVAN = {
@@ -123,24 +124,36 @@ test('S5 entity: a registry hit fills a real Q-ID + sameAs (qid_override honored
 // ── Section 6 ────────────────────────────────────────────────────────────────
 test('S6 seeds H2s from measured PAA and marks provenance', () => {
   const b = build()
-  assert.deepEqual(b.heading_structure.map((h) => h.h2), ['What is a rug pull?', 'How do I spot a rug pull?'])
+  const paaHeads = b.heading_structure.filter((h) => h._seed_source === 'serp_paa')
+  assert.deepEqual(paaHeads.map((h) => h.h2), ['What is a rug pull?', 'How do I spot a rug pull?'])
   assert.equal(b.heading_seed_provenance, 'serp_paa (measured)')
-  for (const h of b.heading_structure) {
+  for (const h of paaHeads) {
     assert.equal(h.starting_statement, PLACEHOLDER.PENDING_LLM)
     assert.deepEqual(h.source_ledger_seeds, [PLACEHOLDER.UNVERIFIED])
-    assert.equal(h._seed_source, 'serp_paa')
   }
 })
 
-test('S6 with no PAA: empty skeleton flagged as not SERP-validated', () => {
+test('S6 with no PAA: only the mandatory headings, flagged as not SERP-validated', () => {
   const b = build({ topic: { ...TOPIC, paa_questions: [] } })
-  assert.deepEqual(b.heading_structure, [])
+  assert.equal(b.heading_structure.length, 2)
+  assert.ok(b.heading_structure.every((h) => h._mandatory))
   assert.equal(b.heading_seed_provenance, PLACEHOLDER.DERIVED_NOT_SERP)
 })
 
-test('S6 always names the two mandatory headings', () => {
-  assert.equal(build().mandatory_headings.length, 2)
-  assert.match(build().mandatory_headings[0], /NOT the Right Choice/)
+test('S6 mandatory headings are entries INSIDE heading_structure (template requirement)', () => {
+  const b = build()
+  const mandatory = b.heading_structure.filter((h) => h._mandatory)
+  assert.equal(mandatory.length, 2)
+  assert.match(mandatory[0].h2, /NOT the Right Choice/)
+  assert.match(mandatory[1].h2, /Action-Oriented Final H2/)
+  assert.equal(b.mandatory_headings, undefined) // no non-spec side-list
+})
+
+test('S6 every heading row carries all 8 per-heading fields (never omitted)', () => {
+  const required = ['h2', 'heading_level', 'format', 'starting_statement', 'instruction', 'context_terms', 'inline_link', 'extractive_answer_target', 'source_ledger_seeds']
+  for (const h of build().heading_structure) {
+    for (const f of required) assert.ok(f in h, `heading missing ${f}`)
+  }
 })
 
 // ── Sections 7/8/11 — honesty-critical ───────────────────────────────────────
@@ -167,15 +180,30 @@ test('S8 non-GEN standard topic is not marked required without reason', () => {
   assert.equal(b.passage_independence, 'optional')
 })
 
-test('S8 quality node is required even without GEN', () => {
-  assert.equal(build({ topic: { ...TOPIC, serp_features: [], node_type: 'quality' } }).passage_independence, 'required')
+test('S8 quality node is required even without GEN, WITH a stated reason (rule 5)', () => {
+  const b = build({ topic: { ...TOPIC, serp_features: [], node_type: 'quality' } })
+  assert.equal(b.passage_independence, 'required')
+  assert.match(b.passage_independence_reason, /Quality Node/)
+  assert.match(b.passage_independence_reason, /measured/)
+})
+
+test('S8 required-by-GEN states the measured GEN signal as its reason', () => {
+  const b = build()
+  assert.equal(b.passage_independence, 'required')
+  assert.match(b.passage_independence_reason, /AI Overview currently fires/)
+})
+
+test('S8 optional pages carry no invented reason', () => {
+  const b = build({ topic: { ...TOPIC, serp_features: [], priority_score: 20 } })
+  assert.equal(b.passage_independence, 'optional')
+  assert.equal(b.passage_independence_reason, null)
 })
 
 test('S11 fills only measured competitor data, NO DATA otherwise', () => {
   const b = build()
   assert.deepEqual(b.competitor_pages_to_beat, [PLACEHOLDER.NO_DATA])
   assert.equal(b.competitor_benchmarks.word_count, PLACEHOLDER.NO_DATA)
-  assert.match(b.competitor_benchmarks.avg_dr, /min DR 42 \(measured/)
+  assert.match(b.competitor_benchmarks.avg_dr, /median DR 55 \(measured/)
   assert.deepEqual(b.competitor_benchmarks.serp_features, ['people_also_ask', 'ai_overview'])
 })
 
@@ -190,7 +218,20 @@ test('S9 internal linking derives root/seed/node from the map tree', () => {
   const l = build().internal_link_targets
   assert.equal(l.root, '/')
   assert.deepEqual(l.seed_pages, ['/crypto-scams/'])
-  assert.deepEqual(l.node_pages, ['/guides/spot-a-scam'])
+  // unresolved slug passes through unchanged — never dressed up as an invented path
+  assert.deepEqual(l.node_pages, ['spot-a-scam'])
+})
+
+test('S9/S12 resolve bare slugs to real url_paths when a slug index is supplied', () => {
+  const b = build({ slugToPath: { 'spot-a-scam': '/guides/spot-a-scam/', 'crypto-scams': '/crypto-scams/' } })
+  assert.deepEqual(b.internal_link_targets.node_pages, ['/guides/spot-a-scam/'])
+  assert.deepEqual(b.dependencies, ['/crypto-scams/'])
+})
+
+test('S9 slug index also accepts a Map; unknown slugs still pass through raw', () => {
+  const b = build({ slugToPath: new Map([['crypto-scams', '/crypto-scams/']]) })
+  assert.deepEqual(b.dependencies, ['/crypto-scams/'])
+  assert.deepEqual(b.internal_link_targets.node_pages, ['spot-a-scam'])
 })
 
 test('S12 llms_txt_tier follows node_function', () => {
@@ -201,8 +242,8 @@ test('S12 llms_txt_tier follows node_function', () => {
 
 test('S12 versions + dependencies', () => {
   const b = build()
-  assert.deepEqual(b.dependencies, ['/crypto-scams/'])
-  assert.equal(b.seo_blog_generator_version, '3.1')
+  assert.deepEqual(b.dependencies, ['crypto-scams'])
+  assert.equal(b.seo_blog_generator_version, '5.2.1')
   assert.equal(b.topical_map_version, '4.6')
   assert.equal(b.review_required, true)
 })
