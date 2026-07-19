@@ -128,6 +128,66 @@ function RoleBadge({ role, expandsSlug }) {
   );
 }
 
+// node_function taxonomy (lib/topical-map/node-function.js): the page a node
+// plays in the authority graph. Orthogonal to content_type / content_role.
+const nodeFunctionColors = {
+  authority: 'bg-purple-500/10 text-purple-300 border-purple-500/25',
+  commercial: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25',
+  entity: 'bg-red-500/10 text-red-300 border-red-500/25',
+  retrieval: 'bg-sky-500/10 text-sky-300 border-sky-500/25',
+  reinforcement: 'bg-gray-500/10 text-gray-400 border-gray-600/30',
+};
+
+function NodeFunctionBadge({ fn }) {
+  if (!fn) return null;
+  return (
+    <span
+      title="Node function — role in the authority graph"
+      className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${nodeFunctionColors[fn] || nodeFunctionColors.reinforcement}`}
+    >
+      {fn}
+    </span>
+  );
+}
+
+// Content Format / format_code (Plan 3d-3). Shows the terse code compactly with
+// the human-readable production format on hover.
+function FormatBadge({ formatCode, contentFormat }) {
+  if (!formatCode && !contentFormat) return null;
+  return (
+    <span
+      title={contentFormat ? `Content format: ${contentFormat}` : undefined}
+      className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border bg-indigo-500/10 text-indigo-300 border-indigo-500/25"
+    >
+      {formatCode || contentFormat}
+    </span>
+  );
+}
+
+function SchemaBadge({ schemaType }) {
+  if (!schemaType) return null;
+  return (
+    <span
+      title="schema.org type"
+      className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border bg-slate-500/10 text-slate-300 border-slate-600/30"
+    >
+      {schemaType}
+    </span>
+  );
+}
+
+// v4.6 production metadata badges. Each renders null when its field is empty
+// (honesty rule — never a placeholder), so sparse topics stay uncluttered.
+function MetaBadges({ topic }) {
+  return (
+    <>
+      <NodeFunctionBadge fn={topic.node_function} />
+      <FormatBadge formatCode={topic.format_code} contentFormat={topic.content_format} />
+      <SchemaBadge schemaType={topic.schema_type} />
+    </>
+  );
+}
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -253,6 +313,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <span className="text-white font-semibold text-base truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+              <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
             </div>
             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
@@ -315,6 +376,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <span className="text-white text-sm font-medium truncate">{topic.title}</span>
               <TypeBadge contentType={topic.content_type} />
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+              <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
               <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
             </div>
@@ -366,6 +428,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <span className="text-gray-200 text-sm truncate">{topic.title}</span>
             <TypeBadge contentType={topic.content_type} />
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
+            <MetaBadges topic={topic} />
           </div>
           {topic.target_keyword && topic.target_keyword !== topic.title && (
             <p className="text-[11px] text-gray-600 mt-0.5 truncate">{topic.target_keyword}</p>
