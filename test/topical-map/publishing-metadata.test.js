@@ -22,6 +22,9 @@ test('url path: empty / non-array -> root', () => {
 test('url path: slugifies raw titles and dedups across segments', () => {
   assert.equal(buildUrlPath(['Crypto Scams', 'Crypto Scam Warning Signs']), '/crypto-scams/warning-signs/')
 })
+test('url path: stem does not false-collide "news" with "new" (keeps both tokens)', () => {
+  assert.equal(buildUrlPath(['latest-news', 'new-scam-warning-signs']), '/latest-news/new-scam-warning-signs/')
+})
 
 // ── classifyContentFormat ─────────────────────────────────────────────────────
 test('CONTENT_FORMATS excludes domain-inapplicable medical formats', () => {
@@ -47,9 +50,14 @@ test('content format: fallbacks when no format_code', () => {
   assert.equal(classifyContentFormat({ content_type: 'brand_review' }), 'Evergreen Article')
   assert.equal(classifyContentFormat({ search_intent: 'commercial' }), 'Landing Page (Commercial)')
   assert.equal(classifyContentFormat({ search_intent: 'transactional' }), 'Landing Page (Commercial)')
-  assert.equal(classifyContentFormat({ node_type: 'trending' }), 'News / Update')
+  // Assignment rule 3: trending nodes take the Evergreen Article FORMAT (News/Update = refresh cadence).
+  assert.equal(classifyContentFormat({ node_type: 'trending' }), 'Evergreen Article')
   assert.equal(classifyContentFormat({ node_type: 'quality' }), 'Evergreen Article')
   assert.equal(classifyContentFormat({}), 'Evergreen Article')
+})
+test('content format: only the NEWS format_code yields News / Update', () => {
+  assert.equal(classifyContentFormat({ format_code: 'NEWS' }), 'News / Update')
+  assert.equal(classifyContentFormat({ node_type: 'trending', format_code: 'NEWS' }), 'News / Update')
 })
 test('content format: unknown format_code falls through to fallbacks', () => {
   assert.equal(classifyContentFormat({ format_code: 'ZZZ', search_intent: 'commercial' }), 'Landing Page (Commercial)')

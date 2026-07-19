@@ -31,6 +31,11 @@ LLM creativity, no fabrication risk, fully unit-testable:
   concern, not a map-structure concern.
 - Domain-inapplicable formats (Clinical Evidence Review, Symptom Checklist) are
   dropped — they are medical-only and cannot honestly apply to a crypto-scam site.
+- **Case Study / Data Report** is also dropped from the producible taxonomy: no
+  map-stage signal reliably identifies "original research/data" content (no
+  `format_code` maps to it; `content_role: 'trust'` is too broad — it also covers
+  about/methodology pages). Assigning it would misclassify; deferred to the
+  writing flow where the source material is known. (Review-caught.)
 
 ## Design
 
