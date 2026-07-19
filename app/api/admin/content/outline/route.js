@@ -2,6 +2,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { verifySourceLedger } from '@/lib/source-verify'
+import { formatBriefForPrompt } from '@/lib/topical-map/content-brief'
 
 export const maxDuration = 120
 
@@ -68,12 +69,20 @@ ${topic?.content_type === 'discover'
 - BANNED phrases: "In today's rapidly evolving", "It's important to note", "Let's dive in", "landscape", "crucial", "comprehensive", "robust", "deep dive", "delve", "journey"
 - Sources must be real, navigable URLs.`}`
 
+  // Topical-map brief: turns the topic's map metadata (content_format, schema_type,
+  // node_function, PAA questions, AIO risk, url_path, …) into explicit production
+  // directives. Empty string when the topic carries no such metadata (additive).
+  // Suppressed in Discover mode: the brief is answer-first/extraction-forward, the
+  // exact inverse of Discover's delayed-answer, no-question-format H2 strategy — so
+  // injecting it there would fight the mode's own rules.
+  const mapBrief = topic?.content_type === 'discover' ? '' : formatBriefForPrompt(topic, { parentTopic })
+
   const user = `Create an article outline for:
 
 TOPIC: ${topicTitle}
 PRIMARY KEYWORD: ${topicKeyword}
 ${parentTitle ? `PARENT PILLAR/CLUSTER: ${parentTitle}` : ''}
-
+${mapBrief ? `\n${mapBrief}\n` : ''}
 TOPIC DETAILS:
 ${JSON.stringify(topic || {}, null, 2)}
 
