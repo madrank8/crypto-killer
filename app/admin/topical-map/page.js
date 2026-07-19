@@ -229,6 +229,57 @@ function MetricChips({ topic }) {
   );
 }
 
+// Content-brief preview: fetches the deterministic brief (the same projection the
+// outline generator receives) so the user sees exactly what a topic hands the
+// writer before generating. Read-only; the server omits empty fields (honesty).
+function BriefPanel({ topic, token }) {
+  const [state, setState] = useState({ loading: true, error: null, brief: null });
+
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true, error: null, brief: null });
+    fetch(`/api/admin/topical-map/topics/${topic.id}/brief`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (alive) setState({ loading: false, error: null, brief: data.brief || {} });
+      })
+      .catch((err) => { if (alive) setState({ loading: false, error: err.message, brief: null }); });
+    return () => { alive = false; };
+  }, [topic.id, token]);
+
+  const { loading, error, brief } = state;
+  const card = 'mt-2 p-3 rounded-lg border border-amber-600/30 bg-amber-900/10 text-xs';
+
+  if (loading) return <div className={`${card} text-gray-400`}>Loading brief…</div>;
+  if (error) return <div className={`${card} text-red-300`}>Brief unavailable: {error}</div>;
+  if (!brief || Object.keys(brief).length === 0) {
+    return <div className={`${card} text-gray-500`}>No map metadata on this topic yet — nothing to brief. Regenerate the map to populate production fields.</div>;
+  }
+
+  const Row = ({ label, children }) => (
+    <div className="flex gap-2 py-0.5">
+      <span className="text-amber-300/70 font-medium shrink-0 w-28">{label}</span>
+      <span className="text-gray-300 min-w-0">{children}</span>
+    </div>
+  );
+
+  return (
+    <div className={card}>
+      <p className="text-amber-300 font-semibold mb-1.5">Content Brief — what the writer receives</p>
+      {brief.production?.content_format && <Row label="Target format">{brief.production.content_format}{brief.production.format_code ? ` (${brief.production.format_code})` : ''}</Row>}
+      {brief.production?.schema_type && <Row label="Schema">{brief.production.schema_type}</Row>}
+      {brief.placement && <Row label="Map placement">{[brief.placement.node_function && `function ${brief.placement.node_function}`, brief.placement.node_type && `node ${brief.placement.node_type}`, brief.placement.page_role && `role ${brief.placement.page_role}`, brief.placement.section].filter(Boolean).join(' · ')}{brief.placement.parent ? ` — under “${brief.placement.parent}”` : ''}</Row>}
+      {brief.targeting?.search_intent && <Row label="Search intent">{brief.targeting.search_intent}</Row>}
+      {brief.targeting?.secondary_keywords && <Row label="Secondary kw">{brief.targeting.secondary_keywords.join(', ')}</Row>}
+      {brief.heading_seeds && <Row label="Must cover (PAA)">{brief.heading_seeds.join(' · ')}</Row>}
+      {brief.aio_directive && <Row label="AIO">{brief.aio_directive}</Row>}
+      {brief.internal_link_targets && <Row label="Internal links">{brief.internal_link_targets.join(', ')}</Row>}
+      {brief.identity?.url_path && <Row label="URL path">{brief.identity.url_path}</Row>}
+    </div>
+  );
+}
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -310,6 +361,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
   const editing = editingId === topic.id;
   const descendants = descendantCountById.get(topic.id) || 0;
   const [expanded, setExpanded] = useState(depth < 1); // only auto-expand first level
+  const [briefOpen, setBriefOpen] = useState(false);
 
   // Filter children if status filter is active
   const filteredChildren = useMemo(() => {
@@ -375,6 +427,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               onDelete={onDelete}
               onWriteArticle={onWriteArticle}
               writingId={writingId}
+              briefOpen={briefOpen}
+              onToggleBrief={() => setBriefOpen(o => !o)}
             />
             <ChevronToggle expanded={expanded} />
           </div>
@@ -383,6 +437,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
         {editing && (
           <div className="px-5 pb-4">
             <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {briefOpen && (
+          <div className="px-5 pb-4">
+            <BriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -435,12 +495,20 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             onDelete={onDelete}
             onWriteArticle={onWriteArticle}
             writingId={writingId}
+            briefOpen={briefOpen}
+            onToggleBrief={() => setBriefOpen(o => !o)}
           />
         </div>
 
         {editing && (
           <div className="px-4 pb-3">
             <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
+          </div>
+        )}
+
+        {briefOpen && (
+          <div className="px-4 pb-2">
+            <BriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -489,6 +557,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           onWriteArticle={onWriteArticle}
           writingId={writingId}
           compact
+          briefOpen={briefOpen}
+          onToggleBrief={() => setBriefOpen(o => !o)}
         />
       </div>
 
@@ -497,16 +567,31 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           <TopicEditor topic={topic} token={token} onCancel={() => setEditingId(null)} onSaved={() => { setEditingId(null); onPatch(); }} />
         </div>
       )}
+
+      {briefOpen && (
+        <div className="px-4 pb-2">
+          <BriefPanel topic={topic} token={token} />
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Action Buttons ───
 
-function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact }) {
+function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief }) {
   const editing = editingId === topic.id;
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+      <button
+        type="button" title={briefOpen ? 'Hide content brief' : 'Show content brief (what the writer receives)'}
+        className={`p-1 transition ${briefOpen ? 'text-amber-300' : 'text-gray-600 hover:text-white'}`}
+        onClick={() => onToggleBrief && onToggleBrief()}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      </button>
       <button
         type="button" title="Edit"
         className="text-gray-600 hover:text-white p-1 transition"
