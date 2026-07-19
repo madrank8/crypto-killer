@@ -4,6 +4,7 @@ import { useAdmin } from '@/lib/admin-context';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CADENCES, DEFAULT_CADENCE, buildPublicationPlan } from '@/lib/topical-map/publication-plan';
 
 // ─── Color Systems ───
 
@@ -281,6 +282,7 @@ function BriefPanel({ topic, token }) {
   if (b.production?.content_format) rows.push(<Row key="fmt" label="Target format">{b.production.content_format}{b.production.format_code ? ` (${b.production.format_code})` : ''}</Row>);
   if (b.production?.schema_type) rows.push(<Row key="schema" label="Schema">{b.production.schema_type}</Row>);
   if (b.placement) rows.push(<Row key="place" label="Map placement">{[b.placement.node_function && `function ${b.placement.node_function}`, b.placement.node_type && `node ${b.placement.node_type}`, b.placement.page_role && `role ${b.placement.page_role}`, b.placement.section].filter(Boolean).join(' · ')}{b.placement.parent ? ` — under “${b.placement.parent}”` : ''}</Row>);
+  if (b.entity) rows.push(<Row key="entity" label="Primary entity">{b.entity.name} <span className="text-gray-500">({b.entity.type})</span>{b.entity.wikidata_qid ? <span className="text-emerald-400/80"> · {b.entity.wikidata_qid}</span> : null}</Row>);
   if (b.targeting?.search_intent) rows.push(<Row key="intent" label="Search intent">{b.targeting.search_intent}</Row>);
   if (b.targeting?.secondary_keywords) rows.push(<Row key="kw" label="Secondary kw">{b.targeting.secondary_keywords.join(', ')}</Row>);
   if (b.heading_seeds) rows.push(<Row key="paa" label="Must cover (PAA)">{b.heading_seeds.join(' · ')}</Row>);
@@ -321,6 +323,78 @@ function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
         className="transition-all duration-700 ease-out"
       />
     </svg>
+  );
+}
+
+// ─── Publication Plan (Step 22) ───
+// Computed entirely from the already-loaded topics array — no API round-trip.
+// startDate is passed explicitly so the plan module never reads a clock.
+function PublicationPlanPanel({ topics }) {
+  const [open, setOpen] = useState(false);
+  const [cadence, setCadence] = useState(DEFAULT_CADENCE);
+  const [startDate] = useState(() => new Date().toISOString().slice(0, 10));
+
+  const plan = useMemo(
+    () => buildPublicationPlan(topics, { cadence, startDate }),
+    [topics, cadence, startDate]
+  );
+
+  // Always render the header — hiding the panel when nothing is left to schedule
+  // would make the "all caught up" state unreachable after a reload (no toggle to
+  // click), which is exactly the kind of dead-end this dashboard must not have.
+  return (
+    <div className="rounded-xl border border-gray-800/60 bg-gray-900/40">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button type="button" onClick={() => setOpen(o => !o)} className="flex items-center gap-2 text-left flex-1 min-w-0">
+          <ChevronToggle expanded={open} size="sm" />
+          <span className="text-[11px] uppercase tracking-wide text-gray-500">Publication Plan</span>
+          <span className="text-sm text-gray-300">
+            {plan.total === 0
+              ? 'All caught up — every topic is published'
+              : `${plan.total} unpublished · ${plan.weeks.length} week${plan.weeks.length === 1 ? '' : 's'}`}
+          </span>
+        </button>
+        <select
+          value={cadence}
+          onChange={(e) => setCadence(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          className="search-input text-xs py-1"
+          title="Site maturity — sets the publishing cadence (skill Step 22)"
+        >
+          {Object.values(CADENCES).map((c) => (
+            <option key={c.key} value={c.key}>{c.label} — {c.rangeLabel}</option>
+          ))}
+        </select>
+      </div>
+
+      {open && (
+        <div className="border-t border-gray-800/40 px-4 py-3 space-y-2 max-h-96 overflow-y-auto">
+          {plan.cadence.note && <p className="text-[11px] text-amber-300/70">{plan.cadence.note}</p>}
+          {plan.cadence.refreshesPerWeek > 0 && (
+            <p className="text-[11px] text-gray-500">
+              Cadence also budgets {plan.cadence.refreshesPerWeek} refresh{plan.cadence.refreshesPerWeek === 1 ? '' : 'es'}/week of existing content.
+            </p>
+          )}
+          {plan.weeks.length === 0 && <p className="text-xs text-gray-500">Nothing left to schedule — every topic is published.</p>}
+          {plan.weeks.map((w) => (
+            <div key={w.week} className="flex gap-3 py-1 border-b border-gray-800/30 last:border-0">
+              <div className="shrink-0 w-28">
+                <span className="text-xs text-gray-300 font-medium">Week {w.week}</span>
+                {w.target_date && <span className="block text-[10px] text-gray-600 tabular-nums">{w.target_date}</span>}
+              </div>
+              <div className="min-w-0 flex-1 flex flex-wrap gap-1.5">
+                {w.topics.map((t) => (
+                  <span key={t.id} className="inline-flex items-center gap-1 text-[11px] text-gray-400" title={t.target_keyword || t.title}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${statusDot[t.content_status] || statusDot.planned}`} />
+                    <span className="truncate max-w-[16rem]">{t.title}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1384,6 +1458,9 @@ export default function TopicalMapPage() {
           </div>
         </div>
       )}
+
+      {/* ── Publication plan (Step 22) ── */}
+      {mapId && topics.length > 0 && <PublicationPlanPanel topics={topics} />}
 
       {/* ── Search ── */}
       {mapId && topics.length > 0 && (
