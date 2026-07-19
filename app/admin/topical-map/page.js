@@ -339,8 +339,9 @@ function PublicationPlanPanel({ topics }) {
     [topics, cadence, startDate]
   );
 
-  if (plan.total === 0 && !open) return null;
-
+  // Always render the header — hiding the panel when nothing is left to schedule
+  // would make the "all caught up" state unreachable after a reload (no toggle to
+  // click), which is exactly the kind of dead-end this dashboard must not have.
   return (
     <div className="rounded-xl border border-gray-800/60 bg-gray-900/40">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -348,7 +349,9 @@ function PublicationPlanPanel({ topics }) {
           <ChevronToggle expanded={open} size="sm" />
           <span className="text-[11px] uppercase tracking-wide text-gray-500">Publication Plan</span>
           <span className="text-sm text-gray-300">
-            {plan.total} unpublished · {plan.weeks.length} week{plan.weeks.length === 1 ? '' : 's'}
+            {plan.total === 0
+              ? 'All caught up — every topic is published'
+              : `${plan.total} unpublished · ${plan.weeks.length} week${plan.weeks.length === 1 ? '' : 's'}`}
           </span>
         </button>
         <select

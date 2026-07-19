@@ -102,6 +102,15 @@ test('entity: a registry MISS omits the entity entirely (never fabricates a Q-ID
   assert.equal(b.entity, undefined) // honesty rule: unresolved > fabricated
 })
 
+test('entity: qid_override wins over a property-id qid (never publish a P-id as verified)', () => {
+  // registry `bbb` carries qid 'P902' (a Wikidata PROPERTY id) + qid_override 'Q806097'.
+  const b = buildContentBrief({ title: 'Better Business Bureau', target_keyword: 'better business bureau' })
+  assert.equal(b.entity.wikidata_qid, 'Q806097')
+  assert.ok(!String(b.entity.wikidata_qid).startsWith('P'))
+  // and it must agree with the sameAs it ships alongside
+  assert.ok(b.entity.same_as.some((u) => u.includes('Q806097')))
+})
+
 test('entity: falls back from target_keyword to title', () => {
   const b = buildContentBrief({ title: 'fbi', target_keyword: 'no-such-entity-here' })
   assert.equal(b.entity.wikidata_qid, 'Q8333')

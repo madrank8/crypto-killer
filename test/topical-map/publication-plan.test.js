@@ -69,6 +69,14 @@ test('explicit perWeek overrides the cadence rate', () => {
   assert.equal(plan.cadence.perWeek, 4)
 })
 
+test('a cadence object with a non-positive rate cannot hang the chunking loop', () => {
+  for (const bad of [0, -3, NaN]) {
+    const plan = buildPublicationPlan([{ id: 'a', content_status: 'planned' }], { cadence: { perWeek: bad } })
+    assert.ok(plan.cadence.perWeek > 0, `rate must stay positive for perWeek=${bad}`)
+    assert.equal(plan.weeks.length, 1)
+  }
+})
+
 test('empty / malformed input is safe', () => {
   for (const bad of [[], null, undefined, 'nope', [null, undefined, 3]]) {
     const plan = buildPublicationPlan(bad, {})
