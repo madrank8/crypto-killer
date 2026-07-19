@@ -88,6 +88,41 @@ test('prompt block: non-array list fields do not throw and render nothing for th
   assert.equal(formatBriefForPrompt({ title: 'x', secondary_keywords: 'nope', paa_questions: 'nope' }), '')
 })
 
+// ── Entity map (Step 21) ──────────────────────────────────────────────────────
+test('entity: a registry hit resolves with a real Q-ID and sameAs', () => {
+  const b = buildContentBrief({ title: 'What the FTC says', target_keyword: 'ftc' })
+  assert.equal(b.entity.name, 'Federal Trade Commission')
+  assert.equal(b.entity.wikidata_qid, 'Q465381')
+  assert.ok(b.entity.same_as.some((u) => u.includes('wikidata.org/wiki/Q465381')))
+  assert.ok(b.entity.same_as.some((u) => u.includes('wikipedia.org')))
+})
+
+test('entity: a registry MISS omits the entity entirely (never fabricates a Q-ID)', () => {
+  const b = buildContentBrief({ title: 'Totally Unknown Scam Brand XYZ', target_keyword: 'totally unknown scam brand xyz' })
+  assert.equal(b.entity, undefined) // honesty rule: unresolved > fabricated
+})
+
+test('entity: falls back from target_keyword to title', () => {
+  const b = buildContentBrief({ title: 'fbi', target_keyword: 'no-such-entity-here' })
+  assert.equal(b.entity.wikidata_qid, 'Q8333')
+})
+
+test('entity: missing title/keyword never throws', () => {
+  assert.doesNotThrow(() => buildContentBrief({}))
+  assert.equal(buildContentBrief({}).entity, undefined)
+})
+
+test('prompt block: a resolved entity renders verified identifiers only', () => {
+  const s = formatBriefForPrompt({ title: 'x', target_keyword: 'ftc' })
+  assert.match(s, /PRIMARY ENTITY: Federal Trade Commission/)
+  assert.match(s, /Wikidata Q465381/)
+  assert.match(s, /never invent other identifiers/)
+})
+
+test('prompt block: an unresolved entity contributes no line', () => {
+  assert.equal(formatBriefForPrompt({ title: 'Unknown Brand Zzz', target_keyword: 'unknown brand zzz' }), '')
+})
+
 // ── formatBriefForPrompt ──────────────────────────────────────────────────────
 test('prompt block: renders directives for a full topic', () => {
   const s = formatBriefForPrompt(FULL, { parentTopic: { title: 'Casino Reviews' } })
