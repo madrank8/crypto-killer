@@ -199,6 +199,17 @@ const provenanceStyle = {
 const provenanceMark = { measured: '✓', estimated: '≈', unresolved: '?' };
 const metricAbbr = { search_volume: 'SV', keyword_difficulty: 'KD', cpc: 'CPC', traffic_potential: 'TP', rpp_score: 'RPP', volume_trend_yearly: 'trend' };
 
+// True when a topic has any metric worth a chip. Shared so a row wrapper can
+// decide whether to render the meta line without duplicating the logic.
+function hasMetricChips(topic) {
+  const hasAio = !!topic.aio_risk;
+  const hasPrio = typeof topic.priority_score === 'number' && topic.priority_score > 0;
+  const provCount = topic.metric_provenance && typeof topic.metric_provenance === 'object'
+    ? Object.values(topic.metric_provenance).filter(Boolean).length
+    : 0;
+  return hasAio || hasPrio || provCount > 0;
+}
+
 // Per-topic metric chips: AIO-Overview risk, priority score, and metric
 // provenance. Renders null when the topic carries none of them (honesty rule).
 function MetricChips({ topic }) {
@@ -253,9 +264,6 @@ function BriefPanel({ topic, token }) {
 
   if (loading) return <div className={`${card} text-gray-400`}>Loading brief…</div>;
   if (error) return <div className={`${card} text-red-300`}>Brief unavailable: {error}</div>;
-  if (!brief || Object.keys(brief).length === 0) {
-    return <div className={`${card} text-gray-500`}>No map metadata on this topic yet — nothing to brief. Regenerate the map to populate production fields.</div>;
-  }
 
   const Row = ({ label, children }) => (
     <div className="flex gap-2 py-0.5">
@@ -264,18 +272,30 @@ function BriefPanel({ topic, token }) {
     </div>
   );
 
+  // Build only the production-directive rows. Emptiness is decided by what
+  // ACTUALLY renders — buildContentBrief always carries identity.raw_topic /
+  // priority_score, which aren't shown here, so counting brief keys would falsely
+  // treat a title-only topic as "has a brief" and render a blank card.
+  const b = brief || {};
+  const rows = [];
+  if (b.production?.content_format) rows.push(<Row key="fmt" label="Target format">{b.production.content_format}{b.production.format_code ? ` (${b.production.format_code})` : ''}</Row>);
+  if (b.production?.schema_type) rows.push(<Row key="schema" label="Schema">{b.production.schema_type}</Row>);
+  if (b.placement) rows.push(<Row key="place" label="Map placement">{[b.placement.node_function && `function ${b.placement.node_function}`, b.placement.node_type && `node ${b.placement.node_type}`, b.placement.page_role && `role ${b.placement.page_role}`, b.placement.section].filter(Boolean).join(' · ')}{b.placement.parent ? ` — under “${b.placement.parent}”` : ''}</Row>);
+  if (b.targeting?.search_intent) rows.push(<Row key="intent" label="Search intent">{b.targeting.search_intent}</Row>);
+  if (b.targeting?.secondary_keywords) rows.push(<Row key="kw" label="Secondary kw">{b.targeting.secondary_keywords.join(', ')}</Row>);
+  if (b.heading_seeds) rows.push(<Row key="paa" label="Must cover (PAA)">{b.heading_seeds.join(' · ')}</Row>);
+  if (b.aio_directive) rows.push(<Row key="aio" label="AIO">{b.aio_directive}</Row>);
+  if (b.internal_link_targets) rows.push(<Row key="links" label="Internal links">{b.internal_link_targets.join(', ')}</Row>);
+  if (b.identity?.url_path) rows.push(<Row key="url" label="URL path">{b.identity.url_path}</Row>);
+
+  if (rows.length === 0) {
+    return <div className={`${card} text-gray-500`}>No map metadata on this topic yet — nothing to brief. Regenerate the map to populate production fields.</div>;
+  }
+
   return (
     <div className={card}>
       <p className="text-amber-300 font-semibold mb-1.5">Content Brief — what the writer receives</p>
-      {brief.production?.content_format && <Row label="Target format">{brief.production.content_format}{brief.production.format_code ? ` (${brief.production.format_code})` : ''}</Row>}
-      {brief.production?.schema_type && <Row label="Schema">{brief.production.schema_type}</Row>}
-      {brief.placement && <Row label="Map placement">{[brief.placement.node_function && `function ${brief.placement.node_function}`, brief.placement.node_type && `node ${brief.placement.node_type}`, brief.placement.page_role && `role ${brief.placement.page_role}`, brief.placement.section].filter(Boolean).join(' · ')}{brief.placement.parent ? ` — under “${brief.placement.parent}”` : ''}</Row>}
-      {brief.targeting?.search_intent && <Row label="Search intent">{brief.targeting.search_intent}</Row>}
-      {brief.targeting?.secondary_keywords && <Row label="Secondary kw">{brief.targeting.secondary_keywords.join(', ')}</Row>}
-      {brief.heading_seeds && <Row label="Must cover (PAA)">{brief.heading_seeds.join(' · ')}</Row>}
-      {brief.aio_directive && <Row label="AIO">{brief.aio_directive}</Row>}
-      {brief.internal_link_targets && <Row label="Internal links">{brief.internal_link_targets.join(', ')}</Row>}
-      {brief.identity?.url_path && <Row label="URL path">{brief.identity.url_path}</Row>}
+      {rows}
     </div>
   );
 }
@@ -585,7 +605,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
             <MetaBadges topic={topic} />
           </div>
-          {(topic.target_keyword && topic.target_keyword !== topic.title) || topic.aio_risk || (typeof topic.priority_score === 'number' && topic.priority_score > 0) || topic.metric_provenance ? (
+          {(topic.target_keyword && topic.target_keyword !== topic.title) || hasMetricChips(topic) ? (
             <div className="mt-0.5 flex items-center gap-2 flex-wrap">
               {topic.target_keyword && topic.target_keyword !== topic.title && <span className="text-[11px] text-gray-600 truncate">{topic.target_keyword}</span>}
               <MetricChips topic={topic} />
