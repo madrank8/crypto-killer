@@ -188,6 +188,47 @@ function MetaBadges({ topic }) {
   );
 }
 
+// Metric provenance vocabulary (lib/topical-map/provenance.js): a metric is
+// measured (a tool returned it), estimated (a model produced it), or unresolved
+// (no grounded source). Shown so a reader never mistakes an estimate for fact.
+const provenanceStyle = {
+  measured: 'text-emerald-400/80',
+  estimated: 'text-amber-400/80',
+  unresolved: 'text-gray-500',
+};
+const provenanceMark = { measured: '✓', estimated: '≈', unresolved: '?' };
+const metricAbbr = { search_volume: 'SV', keyword_difficulty: 'KD', cpc: 'CPC', traffic_potential: 'TP', rpp_score: 'RPP', volume_trend_yearly: 'trend' };
+
+// Per-topic metric chips: AIO-Overview risk, priority score, and metric
+// provenance. Renders null when the topic carries none of them (honesty rule).
+function MetricChips({ topic }) {
+  const hasAio = !!topic.aio_risk;
+  const hasPrio = typeof topic.priority_score === 'number' && topic.priority_score > 0;
+  const provEntries = topic.metric_provenance && typeof topic.metric_provenance === 'object'
+    ? Object.entries(topic.metric_provenance).filter(([, lvl]) => lvl)
+    : [];
+  if (!hasAio && !hasPrio && provEntries.length === 0) return null;
+  return (
+    <span className="inline-flex items-center gap-2">
+      {hasAio && (
+        <span className={`text-[10px] font-medium ${aioColor(topic.aio_risk)}`} title="AI Overview risk">AIO:{topic.aio_risk}</span>
+      )}
+      {hasPrio && (
+        <span className="text-[10px] text-gray-400" title="Priority score">P:{topic.priority_score}</span>
+      )}
+      {provEntries.length > 0 && (
+        <span className="inline-flex items-center gap-1" title="Metric provenance: measured (tool) / estimated (model) / unresolved">
+          {provEntries.map(([field, level]) => (
+            <span key={field} className={`text-[10px] ${provenanceStyle[level] || provenanceStyle.unresolved}`}>
+              {metricAbbr[field] || field}{provenanceMark[level] || provenanceMark.unresolved}
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -316,11 +357,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
             </div>
-            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3">
+            <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3 flex-wrap">
               {topic.target_keyword && <span className="text-gray-400">{topic.target_keyword}</span>}
               <span>{totalCount} topics</span>
               <span className="text-green-400/70">{pubCount} published</span>
               {typeof topic.search_volume === 'number' && <span>vol: {topic.search_volume.toLocaleString()}</span>}
+              <MetricChips topic={topic} />
             </div>
           </div>
 
@@ -380,9 +422,10 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <StatusBadge status={topic.content_status} />
               <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
             </div>
-            {topic.target_keyword && (
-              <p className="text-[11px] text-gray-500 mt-0.5 truncate">{topic.target_keyword}</p>
-            )}
+            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+              {topic.target_keyword && <span className="text-[11px] text-gray-500 truncate">{topic.target_keyword}</span>}
+              <MetricChips topic={topic} />
+            </div>
           </div>
           <TopicActions
             topic={topic}
@@ -430,9 +473,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
             <MetaBadges topic={topic} />
           </div>
-          {topic.target_keyword && topic.target_keyword !== topic.title && (
-            <p className="text-[11px] text-gray-600 mt-0.5 truncate">{topic.target_keyword}</p>
-          )}
+          {(topic.target_keyword && topic.target_keyword !== topic.title) || topic.aio_risk || (typeof topic.priority_score === 'number' && topic.priority_score > 0) || topic.metric_provenance ? (
+            <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+              {topic.target_keyword && topic.target_keyword !== topic.title && <span className="text-[11px] text-gray-600 truncate">{topic.target_keyword}</span>}
+              <MetricChips topic={topic} />
+            </div>
+          ) : null}
         </div>
         <TopicActions
           topic={topic}
