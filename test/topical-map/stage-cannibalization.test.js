@@ -38,7 +38,8 @@ test('stage prunes head collisions (keeps re-headed cluster) and drops emptied/z
   assert.deepEqual(pc.pruned, [{ cluster_key: 'A', removed_keywords: ['alpha collide'] }])
   assert.equal(pc.guard_kept_all, false)
   assert.equal(res.current_stage, 'structure')
-  assert.equal(res.status, 'running')
+  assert.equal(res.status, 'awaiting_approval') // cannibalization now pauses for review
+  assert.equal(res.checkpoint, 'cannibalization_review')
 })
 
 test('guard: if every cluster would be dropped, keep them all', async () => {
