@@ -1,7 +1,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const {
-  PROVENANCE, normalize, provenanceOf, isGrounded, ungroundedValues, buildProvenance,
+  PROVENANCE, normalize, provenanceOf, isGrounded, ungroundedValues, buildProvenance, fromKeywordDataSource, keywordMetricProvenance,
 } = require('../../lib/topical-map/provenance')
 
 test('PROVENANCE has the three levels and is frozen', () => {
@@ -58,4 +58,19 @@ test('buildProvenance normalizes every entry', () => {
     { a: 'measured', b: 'unresolved', c: 'unresolved' }
   )
   assert.deepEqual(buildProvenance(null), {})
+})
+
+test('fromKeywordDataSource maps the pipeline vocab to provenance levels', () => {
+  assert.equal(fromKeywordDataSource('dataforseo'), 'measured')
+  assert.equal(fromKeywordDataSource('ahrefs'), 'measured') // Ahrefs is a real tool source
+  assert.equal(fromKeywordDataSource('dataforseo+ahrefs'), 'measured') // compound (gap backfill)
+  assert.equal(fromKeywordDataSource('llm-estimated'), 'estimated')
+  assert.equal(fromKeywordDataSource('unverified'), 'unresolved')
+  assert.equal(fromKeywordDataSource('something-else'), 'unresolved')
+  assert.equal(fromKeywordDataSource(null), 'unresolved')
+})
+test('keywordMetricProvenance tags all five metrics', () => {
+  assert.deepEqual(keywordMetricProvenance('dataforseo'), { search_volume:'measured', keyword_difficulty:'measured', cpc:'measured', volume_trend_yearly:'measured', traffic_potential:'measured' })
+  assert.equal(keywordMetricProvenance('llm-estimated').cpc, 'estimated')
+  assert.equal(keywordMetricProvenance('unverified').search_volume, 'unresolved')
 })
