@@ -280,6 +280,12 @@ function BriefPanel({ topic, token }) {
   );
 }
 
+// Override option lists (mirror the server taxonomies in lib/topical-map/*).
+const NODE_FUNCTION_OPTIONS = ['authority', 'reinforcement', 'retrieval', 'entity', 'commercial'];
+const CONTENT_FORMAT_OPTIONS = ['Evergreen Article', 'Comparison Table', 'Step-by-step Guide', 'FAQ Hub', 'Listicle', 'Calculator / Interactive Tool', 'Landing Page (Commercial)', 'News / Update'];
+const SCHEMA_TYPE_OPTIONS = ['Article', 'FAQPage', 'HowTo', 'ItemList', 'Review', 'NewsArticle', 'WebApplication'];
+const SEARCH_INTENT_OPTIONS = ['informational', 'commercial', 'transactional', 'navigational'];
+
 function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -305,8 +311,16 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
   const [keyword, setKeyword] = useState(topic.target_keyword || '');
   const [priority, setPriority] = useState(String(topic.priority_score ?? 0));
   const [notes, setNotes] = useState(topic.notes || '');
+  const [nodeFunction, setNodeFunction] = useState(topic.node_function || '');
+  const [contentFormat, setContentFormat] = useState(topic.content_format || '');
+  const [schemaType, setSchemaType] = useState(topic.schema_type || '');
+  const [searchIntent, setSearchIntent] = useState(topic.search_intent || '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+
+  // Preserve an existing value that isn't one of the known options (so an
+  // override never silently drops an LLM-produced value the UI doesn't list).
+  const withCurrent = (options, current) => (current && !options.includes(current) ? [current, ...options] : options);
 
   const save = async () => {
     setSaving(true);
@@ -320,6 +334,10 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
           target_keyword: keyword || null,
           priority_score: parseInt(priority, 10) || 0,
           notes: notes || null,
+          node_function: nodeFunction || null,
+          content_format: contentFormat || null,
+          schema_type: schemaType || null,
+          search_intent: searchIntent || null,
         }),
       });
       if (!res.ok) {
@@ -341,6 +359,32 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
         <input className="search-input w-full text-sm col-span-2" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" />
         <input className="search-input w-full text-sm" value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder="Target keyword" />
         <input className="search-input w-full text-sm" value={priority} onChange={(e) => setPriority(e.target.value)} placeholder="Priority" type="number" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <label className="text-[11px] text-gray-500">Node function
+          <select className="search-input w-full text-sm mt-0.5" value={nodeFunction} onChange={(e) => setNodeFunction(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(NODE_FUNCTION_OPTIONS, nodeFunction).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Search intent
+          <select className="search-input w-full text-sm mt-0.5" value={searchIntent} onChange={(e) => setSearchIntent(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(SEARCH_INTENT_OPTIONS, searchIntent).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Content format
+          <select className="search-input w-full text-sm mt-0.5" value={contentFormat} onChange={(e) => setContentFormat(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(CONTENT_FORMAT_OPTIONS, contentFormat).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-500">Schema type
+          <select className="search-input w-full text-sm mt-0.5" value={schemaType} onChange={(e) => setSchemaType(e.target.value)}>
+            <option value="">— unset —</option>
+            {withCurrent(SCHEMA_TYPE_OPTIONS, schemaType).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
       </div>
       <textarea className="search-input w-full text-sm min-h-[60px]" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" />
       <div className="flex gap-2">
