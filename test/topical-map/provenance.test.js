@@ -62,6 +62,8 @@ test('buildProvenance normalizes every entry', () => {
 
 test('fromKeywordDataSource maps the pipeline vocab to provenance levels', () => {
   assert.equal(fromKeywordDataSource('dataforseo'), 'measured')
+  assert.equal(fromKeywordDataSource('ahrefs'), 'measured') // Ahrefs is a real tool source
+  assert.equal(fromKeywordDataSource('dataforseo+ahrefs'), 'measured') // compound (gap backfill)
   assert.equal(fromKeywordDataSource('llm-estimated'), 'estimated')
   assert.equal(fromKeywordDataSource('unverified'), 'unresolved')
   assert.equal(fromKeywordDataSource('something-else'), 'unresolved')
