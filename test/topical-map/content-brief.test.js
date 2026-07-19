@@ -64,6 +64,30 @@ test('brief: aio_risk levels and label passthrough', () => {
   assert.equal(buildContentBrief({ title: 'x' }).aio_directive, undefined) // no risk -> no directive
 })
 
+test('brief: non-array list fields are omitted, never crash (.join guard)', () => {
+  // jsonb columns could hold a bare string / garbage — must not throw, must omit.
+  assert.doesNotThrow(() => buildContentBrief({ title: 'x', secondary_keywords: 'not-an-array', paa_questions: 'one q', internal_links_to: 42 }))
+  const b = buildContentBrief({ title: 'x', secondary_keywords: 'not-an-array', paa_questions: 'one q', internal_links_to: 42 })
+  assert.equal(b.targeting, undefined)
+  assert.equal(b.heading_seeds, undefined)
+  assert.equal(b.internal_link_targets, undefined)
+})
+
+test('brief: blank/null array entries are filtered out (no junk directives)', () => {
+  const b = buildContentBrief({ title: 'x', secondary_keywords: ['kw one', '', '  ', null, 'kw two'], paa_questions: ['', 'Real question?'] })
+  assert.deepEqual(b.targeting.secondary_keywords, ['kw one', 'kw two'])
+  assert.deepEqual(b.heading_seeds, ['Real question?'])
+})
+
+test('brief: an all-blank array is omitted entirely', () => {
+  assert.equal(buildContentBrief({ title: 'x', secondary_keywords: ['', '  ', null] }).targeting, undefined)
+})
+
+test('prompt block: non-array list fields do not throw and render nothing for those lines', () => {
+  assert.doesNotThrow(() => formatBriefForPrompt({ title: 'x', secondary_keywords: 'nope', paa_questions: 'nope' }))
+  assert.equal(formatBriefForPrompt({ title: 'x', secondary_keywords: 'nope', paa_questions: 'nope' }), '')
+})
+
 // ── formatBriefForPrompt ──────────────────────────────────────────────────────
 test('prompt block: renders directives for a full topic', () => {
   const s = formatBriefForPrompt(FULL, { parentTopic: { title: 'Casino Reviews' } })
