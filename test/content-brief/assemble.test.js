@@ -217,6 +217,16 @@ test('S11 fills only measured competitor data, NO DATA otherwise', () => {
   assert.deepEqual(b.competitor_benchmarks.serp_features, ['people_also_ask', 'ai_overview'])
 })
 
+test('S11 uses measured competitor URLs when the SERP stage captured them', () => {
+  const b = build({ topic: { ...TOPIC, competitor_urls: ['https://rival.com/rug-pulls', 'https://other.com/guide'] } })
+  assert.deepEqual(b.competitor_pages_to_beat, ['https://rival.com/rug-pulls', 'https://other.com/guide'])
+})
+
+test('S11 competitor pages fall back to NO DATA on pre-migration maps', () => {
+  assert.deepEqual(build({ topic: { ...TOPIC, competitor_urls: null } }).competitor_pages_to_beat, [PLACEHOLDER.NO_DATA])
+  assert.deepEqual(build({ topic: { ...TOPIC, competitor_urls: [] } }).competitor_pages_to_beat, [PLACEHOLDER.NO_DATA])
+})
+
 test('S11 with no measured authority -> NO DATA, never a guessed DR', () => {
   const b = build({ topic: { ...TOPIC, serp_authority: null, serp_features: [] } })
   assert.equal(b.competitor_benchmarks.avg_dr, PLACEHOLDER.NO_DATA)
