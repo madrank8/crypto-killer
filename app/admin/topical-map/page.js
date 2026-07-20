@@ -416,6 +416,9 @@ function ContentBriefPanel({ topic, token }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || 'Save failed');
       setState((s) => ({ ...s, row: data.brief_row || null }));
+      if (data.demoted_from) {
+        setSaveError(`Brief regenerated — status reset from "${data.demoted_from}" to draft, since the approval covered the previous content.`);
+      }
     } catch (e) {
       setSaveError(e.message);
     } finally {

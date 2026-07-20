@@ -145,6 +145,36 @@ test('YAML-hostile scalars all round-trip (the quoting contract)', () => {
   }
 })
 
+test('numeric-LOOKING strings stay strings (a wallet address must not become a float)', () => {
+  const cases = {
+    central_entity: '0x1234abcd',   // hex — wallet address / tx hash
+    brief_id: '1e5',                // scientific notation
+    primary_keyword: '+42',         // leading plus
+    status: '1_000',                // underscore separator
+    h1: '.5',                       // leading-dot float
+    subsection: '0b1010',           // binary
+    compliance_notes: '1:30',       // YAML 1.1 sexagesimal
+    title_tag: '--- marker',        // document marker
+    meta_description: 'y',          // YAML 1.1 boolean
+  }
+  const parsed = YAML.parse(toYaml(cases))
+  for (const [k, v] of Object.entries(cases)) {
+    assert.equal(parsed[k], v, `${k} changed type: ${JSON.stringify(parsed[k])}`)
+    assert.equal(typeof parsed[k], 'string', `${k} is no longer a string`)
+  }
+})
+
+test('an array of only-empty objects emits [] rather than collapsing to null', () => {
+  const parsed = YAML.parse(toYaml({ visual_assets: [{}, {}], key_entities: [{}, { entity: 'A' }] }))
+  assert.deepEqual(parsed.visual_assets, [], 'array silently became null')
+  assert.deepEqual(parsed.key_entities, [{ entity: 'A' }])
+})
+
+test('an array whose objects hold only internal keys also emits []', () => {
+  const parsed = YAML.parse(toYaml({ visual_assets: [{ _seed_source: 'llm' }] }))
+  assert.deepEqual(parsed.visual_assets, [])
+})
+
 test('long and multiline prose survive as folded block scalars', () => {
   const norm = (s) => String(s).replace(/\s+/g, ' ').trim()
   const parsed = YAML.parse(toYaml({

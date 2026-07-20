@@ -162,8 +162,14 @@ export async function PUT(request, { params }) {
     if (brief) {
       payload.brief = brief
       payload.brief_id = brief.brief_id
-      if (!existing?.status) payload.status = 'draft'
+      // Regenerating replaces the brief's content, so an approval that was granted
+      // against the OLD content no longer holds. Demote to draft rather than leave
+      // a 'published' label sitting on content nobody has re-approved.
+      payload.status = 'draft'
     }
+    // Surfaced to the caller (not persisted — no column for it) so the UI can
+    // explain why an approved/published brief went back to draft.
+    const demotedFrom = brief && existing?.status && existing.status !== 'draft' ? existing.status : null
 
     if (existing) {
       await supaFetch(`/content_briefs?topic_id=eq.${id}`, {
@@ -176,7 +182,7 @@ export async function PUT(request, { params }) {
     }
 
     const row = await loadBriefRow(id)
-    return Response.json({ brief_row: row || null, gate, stop_message: sullivanStopMessage(gate) })
+    return Response.json({ brief_row: row || null, gate, stop_message: sullivanStopMessage(gate), demoted_from: demotedFrom })
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse()
     return Response.json({ error: error.message }, { status: 500 })
