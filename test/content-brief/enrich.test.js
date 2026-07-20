@@ -64,6 +64,78 @@ test('stripUnverifiableIdentifiers removes PMIDs/DOIs/URLs and marks the claim',
   }
 })
 
+test('identifier stripping resists the obvious bypasses', () => {
+  const bypasses = [
+    'researchPMID:12345678',                 // glued, defeats \\b
+    'pmid:12345678',
+    'See 10.1234/abcd.5678 for the data',    // bare DOI, no doi: prefix
+    'hxxps://sec.gov/litigation/12345',      // defanged scheme
+    'sec.gov/litigation/12345',              // bare domain WITH path
+    'Entity is Q99999999 per Wikidata',      // fabricated Q-ID
+    'Competitors average DR 71 here',        // invented Ahrefs metric
+  ]
+  for (const input of bypasses) {
+    const { value, stripped } = stripUnverifiableIdentifiers(input)
+    assert.equal(stripped, true, `NOT stripped: ${input}`)
+    assert.ok(value.includes(PLACEHOLDER.UNVERIFIED), value)
+  }
+})
+
+test('a bare hostname with no path is KEPT (Section 9 wants authoritative domains)', () => {
+  const { value, stripped } = stripUnverifiableIdentifiers('Cite sec.gov for enforcement actions')
+  assert.equal(stripped, false)
+  assert.equal(value, 'Cite sec.gov for enforcement actions')
+})
+
+test('EVERY enrichable field is deep-scrubbed, not just claim_categories', () => {
+  const base = assembled()
+  const { brief } = mergeEnrichment(base, {
+    key_entities: [{ entity: 'SEC', attribute: 'wikidata', value: 'Q99999999' }],
+    predicates: ['Documented under PMID:87654321'],
+    visual_assets: [{ description: 'Competitor DR 71 chart', alt_text: 'see ahrefs.com/reports/x' }],
+    bluf_target: 'Per 10.1234/abcd.5678, rug pulls drain liquidity.',
+    key_claim_passages: ['Claim sourced from https://fake.example/study'],
+  })
+  const blob = JSON.stringify(brief)
+  for (const leak of ['Q99999999', '87654321', 'DR 71', 'ahrefs.com/reports', '10.1234/abcd', 'https://fake.example']) {
+    assert.ok(!blob.includes(leak), `leaked through: ${leak}`)
+  }
+})
+
+test('outbound_link_targets keeps the domain but drops an unverifiable deep path', () => {
+  const { brief, rejected } = mergeEnrichment(assembled(), {
+    outbound_link_targets: ['sec.gov/litigation/99999 — enforcement precedent', 'pubmed.ncbi.nlm.nih.gov'],
+  })
+  assert.equal(brief.outbound_link_targets[0], 'sec.gov — enforcement precedent')
+  assert.equal(brief.outbound_link_targets[1], 'pubmed.ncbi.nlm.nih.gov')
+  assert.ok(rejected.some((r) => r.reason.includes('deep path removed')))
+})
+
+test('experience_angle from the Sullivan gate cannot be overwritten by the model', () => {
+  const withGate = assembleBrief({
+    topic: TOPIC, created: '2026-07-19',
+    sullivan: { content_type: 'firsthand_review', forcing_inputs: { recurring_pattern: 'Liquidity pulled within 72h' } },
+  })
+  const { brief, rejected } = mergeEnrichment(withGate, { experience_angle: 'Fabricated first-hand story' })
+  assert.equal(brief.experience_angle, 'Liquidity pulled within 72h')
+  assert.match(rejected.find((r) => r.field === 'experience_angle').reason, /human-supplied/)
+})
+
+test('experience_angle IS writable while it is still the placeholder', () => {
+  const { brief } = mergeEnrichment(assembled(), { experience_angle: 'Investigator notes from 400 callouts' })
+  assert.equal(brief.experience_angle, 'Investigator notes from 400 callouts')
+})
+
+test('enriched reports only fields that ACTUALLY changed', () => {
+  const base = assembled()
+  // competitor_benchmarks inside claim_categories is fully discarded -> no change
+  const { enriched, rejected } = mergeEnrichment(base, {
+    claim_categories: { competitor_benchmarks: ['competitor X averages 2400 words'] },
+  })
+  assert.ok(!enriched.includes('claim_categories'), 'claimed enrichment with zero change')
+  assert.ok(rejected.some((r) => r.reason === 'no change after guarding'))
+})
+
 test('a descriptive claim with no identifier passes through untouched', () => {
   const { value, stripped } = stripUnverifiableIdentifiers('Prevalence of rug pulls among 2024 token launches')
   assert.equal(stripped, false)
