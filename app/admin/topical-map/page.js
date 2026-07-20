@@ -374,6 +374,8 @@ function ContentBriefPanel({ topic, token }) {
   const [inputsByType, setInputsByType] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [enriching, setEnriching] = useState(false);
+  const [enrichResult, setEnrichResult] = useState(null);
   const inputs = inputsByType[contentType] || {};
   const setInput = (field, v) =>
     setInputsByType((prev) => ({ ...prev, [contentType]: { ...(prev[contentType] || {}), [field]: v } }));
@@ -416,6 +418,23 @@ function ContentBriefPanel({ topic, token }) {
       setSaveError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const enrich = async () => {
+    setEnriching(true); setSaveError(''); setEnrichResult(null);
+    try {
+      const res = await fetch(`/api/admin/topical-map/topics/${topic.id}/content-brief/enrich`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Enrichment failed');
+      setState((s) => ({ ...s, row: data.brief_row || null }));
+      setEnrichResult({ enriched: data.enriched || [], rejected: data.rejected || [], model: data.model });
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setEnriching(false);
     }
   };
 
@@ -510,6 +529,34 @@ function ContentBriefPanel({ topic, token }) {
           <p className="text-[10px] text-gray-600 mt-1.5">
             Fields marked [PENDING…] are filled by LLM enrichment; [NO DATA…]/[UNVERIFIED…] mean the data could not be verified — never guessed.
           </p>
+
+          <div className="flex items-center gap-2 mt-2">
+            <button type="button" onClick={enrich} disabled={enriching}
+              className="text-[11px] px-2 py-1 rounded-md border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/50 transition disabled:opacity-50">
+              {enriching ? 'Enriching…' : 'Enrich creative sections (Sonnet)'}
+            </button>
+            <span className="text-[10px] text-gray-600">Measured + human-supplied fields stay locked.</span>
+          </div>
+
+          {enrichResult && (
+            <div className="mt-2 text-[11px]">
+              <p className="text-blue-300/90">
+                Enriched {enrichResult.enriched.length} section(s){enrichResult.model ? ` via ${enrichResult.model}` : ''}.
+              </p>
+              {enrichResult.rejected.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-amber-400/80 cursor-pointer">
+                    {enrichResult.rejected.length} model output(s) blocked by the honesty guard
+                  </summary>
+                  <ul className="mt-1 space-y-0.5 text-gray-500 max-h-32 overflow-y-auto">
+                    {enrichResult.rejected.map((r, i) => (
+                      <li key={i}><span className="text-gray-400">{r.field}</span> — {r.reason}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
