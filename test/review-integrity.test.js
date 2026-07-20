@@ -42,7 +42,7 @@ test('title without a score is not flagged', () => {
 })
 
 // ── hard-coded platform aggregates ──────────────────────────────────────────
-test('hard-coded platform figures are caught and quoted back', () => {
+test('platform-scale figures still need a platform token', () => {
   const r = checkReviewIntegrity({
     review: { scam_score: 5, full_article: 'CryptoKiller has investigated 12,384 scam brands.' },
     brand: { scam_score: 5 },
@@ -51,19 +51,47 @@ test('hard-coded platform figures are caught and quoted back', () => {
   assert.match(r.hardFailReason, /12,384 scam brands/)
 })
 
-test('a PER-BRAND creative count is NOT flagged (calibrated on real data)', () => {
-  // 29/30 published reviews mention a per-brand creative count; these are real
-  // measured facts about that brand, not platform aggregates. Flagging them would
-  // make the check noise. Verified against gaspipe-ai (202), kaspi-ai (136),
-  // senvix (1,107).
-  for (const article of [
-    'We captured 202 ad creatives for this brand between March and June.',
-    'Our scan surfaced 1,107 ad creatives tied to the operator.',
-    'CryptoKiller logged 136 creatives across the campaign.',
-  ]) {
-    const r = checkReviewIntegrity({ review: { scam_score: 5, full_article: article }, brand: { scam_score: 5 } })
-    assert.equal(r.ok, true, `false positive on: ${article}`)
-  }
+// ── per-brand stat drift — the real shape of the problem ────────────────────
+test('a per-brand stat that DRIFTED from the brand row is a hard fail naming the token', () => {
+  // senvix really says 1,107 while the brand row now holds 1,248.
+  const r = checkReviewIntegrity({
+    review: { scam_score: 55, full_article: 'Our scan surfaced 1,107 ad creatives tied to the operator.' },
+    brand: { scam_score: 55, total_creatives: 1248 },
+  })
+  assert.ok(hard(r).includes('brand_stat_drift'))
+  assert.match(r.hardFailReason, /1,107 ad creatives/)
+  assert.match(r.hardFailReason, /1248/)
+  assert.match(r.hardFailReason, /\{\{stat:ad_creatives\}\}/)
+})
+
+test('a per-brand stat that still MATCHES is only a warning (correct today, fragile tomorrow)', () => {
+  // kaspi-ai's 136 currently matches its brand row.
+  const r = checkReviewIntegrity({
+    review: { scam_score: 18, full_article: 'CryptoKiller logged 136 ad creatives across the campaign.' },
+    brand: { scam_score: 18, total_creatives: 136 },
+  })
+  assert.equal(r.ok, true, 'a matching literal must not block')
+  assert.ok(codes(r).includes('brand_stat_literal'))
+  assert.match(r.findings.find((f) => f.code === 'brand_stat_literal').message, /will drift/)
+})
+
+test('countries and celebrities drift too, each naming their own token', () => {
+  const r = checkReviewIntegrity({
+    review: { scam_score: 95, full_article: 'Campaigns ran in 45 countries with 56 celebrities impersonated.' },
+    brand: { scam_score: 95, total_geos: 49, total_celebrities: 353 },
+  })
+  assert.equal(hard(r).filter((c) => c === 'brand_stat_drift').length, 2)
+  assert.match(r.hardFailReason, /\{\{stat:countries_targeted\}\}/)
+  assert.match(r.hardFailReason, /\{\{stat:celebrities_abused\}\}/)
+})
+
+test('no brand data for a stat -> no finding (never guess)', () => {
+  const r = checkReviewIntegrity({
+    review: { scam_score: 5, full_article: 'We saw 202 ad creatives in 7 countries.' },
+    brand: { scam_score: 5 },
+  })
+  assert.equal(r.ok, true)
+  assert.ok(!codes(r).includes('brand_stat_drift'))
 })
 
 test('the exact quantum-ai failure shape is caught', () => {
@@ -71,13 +99,15 @@ test('the exact quantum-ai failure shape is caught', () => {
     review: {
       scam_score: 90,
       title: 'Is Quantum AI a Scam? 90/100 Threat Score [2026]',
-      full_article: 'Our team reviewed creatives in 45 countries. CryptoKiller tracks 12,384 scam brands.',
+      full_article: 'We reviewed 3,000+ ad creatives in 45 countries, with 56 celebrities impersonated.',
     },
-    brand: { scam_score: 95 },
+    brand: { scam_score: 95, total_creatives: 4813, total_geos: 49, total_celebrities: 353 },
   })
   assert.equal(r.ok, false)
-  // all three independent problems surface, not just the first
-  assert.deepEqual(hard(r).sort(), ['hardcoded_platform_stat', 'score_drift', 'title_score_drift'])
+  // every independent problem surfaces, not just the first
+  assert.equal(hard(r).filter((c) => c === 'brand_stat_drift').length, 3)
+  assert.ok(hard(r).includes('score_drift'))
+  assert.ok(hard(r).includes('title_score_drift'))
 })
 
 test('tokenised figures are NOT flagged', () => {
@@ -88,21 +118,16 @@ test('tokenised figures are NOT flagged', () => {
   assert.equal(r.ok, true)
 })
 
-test('a country count is flagged — no verified aggregate exists for it', () => {
-  const r = checkReviewIntegrity({
-    review: { scam_score: 5, full_article: 'Campaigns ran across 49 countries last quarter.' },
-    brand: { scam_score: 5 },
-  })
-  assert.ok(hard(r).includes('hardcoded_platform_stat'))
-})
-
-test('an article with no tokens and no platform claims is only a warning', () => {
+test('an article making no numeric claims produces no findings', () => {
+  // The old vague "no tokens present" warning was removed: it fired on articles
+  // that legitimately make no platform claims. The drift checks are precise, so a
+  // catch-all suspicion is just noise operators learn to skip.
   const r = checkReviewIntegrity({
     review: { scam_score: 5, full_article: 'CryptoKiller investigated this brand and found withdrawal blocks.' },
-    brand: { scam_score: 5 },
+    brand: { scam_score: 5, total_creatives: 200 },
   })
-  assert.equal(r.ok, true) // warning only, does not block
-  assert.ok(codes(r).includes('no_platform_tokens'))
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.findings, [])
 })
 
 // ── robustness ──────────────────────────────────────────────────────────────
