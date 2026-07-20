@@ -297,7 +297,7 @@ function BriefPanel({ topic, token }) {
 
   return (
     <div className={card}>
-      <p className="text-amber-300 font-semibold mb-1.5">Content Brief — what the writer receives</p>
+      <p className="text-amber-300 font-semibold mb-1.5">Map directives — sent to the outline generator</p>
       {rows}
     </div>
   );
@@ -1071,7 +1071,7 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
       <button
-        type="button" title={briefOpen ? 'Hide content brief' : 'Show content brief (what the writer receives)'}
+        type="button" title={briefOpen ? 'Hide map directives' : 'Map directives sent to the outline generator'}
         className={`p-1 transition ${briefOpen ? 'text-amber-300' : 'text-gray-600 hover:text-white'}`}
         onClick={() => onToggleBrief && onToggleBrief()}
       >
@@ -1080,7 +1080,7 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
         </svg>
       </button>
       <button
-        type="button" title={cbOpen ? 'Hide full content brief' : 'Full 12-section content brief + Sullivan Gate'}
+        type="button" title={cbOpen ? 'Hide content brief' : 'Content brief (12-section) + Sullivan Gate'}
         className={`p-1 transition ${cbOpen ? 'text-emerald-300' : 'text-gray-600 hover:text-white'}`}
         onClick={() => onToggleContentBrief && onToggleContentBrief()}
       >
