@@ -376,6 +376,8 @@ function ContentBriefPanel({ topic, token }) {
   const [saveError, setSaveError] = useState('');
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const inputs = inputsByType[contentType] || {};
   const setInput = (field, v) =>
     setInputsByType((prev) => ({ ...prev, [contentType]: { ...(prev[contentType] || {}), [field]: v } }));
@@ -435,6 +437,62 @@ function ContentBriefPanel({ topic, token }) {
       setSaveError(e.message);
     } finally {
       setEnriching(false);
+    }
+  };
+
+  const setStatus = async (status) => {
+    setStatusBusy(true); setSaveError('');
+    try {
+      const res = await fetch(`/api/admin/topical-map/topics/${topic.id}/content-brief`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Status change failed');
+      setState((s) => ({ ...s, row: data.brief_row || null }));
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setStatusBusy(false);
+    }
+  };
+
+  const yamlUrl = `/api/admin/topical-map/topics/${topic.id}/content-brief/yaml`;
+
+  const fetchYaml = async () => {
+    const res = await fetch(yamlUrl, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d?.error || 'Export failed');
+    }
+    return res.text();
+  };
+
+  const copyYaml = async () => {
+    setSaveError('');
+    try {
+      await navigator.clipboard.writeText(await fetchYaml());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setSaveError(e.message);
+    }
+  };
+
+  // Authorized fetch then blob download — a plain link cannot carry the bearer token.
+  const downloadYaml = async () => {
+    setSaveError('');
+    try {
+      const text = await fetchYaml();
+      const url = URL.createObjectURL(new Blob([text], { type: 'text/yaml' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${state.row?.brief_id || 'content-brief'}.yaml`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setSaveError(e.message);
     }
   };
 
@@ -536,6 +594,32 @@ function ContentBriefPanel({ topic, token }) {
               {enriching ? 'Enriching…' : 'Enrich creative sections (Sonnet)'}
             </button>
             <span className="text-[10px] text-gray-600">Measured + human-supplied fields stay locked.</span>
+          </div>
+
+          <div className="flex items-center flex-wrap gap-2 mt-2 pt-2 border-t border-gray-700/40">
+            <button type="button" onClick={downloadYaml}
+              className="text-[11px] px-2 py-1 rounded-md border border-emerald-500/30 text-emerald-300 hover:text-white hover:border-emerald-400/50 transition">
+              Download YAML
+            </button>
+            <button type="button" onClick={copyYaml}
+              className="text-[11px] px-2 py-1 rounded-md border border-gray-700/60 text-gray-400 hover:text-white hover:border-gray-500 transition">
+              {copied ? 'Copied' : 'Copy YAML'}
+            </button>
+            <span className="text-[10px] text-gray-600">→ seo-blog-generator</span>
+            <span className="flex-1" />
+            <label className="text-[10px] text-gray-500 flex items-center gap-1">
+              Status
+              <select
+                className="search-input text-[11px] py-0.5"
+                value={row.status || 'draft'}
+                disabled={statusBusy}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                {['draft', 'approved', 'in-production', 'published'].map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {enrichResult && (

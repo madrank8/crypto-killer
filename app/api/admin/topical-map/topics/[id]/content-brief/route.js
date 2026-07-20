@@ -55,6 +55,44 @@ export async function GET(request, { params }) {
   }
 }
 
+// Lifecycle per the template's Section 1 `status` field. A brief may only leave
+// 'draft' once the Sullivan Gate has passed and a brief actually exists —
+// otherwise "approved" would mean nothing.
+const STATUSES = ['draft', 'approved', 'in-production', 'published']
+
+export async function PATCH(request, { params }) {
+  try {
+    verifyAdmin(request)
+    const { id } = await params
+    if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
+
+    const body = await request.json().catch(() => ({}))
+    const status = body?.status
+    if (!STATUSES.includes(status)) {
+      return Response.json({ error: `status must be one of: ${STATUSES.join(', ')}` }, { status: 400 })
+    }
+
+    const existing = await loadBriefRow(id)
+    if (!existing) return Response.json({ error: 'No content brief for this topic yet.' }, { status: 404 })
+    if (status !== 'draft' && !(existing.sullivan_ok && existing.brief)) {
+      return Response.json(
+        { error: 'Cannot advance past draft until the Sullivan Gate passes and a brief is generated.' },
+        { status: 409 }
+      )
+    }
+
+    await supaFetch(`/content_briefs?topic_id=eq.${id}`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ status, updated_at: new Date().toISOString() }),
+    })
+    const row = await loadBriefRow(id)
+    return Response.json({ brief_row: row || null, gate: gateFor(row) })
+  } catch (error) {
+    if (error.message.includes('Unauthorized')) return unauthorizedResponse()
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+}
+
 export async function PUT(request, { params }) {
   try {
     verifyAdmin(request)
