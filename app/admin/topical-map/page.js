@@ -368,9 +368,15 @@ function SullivanField({ spec, value, onChange }) {
 function ContentBriefPanel({ topic, token }) {
   const [state, setState] = useState({ loading: true, error: null, row: null });
   const [contentType, setContentType] = useState('');
-  const [inputs, setInputs] = useState({});
+  // Inputs are held PER content type. Switching types must not destroy what the
+  // author already wrote for another type — forcing inputs are hard-won evidence,
+  // not scratch text, and there is no undo once a save overwrites them.
+  const [inputsByType, setInputsByType] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const inputs = inputsByType[contentType] || {};
+  const setInput = (field, v) =>
+    setInputsByType((prev) => ({ ...prev, [contentType]: { ...(prev[contentType] || {}), [field]: v } }));
 
   useEffect(() => {
     let alive = true;
@@ -381,8 +387,9 @@ function ContentBriefPanel({ topic, token }) {
         if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
         if (!alive) return;
         setState({ loading: false, error: null, row: data.brief_row || null });
-        setContentType(data.brief_row?.content_type || '');
-        setInputs(data.brief_row?.forcing_inputs || {});
+        const savedType = data.brief_row?.content_type || '';
+        setContentType(savedType);
+        setInputsByType(savedType ? { [savedType]: data.brief_row?.forcing_inputs || {} } : {});
       })
       .catch((err) => { if (alive) setState({ loading: false, error: err.message, row: null }); });
     return () => { alive = false; };
@@ -417,6 +424,7 @@ function ContentBriefPanel({ topic, token }) {
   if (state.error) return <div className={`${card} border-red-700/40 bg-red-900/10 text-red-300`}>Content brief unavailable: {state.error}</div>;
 
   const { row } = state;
+  const savedType = row?.content_type || '';
   const specs = contentType ? (FORCING_INPUT_SPECS[contentType] || []) : [];
   const missingByField = new Map(gate.missing.map((m) => [m.field, m]));
 
@@ -439,7 +447,7 @@ function ContentBriefPanel({ topic, token }) {
         <select
           className="search-input w-full text-xs mt-0.5"
           value={contentType}
-          onChange={(e) => { setContentType(e.target.value); setInputs({}); }}
+          onChange={(e) => setContentType(e.target.value)}
         >
           <option value="">— select —</option>
           {CONTENT_TYPES.map((t) => <option key={t} value={t}>{CONTENT_TYPE_LABELS[t]}</option>)}
@@ -462,11 +470,20 @@ function ContentBriefPanel({ topic, token }) {
                   <span className="text-[11px] text-gray-400">{spec.label}</span>
                   {miss && <span className="text-[10px] text-amber-400 shrink-0">{miss.reason}</span>}
                 </div>
-                <SullivanField spec={spec} value={inputs[spec.field]} onChange={(v) => setInputs((p) => ({ ...p, [spec.field]: v }))} />
+                <SullivanField spec={spec} value={inputs[spec.field]} onChange={(v) => setInput(spec.field, v)} />
               </div>
             );
           })}
         </div>
+      )}
+
+      {savedType && contentType && contentType !== savedType && (
+        <p className="mt-2 text-amber-300/90">
+          ⚠ This topic already has saved <span className="font-medium">{savedType}</span> evidence. Saving as{' '}
+          <span className="font-medium">{contentType}</span> will replace it. Switch back to{' '}
+          <button type="button" className="underline hover:text-amber-200" onClick={() => setContentType(savedType)}>{savedType}</button>{' '}
+          to keep it — your entries for each type are preserved until you save.
+        </p>
       )}
 
       <div className="flex items-center gap-2 mt-3">
