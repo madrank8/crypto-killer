@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CADENCES, DEFAULT_CADENCE, buildPublicationPlan } from '@/lib/topical-map/publication-plan';
+import { CONTENT_TYPES, CONTENT_TYPE_LABELS, FORCING_INPUT_SPECS, validateSullivanGate } from '@/lib/content-brief/sullivan';
 
 // ─── Color Systems ───
 
@@ -326,6 +327,178 @@ function ProgressRing({ percent, size = 48, stroke = 4, color = '#ef4444' }) {
   );
 }
 
+// ─── Full 12-section Content Brief + Sullivan Gate (SC-098) ───
+// The skill treats a failed gate as a HARD STOP. Here it is a recoverable block:
+// the form shows exactly which forcing inputs are missing and why. It NEVER
+// pre-fills one — inventing evidence to pass the gate is, per the skill, as severe
+// as inventing a PMID. Uses the same validator as the server, so no drift.
+function SullivanField({ spec, value, onChange }) {
+  const base = 'search-input w-full text-xs';
+  if (spec.kind === 'enum') {
+    return (
+      <select className={base} value={value || ''} onChange={(e) => onChange(e.target.value)}>
+        <option value="">— select —</option>
+        {spec.values.map((v) => <option key={v} value={v}>{v}</option>)}
+      </select>
+    );
+  }
+  if (spec.kind === 'list_min') {
+    const text = Array.isArray(value) ? value.join('\n') : (value || '');
+    return (
+      <textarea
+        className={`${base} min-h-[56px] font-mono`}
+        value={text}
+        placeholder={`One per line — at least ${spec.min}`}
+        onChange={(e) => onChange(e.target.value.split('\n'))}
+      />
+    );
+  }
+  if (spec.kind === 'int_min') {
+    return <input type="number" className={base} value={value ?? ''} placeholder={`≥ ${spec.min}`} onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))} />;
+  }
+  if (spec.kind === 'date') {
+    return <input type="date" className={base} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+  }
+  if (spec.kind === 'qid') {
+    return <input type="text" className={base} value={value || ''} placeholder="Q12345" onChange={(e) => onChange(e.target.value)} />;
+  }
+  return <textarea className={`${base} min-h-[40px]`} value={value || ''} onChange={(e) => onChange(e.target.value)} />;
+}
+
+function ContentBriefPanel({ topic, token }) {
+  const [state, setState] = useState({ loading: true, error: null, row: null });
+  const [contentType, setContentType] = useState('');
+  const [inputs, setInputs] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setState({ loading: true, error: null, row: null });
+    fetch(`/api/admin/topical-map/topics/${topic.id}/content-brief`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+        if (!alive) return;
+        setState({ loading: false, error: null, row: data.brief_row || null });
+        setContentType(data.brief_row?.content_type || '');
+        setInputs(data.brief_row?.forcing_inputs || {});
+      })
+      .catch((err) => { if (alive) setState({ loading: false, error: err.message, row: null }); });
+    return () => { alive = false; };
+  }, [topic.id, token]);
+
+  // Live gate verdict using the SAME module the server validates with.
+  const gate = useMemo(
+    () => validateSullivanGate({ content_type: contentType || null, forcing_inputs: inputs }),
+    [contentType, inputs]
+  );
+
+  const save = async () => {
+    setSaving(true); setSaveError('');
+    try {
+      const res = await fetch(`/api/admin/topical-map/topics/${topic.id}/content-brief`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content_type: contentType || null, forcing_inputs: inputs }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || 'Save failed');
+      setState((s) => ({ ...s, row: data.brief_row || null }));
+    } catch (e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const card = 'mt-2 p-3 rounded-lg border text-xs';
+  if (state.loading) return <div className={`${card} border-gray-700/60 bg-gray-900/60 text-gray-400`}>Loading content brief…</div>;
+  if (state.error) return <div className={`${card} border-red-700/40 bg-red-900/10 text-red-300`}>Content brief unavailable: {state.error}</div>;
+
+  const { row } = state;
+  const specs = contentType ? (FORCING_INPUT_SPECS[contentType] || []) : [];
+  const missingByField = new Map(gate.missing.map((m) => [m.field, m]));
+
+  return (
+    <div className={`${card} ${gate.ok ? 'border-emerald-700/40 bg-emerald-900/10' : 'border-amber-600/30 bg-amber-900/10'}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className={`font-semibold ${gate.ok ? 'text-emerald-300' : 'text-amber-300'}`}>
+          Content Brief — Sullivan Gate (SC-098)
+        </p>
+        {row?.status && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-gray-600/40 text-gray-400">{row.status}</span>}
+      </div>
+
+      <p className="text-gray-400 mb-2">
+        A brief may only be generated for <span className="text-gray-200">non-commodity</span> content. Declare a content type and supply
+        its forcing inputs — these come from you, the team, or the dataset. They are never inferred.
+      </p>
+
+      <label className="block text-[11px] text-gray-500 mb-2">
+        Content type
+        <select
+          className="search-input w-full text-xs mt-0.5"
+          value={contentType}
+          onChange={(e) => { setContentType(e.target.value); setInputs({}); }}
+        >
+          <option value="">— select —</option>
+          {CONTENT_TYPES.map((t) => <option key={t} value={t}>{CONTENT_TYPE_LABELS[t]}</option>)}
+        </select>
+      </label>
+
+      {!contentType && (
+        <p className="text-amber-300/80">
+          If none of the five types fit, the piece is commodity content and SC-098 rejects it — that is a signal to change the angle, not to force it through.
+        </p>
+      )}
+
+      {specs.length > 0 && (
+        <div className="space-y-2">
+          {specs.map((spec) => {
+            const miss = missingByField.get(spec.field);
+            return (
+              <div key={spec.field}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] text-gray-400">{spec.label}</span>
+                  {miss && <span className="text-[10px] text-amber-400 shrink-0">{miss.reason}</span>}
+                </div>
+                <SullivanField spec={spec} value={inputs[spec.field]} onChange={(v) => setInputs((p) => ({ ...p, [spec.field]: v }))} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 mt-3">
+        <button type="button" onClick={save} disabled={saving} className="btn btn-primary text-xs px-3 py-1.5 disabled:opacity-50">
+          {saving ? 'Saving…' : gate.ok ? 'Save & generate brief' : 'Save progress'}
+        </button>
+        {gate.ok
+          ? <span className="text-emerald-400 text-[11px]">Gate passes — saving generates the 12-section brief.</span>
+          : <span className="text-amber-400/80 text-[11px]">{gate.missing.length || gate.errors.length} item(s) outstanding — progress is still saved.</span>}
+      </div>
+      {saveError && <p className="text-red-300 mt-1.5">{saveError}</p>}
+
+      {row?.brief && (
+        <div className="mt-3 pt-2 border-t border-gray-700/40">
+          <p className="text-emerald-300/90 font-medium mb-1">Generated brief · {row.brief_id}</p>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] text-gray-400">
+            <span>Format: <span className="text-gray-300">{row.brief.content_format}</span></span>
+            <span>Schema: <span className="text-gray-300">{row.brief.schema_type}</span></span>
+            <span>Intent: <span className="text-gray-300">{row.brief.search_intent}</span></span>
+            <span>Words: <span className="text-gray-300">{row.brief.word_count_target}</span></span>
+            <span>Passage indep.: <span className="text-gray-300">{row.brief.passage_independence}</span></span>
+            <span>Headings: <span className="text-gray-300">{Array.isArray(row.brief.heading_structure) ? row.brief.heading_structure.length : 0}</span></span>
+          </div>
+          <p className="text-[10px] text-gray-600 mt-1.5">
+            Fields marked [PENDING…] are filled by LLM enrichment; [NO DATA…]/[UNVERIFIED…] mean the data could not be verified — never guessed.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Publication Plan (Step 22) ───
 // Computed entirely from the already-loaded topics array — no API round-trip.
 // startDate is passed explicitly so the plan module never reads a clock.
@@ -500,6 +673,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
   const descendants = descendantCountById.get(topic.id) || 0;
   const [expanded, setExpanded] = useState(depth < 1); // only auto-expand first level
   const [briefOpen, setBriefOpen] = useState(false);
+  const [cbOpen, setCbOpen] = useState(false);
 
   // Filter children if status filter is active
   const filteredChildren = useMemo(() => {
@@ -567,6 +741,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               writingId={writingId}
               briefOpen={briefOpen}
               onToggleBrief={() => setBriefOpen(o => !o)}
+              cbOpen={cbOpen}
+              onToggleContentBrief={() => setCbOpen(o => !o)}
             />
             <ChevronToggle expanded={expanded} />
           </div>
@@ -581,6 +757,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
         {briefOpen && (
           <div className="px-5 pb-4">
             <BriefPanel topic={topic} token={token} />
+          </div>
+        )}
+
+        {cbOpen && (
+          <div className="px-5 pb-4">
+            <ContentBriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -635,6 +817,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             writingId={writingId}
             briefOpen={briefOpen}
             onToggleBrief={() => setBriefOpen(o => !o)}
+            cbOpen={cbOpen}
+            onToggleContentBrief={() => setCbOpen(o => !o)}
           />
         </div>
 
@@ -647,6 +831,12 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
         {briefOpen && (
           <div className="px-4 pb-2">
             <BriefPanel topic={topic} token={token} />
+          </div>
+        )}
+
+        {cbOpen && (
+          <div className="px-4 pb-2">
+            <ContentBriefPanel topic={topic} token={token} />
           </div>
         )}
 
@@ -697,6 +887,8 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           compact
           briefOpen={briefOpen}
           onToggleBrief={() => setBriefOpen(o => !o)}
+          cbOpen={cbOpen}
+          onToggleContentBrief={() => setCbOpen(o => !o)}
         />
       </div>
 
@@ -711,13 +903,19 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           <BriefPanel topic={topic} token={token} />
         </div>
       )}
+
+      {cbOpen && (
+        <div className="px-4 pb-2">
+          <ContentBriefPanel topic={topic} token={token} />
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Action Buttons ───
 
-function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief }) {
+function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief, cbOpen, onToggleContentBrief }) {
   const editing = editingId === topic.id;
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -728,6 +926,15 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      </button>
+      <button
+        type="button" title={cbOpen ? 'Hide full content brief' : 'Full 12-section content brief + Sullivan Gate'}
+        className={`p-1 transition ${cbOpen ? 'text-emerald-300' : 'text-gray-600 hover:text-white'}`}
+        onClick={() => onToggleContentBrief && onToggleContentBrief()}
+      >
+        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
         </svg>
       </button>
       <button

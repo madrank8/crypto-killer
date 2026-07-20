@@ -81,6 +81,16 @@ test('S3 search_intent: measured ai_overview promotes to dual GEN intent', () =>
   assert.equal(noAio.search_intent, 'I')
 })
 
+test('S3 unpopulated map fields say WHY they are missing and how to fix it', () => {
+  // pre-v4.6 topics have no content_format/schema_type; "not SERP-validated" would
+  // misdescribe the cause, so these use NOT_CLASSIFIED.
+  const b = build({ topic: { ...TOPIC, content_format: null, schema_type: null, search_intent: null, serp_features: [] } })
+  assert.equal(b.content_format, PLACEHOLDER.NOT_CLASSIFIED)
+  assert.equal(b.schema_type, PLACEHOLDER.NOT_CLASSIFIED)
+  assert.equal(b.search_intent, PLACEHOLDER.NOT_CLASSIFIED)
+  assert.match(PLACEHOLDER.NOT_CLASSIFIED, /regenerate the map/)
+})
+
 test('S3 word_count_target varies by content_format, with a default', () => {
   assert.equal(build({ topic: { ...TOPIC, content_format: 'FAQ Hub' } }).word_count_target, 1500)
   assert.equal(build({ topic: { ...TOPIC, content_format: 'News / Update' } }).word_count_target, 900)
