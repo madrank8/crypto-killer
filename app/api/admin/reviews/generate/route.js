@@ -63,7 +63,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
     events.push({
       date: expandDate,
       label: 'Campaign Expansion',
-      desc: `Operation scaled to ${totalGeos > 1 ? totalGeos + ' countries' : '1 country'}${totalCelebs > 0 ? ` using ${totalCelebs} impersonated celebrities` : ''}`,
+      desc: `Operation scaled to {{stat:countries_targeted}} countries${totalCelebs > 0 ? ` using {{stat:celebrities_abused}} impersonated celebrities` : ''}`,
       icon: '🌍',
       color: '#f59e0b', // amber
       phase: 'expansion',
@@ -76,7 +76,7 @@ function buildCampaignTimeline(brand, lifespanDays, currentDate) {
     events.push({
       date: peakDate,
       label: 'Peak Activity',
-      desc: `${totalCreatives.toLocaleString()} total ad creatives deployed across ${totalGeos} countries`,
+      desc: `{{stat:ad_creatives}} total ad creatives deployed across {{stat:countries_targeted}} countries`,
       icon: '📈',
       color: '#ef4444', // red
       phase: 'peak',
@@ -1002,11 +1002,11 @@ ${geoSections}`
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(239,68,68,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">📊</div>
-<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Ad Creatives</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${(brandData.total_creatives || 0).toLocaleString()}</p></div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Ad Creatives</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">{{stat:ad_creatives}}</p></div>
 </div>
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(245,158,11,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">🌍</div>
-<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Countries Targeted</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${brandData.total_geos || 0}</p></div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Countries Targeted</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">{{stat:countries_targeted}}</p></div>
 </div>
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(249,115,22,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⏰</div>
@@ -1014,7 +1014,7 @@ ${geoSections}`
 </div>
 <div style="background:rgba(15,23,42,0.6);border:1px solid #1e293b;border-radius:10px;padding:16px;display:flex;align-items:center;gap:12px">
 <div style="width:44px;height:44px;border-radius:50%;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⭐</div>
-<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">${cleanCelebrityList.length}</p></div>
+<div><p style="margin:0;font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase">Celebrities Abused</p><p style="margin:4px 0 0;font-size:26px;font-weight:900;color:#f8fafc">{{stat:celebrities_abused}}</p></div>
 </div>
 </div>
 </div>
@@ -1036,13 +1036,13 @@ ${(reviewContent.key_takeaways || []).map(t => `<li style="display:flex;gap:10px
 <!-- INVESTIGATION SUMMARY -->
 <section style="margin-bottom:48px">
 ${sectionH2('📄', 'Investigation Summary')}
-<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">${pluralize(brandData.total_creatives || 0, 'fraudulent advertisement', 'fraudulent advertisements')}</strong> detected across <strong style="color:#f8fafc">${pluralize(brandData.total_geos || 0, 'country', 'countries')}</strong> over <strong style="color:#f8fafc">${pluralize(longevityDays, 'day', 'days')}</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">${pluralize(cleanCelebrityList.length, 'real celebrity', 'real celebrities')}</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
+<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">${escHtml(brandData.name)} ${threat.prose} with a <strong style="color:#ef4444;font-weight:700">${brandData.scam_score}/100 threat score</strong>, based on <strong style="color:#f8fafc">{{stat:ad_creatives}} fraudulent advertisements</strong> detected across <strong style="color:#f8fafc">{{stat:countries_targeted}} countries</strong> over <strong style="color:#f8fafc">{{stat:days_active}} days</strong> of continuous operation between ${firstDetectedFmt} and ${lastActiveFmt}.${cleanCelebrityList.length > 0 ? ` The scheme impersonates <strong style="color:#f8fafc">{{stat:celebrities_abused}} real celebrities</strong> in paid advertisements, including ${cleanCelebrityList.slice(0, 5).map(c => escHtml(c)).join(', ')}.` : ''}</p>
 ${threat.frameAsScam
-  ? `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. CryptoKiller's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` (${brandData.velocity_7d} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}.</p>
+  ? `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Victims report that initial deposits succeed through the platform, but withdrawal requests trigger account lockouts, fabricated compliance fees, and relentless contact demanding additional capital. CryptoKiller's analysis confirms ${escHtml(brandData.name)} exhibits every hallmark of a confidence scheme: celebrity fabrication, geographic dispersion, high-velocity ad deployment${brandData.velocity_7d ? ` ({{stat:weekly_velocity}} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(220,38,38,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#f87171;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, you are not the victim of bad luck or market volatility — you have been targeted by an organized fraud operation.</p>
 </div>`
-  : `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Fraud operations matching this advertising pattern typically allow initial deposits to succeed while withdrawal requests trigger account lockouts, fabricated compliance fees, and pressure to send additional capital. CryptoKiller's surveillance links ${escHtml(brandData.name)} to several warning indicators: ${cleanCelebrityList.length > 0 ? 'celebrity-image advertising, ' : ''}multi-country ad distribution${brandData.velocity_7d ? `, ongoing ad deployment (${brandData.velocity_7d} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}. These signals warrant caution but are not, on their own, proof of fraud.</p>
+  : `<p style="margin:0 0 16px;color:#cbd5e1;font-size:15px;line-height:1.7">Fraud operations matching this advertising pattern typically allow initial deposits to succeed while withdrawal requests trigger account lockouts, fabricated compliance fees, and pressure to send additional capital. CryptoKiller's surveillance links ${escHtml(brandData.name)} to several warning indicators: ${cleanCelebrityList.length > 0 ? 'celebrity-image advertising, ' : ''}multi-country ad distribution${brandData.velocity_7d ? `, ongoing ad deployment ({{stat:weekly_velocity}} new creatives per 7 days)` : ''}, ${regulatorStatus.sentence}. These signals warrant caution but are not, on their own, proof of fraud.</p>
 <div style="background:rgba(15,23,42,0.8);border:1px solid rgba(180,83,9,0.4);border-radius:8px;padding:16px;margin-top:16px">
 <p style="margin:0;color:#fbbf24;font-size:14px;font-weight:600;line-height:1.6">⚠️ If you deposited money to ${escHtml(brandData.name)} and cannot withdraw it, stop sending additional funds, document all communications, and follow the protection steps below.</p>
 </div>`}
@@ -1051,7 +1051,7 @@ ${threat.frameAsScam
 ${reviewContent.how_it_works ? (() => {
   const stageStyles = [
     { icon: '📢', label: 'Stage 1', title: 'Celebrity Impersonation & Geo-Targeted Advertising', bg: 'rgba(124,45,18,0.2)', border: 'rgba(194,65,12,0.4)', barColor: '#ea580c', labelColor: '#fb923c', iconBg: '#ea580c',
-      statValue: `${pluralize(brandData.total_creatives || 0, 'ad')}`, statSub: cleanCelebrityList.length > 0 ? `impersonating ${pluralize(cleanCelebrityList.length, 'celebrity', 'celebrities')}` : 'celebrity identity data pending' },
+      statValue: `{{stat:ad_creatives}} ads`, statSub: cleanCelebrityList.length > 0 ? `impersonating {{stat:celebrities_abused}} celebrities` : 'celebrity identity data pending' },
     { icon: '🎯', label: 'Stage 2', title: 'The Funnel & Deposit Success', bg: 'rgba(120,53,15,0.2)', border: 'rgba(180,83,9,0.4)', barColor: '#d97706', labelColor: '#fbbf24', iconBg: '#d97706',
       statValue: 'Instant', statSub: 'deposit confirmation' },
     { icon: '📈', label: 'Stage 3', title: 'Fake Profits & Psychological Manipulation', bg: 'rgba(127,29,29,0.2)', border: 'rgba(220,38,38,0.4)', barColor: '#dc2626', labelColor: '#f87171', iconBg: '#dc2626',
@@ -1202,9 +1202,9 @@ ${sectionH2('🔍', `How ${escHtml(brandData.name)} Compares to Similar Document
 <tr style="border-bottom:1px solid rgba(30,41,59,0.5);background:rgba(127,29,29,0.15)">
 <td style="padding:10px 12px;color:#f8fafc;font-weight:700">${escHtml(brandData.name)} (this review)</td>
 <td style="padding:10px 12px;text-align:right;color:#ef4444;font-weight:700">${brandData.scam_score || 0}/100</td>
-<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${(brandData.total_creatives || 0).toLocaleString()}</td>
-<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${brandData.total_geos || 0}</td>
-<td style="padding:10px 12px;text-align:right;color:#cbd5e1">${cleanCelebrityList.length}</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">{{stat:ad_creatives}}</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">{{stat:countries_targeted}}</td>
+<td style="padding:10px 12px;text-align:right;color:#cbd5e1">{{stat:celebrities_abused}}</td>
 </tr>
 ${comparables.map(c => `<tr style="border-bottom:1px solid rgba(30,41,59,0.5)">
 <td style="padding:10px 12px"><a href="/review/${escHtml(c.slug)}" style="color:#60a5fa;text-decoration:none;font-weight:600">${escHtml(c.brand.name)}</a></td>
@@ -1312,10 +1312,10 @@ ${buildCampaignTimeline(brandData, longevityDays, currentDate)}
 <div style="padding:0">
 <p style="margin:0;padding:12px 16px 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1.5px">Threat Intelligence</p>
 <div style="border-top:1px solid #1e293b">
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Ad Creatives</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${(brandData.total_creatives || 0).toLocaleString()}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Countries</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.total_geos || 0}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${cleanCelebrityList.length}</span></div>
-<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${brandData.velocity_7d || 0} new</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Ad Creatives</span><span style="color:#f8fafc;font-size:12px;font-weight:600">{{stat:ad_creatives}}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Countries</span><span style="color:#f8fafc;font-size:12px;font-weight:600">{{stat:countries_targeted}}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Celebrities Abused</span><span style="color:#f8fafc;font-size:12px;font-weight:600">{{stat:celebrities_abused}}</span></div>
+<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">7-Day Velocity</span><span style="color:#f8fafc;font-size:12px;font-weight:600">{{stat:weekly_velocity}} new</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Campaign Duration</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${longevityDays} days</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">First Detected</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${firstDetectedFmt}</span></div><div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(30,41,59,0.5)"><span style="color:#94a3b8;font-size:12px">Last Active</span><span style="color:#f8fafc;font-size:12px;font-weight:600">${lastActiveFmt}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px"><span style="color:#94a3b8;font-size:12px">Status</span><span style="color:${isStillActive ? '#f87171' : '#94a3b8'};font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px">${isStillActive ? '<span style="width:6px;height:6px;border-radius:50%;background:#ef4444;display:inline-block"></span>Active Scam' : 'Inactive'}</span></div>
@@ -1356,7 +1356,7 @@ ${regulatorStatus.badgesHtml}
 </div><p style="margin:0 0 8px;color:#f8fafc;font-size:15px;font-weight:600">${escHtml(reviewContent.verdict || '')}</p>
 <p style="margin:0 0 12px;color:${threat.frameAsScam ? '#f87171' : '#fbbf24'};font-weight:700;font-size:14px">${threat.frameAsScam ? 'Do not deposit any money.' : 'Verify independently before depositing any money.'}</p>
 <div style="border-top:1px solid rgba(220,38,38,0.3);padding-top:10px">
-<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of ${pluralize(brandData.total_creatives || 0, 'ad creative', 'ad creatives')} across ${pluralize(brandData.total_geos || 0, 'country', 'countries')}.</p>
+<p style="margin:0;color:#94a3b8;font-size:11px">Based on analysis of {{stat:ad_creatives}} ad creatives across {{stat:countries_targeted}} countries.</p>
 </div>
 </div>
 
