@@ -1,6 +1,7 @@
 import { revalidatePath } from 'next/cache'
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { checkReviewIntegrity } from '@/lib/review-integrity'
 import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
@@ -385,10 +386,24 @@ export async function POST(request, { params }) {
           // Persist the auditor VETO verdict so the publish gate can block on
           // it (the audit is no longer advisory-only). hard_fail_checks.any_hard_fail
           // → audit_hard_fail; the reason → audit_hard_fail_reason.
-          const hardFail = auditReport?.hard_fail_checks?.any_hard_fail === true
-          const hardFailReason = hardFail
+          const llmHardFail = auditReport?.hard_fail_checks?.any_hard_fail === true
+          const llmHardFailReason = llmHardFail
             ? (auditReport?.hard_fail_checks?.hard_fail_reason || 'Quality auditor flagged a hard fail (see critical_fixes).')
             : null
+
+          // Deterministic checks the LLM auditor structurally cannot perform: it
+          // reads the article, so it has no way to know what the database
+          // currently says. Score drift went undetected on 25 of 27 stale reviews
+          // because of exactly that blind spot. These are pure comparisons.
+          const integrity = checkReviewIntegrity({
+            review: { ...review, full_article: fullArticle, scam_score: review.scam_score, title: review.title },
+            brand: brandData,
+          })
+
+          const hardFail = llmHardFail || !integrity.ok
+          const hardFailReason = [llmHardFailReason, integrity.hardFailReason]
+            .filter(Boolean)
+            .join(' || ') || null
 
           const polishPatch = {
             // Only persist full_article when this run modified it — see the
