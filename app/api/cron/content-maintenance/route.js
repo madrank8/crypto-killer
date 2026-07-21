@@ -40,6 +40,11 @@ export const maxDuration = 300
 
 const AUDIT_PUBLISH_FLOOR = 80
 const MAX_STAGE_ATTEMPTS = 2
+// Bounded auto-retry on a SUBSTANTIVE audit veto. The deterministic remediation
+// pass already fixes the mechanical issues, so a surviving hard_fail is a
+// stochastic content slip (fabrication, sourcing) a fresh generation may not
+// repeat. Regenerate up to this many times before parking for a human.
+const AUDIT_RETRY_MAX = 2
 const STUCK_MINUTES = 30
 // The SSE budget MUST cover the full generate stage (route maxDuration=600s).
 // The old 240000 (240s) aborted generate mid-run: on Vercel, aborting the
@@ -296,7 +301,20 @@ export async function GET(request) {
       const fresh = await getReview(item.review_id)
       const auditScore = Number(fresh?.trust_indicators?.audit_score)
       if (fresh?.audit_hard_fail === true) {
-        await patchItem(item.id, { status: 'needs_review', last_error: `audit VETO: ${fresh.audit_hard_fail_reason || 'hard fail'}` })
+        const auditRetries = item.audit_retries || 0
+        if (auditRetries < AUDIT_RETRY_MAX) {
+          // Re-queue from the top (regenerate → polish). A fresh roll, with the
+          // deterministic remediation + tightened constraints applied again, is
+          // the "auto-resolve" path before a human is pulled in.
+          await patchItem(item.id, {
+            status: 'queued',
+            audit_retries: auditRetries + 1,
+            attempts: 0,
+            last_error: `audit VETO (auto-retry ${auditRetries + 1}/${AUDIT_RETRY_MAX}): ${fresh.audit_hard_fail_reason || 'hard fail'}`,
+          })
+          return Response.json({ ok: true, action: 'audit_veto_retry', slug: item.slug, retry: auditRetries + 1 })
+        }
+        await patchItem(item.id, { status: 'needs_review', last_error: `audit VETO after ${AUDIT_RETRY_MAX} auto-retries: ${fresh.audit_hard_fail_reason || 'hard fail'}` })
         return Response.json({ ok: true, action: 'parked_audit_veto', slug: item.slug })
       }
       if (!Number.isFinite(auditScore) || auditScore < AUDIT_PUBLISH_FLOOR) {

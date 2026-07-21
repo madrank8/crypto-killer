@@ -7,6 +7,7 @@ import { stripVerifyTags } from '@/lib/visual-generator'
 import { classifyThreat, computeCategoryScores, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
+import { remediateReview } from '@/lib/review-remediate'
 import { normalizeBrandLandingUrls } from '@/lib/sync-shape'
 import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } from '@/lib/source-verify'
 import { fetchRecencyEvidence } from '@/lib/recency-evidence'
@@ -695,6 +696,29 @@ export async function POST(request) {
       )
       reviewContent = consistencyResult.content
       numericDrift = consistencyResult.drift || []
+
+      // Deterministic remediation (auto-resolve the mechanical, before the audit):
+      //   1. value-anchored stat tokenisation — a literal equal to this brand's
+      //      current stat becomes its {{stat:}} token (safe: no drift at gen time,
+      //      a platform figure that differs is left alone).
+      //   2. drop fabricated names from the STRUCTURED item_list roster (prose
+      //      names are never touched — the audit veto still catches those).
+      // Never fabricates; substantive issues still escalate to the publish veto.
+      const remediation = remediateReview(reviewContent, {
+        brand: brandData,
+        groundTruthNames: cleanCelebrityList,
+      })
+      reviewContent = remediation.review
+      if (remediation.report.tokenized.length || remediation.report.roster_dropped.length) {
+        send({
+          step: 'remediate',
+          progress: 77,
+          message: `Auto-remediated: ${remediation.report.tokenized.length} stat literal(s) → tokens` +
+            (remediation.report.roster_dropped.length
+              ? `; dropped ${remediation.report.roster_dropped.length} off-list name(s) from roster (${remediation.report.roster_dropped.slice(0, 3).join(', ')}${remediation.report.roster_dropped.length > 3 ? '…' : ''})`
+              : ''),
+        })
+      }
 
       redFlagAudit = validateRedFlagDistinctness(reviewContent.red_flags)
 
