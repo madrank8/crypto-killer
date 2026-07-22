@@ -306,17 +306,20 @@ test('the real quantum-ai case: ScamAdviser dropped, every cited regulator kept'
   assert.equal(sources.filter((s) => s.url.includes('fca.org.uk')).length, 3)
 })
 
-test('a source whose domain is never inline-linked is dropped as uncited', () => {
+test('a legitimate source is KEPT even with no inline links (no over-drop)', () => {
+  // Regression: a weak writer roll produced ZERO inline links. The filter must
+  // NOT sweep every source to empty — only the non-evidentiary aggregator goes.
   const review = {
-    full_article: 'Body cites <a href="https://www.fca.org.uk/x">FCA</a> only.',
+    full_article: 'Body copy with no anchor tags at all.',
     sources: [
       { url: 'https://www.fca.org.uk/x', title: 'FCA' },
-      { url: 'https://random-blog.example/post', title: 'Uncited blog' },
+      { url: 'https://www.sec.gov/y', title: 'SEC' },
+      { url: 'https://www.scamadviser.com/', title: 'ScamAdviser' },
     ],
   }
   const { sources, dropped } = filterUncitedSources(review)
-  assert.deepEqual(sources.map((s) => s.title), ['FCA'])
-  assert.deepEqual(dropped, ['Uncited blog'])
+  assert.deepEqual(sources.map((s) => s.title), ['FCA', 'SEC']) // both kept
+  assert.deepEqual(dropped, ['ScamAdviser'])                    // only the aggregator
 })
 
 test('filterUncitedSources: no sources / malformed input never throws', () => {
