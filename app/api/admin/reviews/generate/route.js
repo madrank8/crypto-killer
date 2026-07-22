@@ -709,16 +709,21 @@ export async function POST(request) {
         groundTruthNames: cleanCelebrityList,
       })
       reviewContent = remediation.review
-      if (remediation.report.tokenized.length || remediation.report.roster_dropped.length || remediation.report.faq_dropped.length) {
+      const rep = remediation.report
+      if (rep.tokenized.length || rep.roster_dropped.length || rep.faq_dropped.length || rep.impersonation_dropped.length) {
+        const impNames = rep.impersonation_dropped.flatMap((d) => d.names)
         send({
           step: 'remediate',
           progress: 77,
-          message: `Auto-remediated: ${remediation.report.tokenized.length} stat literal(s) → tokens` +
-            (remediation.report.roster_dropped.length
-              ? `; dropped ${remediation.report.roster_dropped.length} off-list name(s) from roster (${remediation.report.roster_dropped.slice(0, 3).join(', ')}${remediation.report.roster_dropped.length > 3 ? '…' : ''})`
+          message: `Auto-remediated: ${rep.tokenized.length} stat literal(s) → tokens` +
+            (rep.roster_dropped.length
+              ? `; dropped ${rep.roster_dropped.length} off-list name(s) from roster (${rep.roster_dropped.slice(0, 3).join(', ')}${rep.roster_dropped.length > 3 ? '…' : ''})`
               : '') +
-            (remediation.report.faq_dropped.length
-              ? `; dropped ${remediation.report.faq_dropped.length} truncated/empty FAQ answer(s)`
+            (rep.faq_dropped.length
+              ? `; dropped ${rep.faq_dropped.length} truncated/empty FAQ answer(s)`
+              : '') +
+            (rep.impersonation_dropped.length
+              ? `; dropped ${rep.impersonation_dropped.length} prose item(s) naming off-roster impersonation target(s) (${impNames.slice(0, 3).join(', ')}${impNames.length > 3 ? '…' : ''})`
               : ''),
         })
       }

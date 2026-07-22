@@ -1,5 +1,5 @@
 const { test } = require('node:test'); const assert = require('node:assert/strict')
-const { remediateStatLiterals, filterRosterToGroundTruth, pruneIncompleteFaqs, remediateReview, nameKey } = require('../lib/review-remediate')
+const { remediateStatLiterals, filterRosterToGroundTruth, pruneIncompleteFaqs, findOffRosterNames, dropOffRosterImpersonation, remediateReview, nameKey } = require('../lib/review-remediate')
 
 const BRAND = { total_creatives: 4846, total_geos: 49, velocity_7d: 157 }
 
@@ -139,6 +139,80 @@ test('remediateReview drops a truncated FAQ and reports it', () => {
   const { review: fixed, report } = remediateReview(review, { brand: BRAND, groundTruthNames: GT })
   assert.equal(fixed.faq.length, 1)
   assert.deepEqual(report.faq_dropped, ['Truncated?'])
+})
+
+// ── off-roster impersonation guard (real quantum-ai fixtures) ───────────────
+// Roster is a SUBSET of the real 181-name quantum-ai roster: these four ARE in
+// it; Pauline Hanson / Sudha Murthy / Narayana Murthy are NOT.
+const QAI_ROSTER = ['Elon Musk', 'Bill Gates', 'Nigel Farage', 'Nirmala Sitharaman', 'Cristiano Ronaldo', 'Ana Botín']
+
+test('drops a bullet naming off-roster people (Sudha/Narayana Murthy)', () => {
+  const sig = 'The same India-targeted creatives recycle Sudha Murthy, Narayana Murthy, and Finance Minister Nirmala Sitharaman together, pairing a trusted philanthropist face with a sitting official.'
+  const names = findOffRosterNames(sig, new Set(QAI_ROSTER.map(nameKey)))
+  // Sitharaman is roster-backed even behind the "Finance Minister" title; only
+  // the two genuinely-absent names are flagged.
+  assert.deepEqual(names.sort(), ['Narayana Murthy', 'Sudha Murthy'])
+})
+
+test('KEEPS a bullet whose only names are roster-backed, incl. non-Latin script', () => {
+  // Musk + Gates are roster names; the Greek-script transliterations must NOT
+  // be adjudicated (roster is Latin) → nothing flagged, bullet survives.
+  const sig = 'The Greek creatives render Elon Musk and Bill Gates in Greek script (Ίλον Μασκ, Μπιλ Γκέιτς) rather than reusing English assets.'
+  assert.deepEqual(findOffRosterNames(sig, new Set(QAI_ROSTER.map(nameKey))), [])
+})
+
+test('an impersonation FAQ naming only roster people is kept; one with an off-roster name is dropped', () => {
+  const faq = [
+    { question: 'My family says Quantum AI was endorsed by Elon Musk — real?',
+      answer: 'The endorsements are fabricated. Quantum AI impersonates public figures including Elon Musk and Bill Gates using deepfake video.' },
+    { question: 'Why does Quantum AI use Nigel Farage and Pauline Hanson in its ads?',
+      answer: 'Quantum AI targets audiences by impersonating trusted local figures like Nigel Farage and Pauline Hanson.' },
+  ]
+  const { faq: kept, dropped } = dropOffRosterImpersonation({ faq }, QAI_ROSTER, 'Quantum AI')
+  assert.equal(kept.length, 1)
+  assert.match(kept[0].question, /Elon Musk/)               // Musk+Gates FAQ survives
+  assert.equal(dropped.length, 1)
+  assert.deepEqual(dropped[0].names, ['Pauline Hanson'])    // Farage is roster-backed, only Hanson flagged
+})
+
+test('an FCA-registration FAQ (org names, no impersonation trigger) is never scanned/dropped', () => {
+  const faq = [{
+    question: 'Is Quantum AI registered with the FCA?',
+    answer: 'Quantum AI holds no FCA registration. Trading with an unauthorised firm means no access to the Financial Ombudsman Service or the Financial Services Compensation Scheme.',
+  }]
+  const { faq: kept, dropped } = dropOffRosterImpersonation({ faq }, QAI_ROSTER, 'Quantum AI')
+  assert.equal(kept.length, 1)
+  assert.deepEqual(dropped, [])
+})
+
+test('no roster (empty) → never drops anything (never guess)', () => {
+  const faq = [{ question: 'Who?', answer: 'Impersonates Pauline Hanson via deepfake.' }]
+  const { dropped } = dropOffRosterImpersonation({ faq }, [], 'Quantum AI')
+  assert.deepEqual(dropped, [])
+})
+
+test('brand-name tokens are never treated as impersonation victims', () => {
+  // "Quantum AI" is capitalised and could look like a name; it must not flag.
+  const sig = 'Quantum AI deepfakes celebrity endorsements across its ad network.'
+  assert.deepEqual(findOffRosterNames(sig, new Set(QAI_ROSTER.map(nameKey)), new Set(['quantum', 'ai'])), [])
+})
+
+test('remediateReview drops off-roster impersonation items and reports them', () => {
+  const review = {
+    experience_signals: [
+      'The operator tailors the celebrity to the geo, Nigel Farage for GB and Pauline Hanson for AU, matching each market to a familiar face.',
+      'Most captured creatives are video, the format that best fakes a broadcast interview.',
+    ],
+    faq: [
+      { question: 'Endorsed by Elon Musk?', answer: 'Quantum AI impersonates Elon Musk and Bill Gates via deepfake. Fabricated.' },
+    ],
+  }
+  const { review: fixed, report } = remediateReview(review, { brand: { name: 'Quantum AI' }, groundTruthNames: QAI_ROSTER })
+  assert.equal(fixed.experience_signals.length, 1)              // Hanson bullet dropped, video bullet kept
+  assert.match(fixed.experience_signals[0], /video/)
+  assert.equal(fixed.faq.length, 1)                            // Musk+Gates FAQ kept
+  assert.equal(report.impersonation_dropped.length, 1)
+  assert.deepEqual(report.impersonation_dropped[0].names, ['Pauline Hanson'])
 })
 
 // ── remediateReview end-to-end ──────────────────────────────────────────────
