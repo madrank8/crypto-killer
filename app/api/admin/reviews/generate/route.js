@@ -707,15 +707,29 @@ export async function POST(request) {
       const remediation = remediateReview(reviewContent, {
         brand: brandData,
         groundTruthNames: cleanCelebrityList,
+        // Only prune punctuation-incomplete trailing FAQs when generation was
+        // actually cut off (max_tokens); a normal generation is left untouched.
+        truncated: contentResult?.stopReason === 'max_tokens',
       })
       reviewContent = remediation.review
-      if (remediation.report.tokenized.length || remediation.report.roster_dropped.length) {
+      const rep = remediation.report
+      if (rep.tokenized.length || rep.roster_dropped.length || rep.faq_dropped.length || rep.impersonation_dropped.length || rep.sources_dropped.length) {
+        const impNames = rep.impersonation_dropped.flatMap((d) => d.names)
         send({
           step: 'remediate',
           progress: 77,
-          message: `Auto-remediated: ${remediation.report.tokenized.length} stat literal(s) → tokens` +
-            (remediation.report.roster_dropped.length
-              ? `; dropped ${remediation.report.roster_dropped.length} off-list name(s) from roster (${remediation.report.roster_dropped.slice(0, 3).join(', ')}${remediation.report.roster_dropped.length > 3 ? '…' : ''})`
+          message: `Auto-remediated: ${rep.tokenized.length} stat literal(s) → tokens` +
+            (rep.roster_dropped.length
+              ? `; dropped ${rep.roster_dropped.length} off-list name(s) from roster (${rep.roster_dropped.slice(0, 3).join(', ')}${rep.roster_dropped.length > 3 ? '…' : ''})`
+              : '') +
+            (rep.faq_dropped.length
+              ? `; dropped ${rep.faq_dropped.length} truncated/empty FAQ answer(s)`
+              : '') +
+            (rep.impersonation_dropped.length
+              ? `; dropped ${rep.impersonation_dropped.length} prose item(s) naming off-roster impersonation target(s) (${impNames.slice(0, 3).join(', ')}${impNames.length > 3 ? '…' : ''})`
+              : '') +
+            (rep.sources_dropped.length
+              ? `; dropped ${rep.sources_dropped.length} uncited/non-evidentiary source(s) (${rep.sources_dropped.slice(0, 3).join(', ')}${rep.sources_dropped.length > 3 ? '…' : ''})`
               : ''),
         })
       }
@@ -953,9 +967,14 @@ ${geoSections}`
         entries.push({ label: 'FCA: Not checked', state: 'unknown' })
       }
       if (sec && sec.lookup.hits > 0) {
-        entries.push({ label: `SEC EDGAR: ${sec.lookup.hits} mention${sec.lookup.hits === 1 ? '' : 's'}`, state: 'found' })
+        // A full-text phrase match is NOT a registration or an enforcement
+        // signal — for a generic brand name the hits are usually unrelated
+        // filings, and the raw count drifts on every re-lookup. Show a neutral,
+        // honestly-caveated badge instead of an amber "N mentions" that reads as
+        // SEC scrutiny of the scam.
+        entries.push({ label: 'SEC EDGAR: Full-text match (not a registration)', state: 'unknown' })
       } else if (sec) {
-        entries.push({ label: 'SEC EDGAR: No records', state: 'absent' })
+        entries.push({ label: 'SEC EDGAR: No filing match', state: 'absent' })
       } else {
         entries.push({ label: 'SEC: Not checked', state: 'unknown' })
       }
