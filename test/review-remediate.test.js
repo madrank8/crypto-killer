@@ -1,5 +1,5 @@
 const { test } = require('node:test'); const assert = require('node:assert/strict')
-const { remediateStatLiterals, filterRosterToGroundTruth, remediateReview, nameKey } = require('../lib/review-remediate')
+const { remediateStatLiterals, filterRosterToGroundTruth, pruneIncompleteFaqs, remediateReview, nameKey } = require('../lib/review-remediate')
 
 const BRAND = { total_creatives: 4846, total_geos: 49, velocity_7d: 157 }
 
@@ -85,6 +85,60 @@ test('empty ground truth -> roster untouched (never guess what is real)', () => 
 test('nameKey normalises', () => {
   assert.equal(nameKey('Élon  Musk!'), 'elon musk')
   assert.equal(nameKey(''), '')
+})
+
+// ── incomplete-FAQ pruning (truncated JSON-LD guard) ────────────────────────
+test('a truncated final FAQ answer (no terminal punctuation) is dropped', () => {
+  const faq = [
+    { question: 'Is it a scam?', answer: 'Yes. The platform shows every hallmark of an advance-fee fraud.' },
+    { question: 'How do they reach victims?', answer: 'They run paid ads that impersonate public figures and then' }, // cut off
+  ]
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  assert.equal(kept.length, 1)
+  assert.equal(kept[0].question, 'Is it a scam?')
+  assert.deepEqual(dropped, ['How do they reach victims?'])
+})
+
+test('complete answers are kept; punctuation + closing quote/paren counts as complete', () => {
+  const faq = [
+    { question: 'A?', answer: 'A finished sentence.' },
+    { question: 'B?', answer: 'It ends with a quote."' },
+    { question: 'C?', answer: 'It ends with a paren (like this).' },
+    { question: 'D?', answer: 'A question inside? Yes!' },
+  ]
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  assert.equal(kept.length, 4)
+  assert.deepEqual(dropped, [])
+})
+
+test('empty / missing answer or question is dropped', () => {
+  const faq = [
+    { question: 'Has answer', answer: '' },
+    { question: '', answer: 'Orphan answer.' },
+    { question: 'No answer key' },
+    { question: 'Good one', answer: 'Kept.' },
+  ]
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  assert.equal(kept.length, 1)
+  assert.equal(kept[0].question, 'Good one')
+})
+
+test('pruneIncompleteFaqs never throws on malformed input', () => {
+  for (const bad of [null, undefined, 'x', 42, [null, 'str', { }]]) {
+    assert.doesNotThrow(() => pruneIncompleteFaqs(bad))
+  }
+})
+
+test('remediateReview drops a truncated FAQ and reports it', () => {
+  const review = {
+    faq: [
+      { question: 'Complete?', answer: 'Absolutely, this one is finished.' },
+      { question: 'Truncated?', answer: 'This answer was cut off right in the mid' },
+    ],
+  }
+  const { review: fixed, report } = remediateReview(review, { brand: BRAND, groundTruthNames: GT })
+  assert.equal(fixed.faq.length, 1)
+  assert.deepEqual(report.faq_dropped, ['Truncated?'])
 })
 
 // ── remediateReview end-to-end ──────────────────────────────────────────────

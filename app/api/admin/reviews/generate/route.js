@@ -709,13 +709,16 @@ export async function POST(request) {
         groundTruthNames: cleanCelebrityList,
       })
       reviewContent = remediation.review
-      if (remediation.report.tokenized.length || remediation.report.roster_dropped.length) {
+      if (remediation.report.tokenized.length || remediation.report.roster_dropped.length || remediation.report.faq_dropped.length) {
         send({
           step: 'remediate',
           progress: 77,
           message: `Auto-remediated: ${remediation.report.tokenized.length} stat literal(s) → tokens` +
             (remediation.report.roster_dropped.length
               ? `; dropped ${remediation.report.roster_dropped.length} off-list name(s) from roster (${remediation.report.roster_dropped.slice(0, 3).join(', ')}${remediation.report.roster_dropped.length > 3 ? '…' : ''})`
+              : '') +
+            (remediation.report.faq_dropped.length
+              ? `; dropped ${remediation.report.faq_dropped.length} truncated/empty FAQ answer(s)`
               : ''),
         })
       }
