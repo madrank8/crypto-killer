@@ -178,6 +178,12 @@ export async function POST(request, { params }) {
               red_flags: review.red_flags || [],
               verdict: review.verdict,
               faq: review.faq || [],
+              // Internal links live in this array (real published siblings carry
+              // target_slug; they render as the deterministic comparables table,
+              // which is assembled HTML the auditor never sees). Without this the
+              // link_audit false-reported "zero internal links" on every review
+              // that had a full comparables table.
+              internal_links: review.internal_links || [],
               key_takeaways: review.key_takeaways || [],
               not_for_you: review.not_for_you,
               protection_steps: review.protection_steps,
