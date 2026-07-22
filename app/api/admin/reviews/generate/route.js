@@ -956,9 +956,14 @@ ${geoSections}`
         entries.push({ label: 'FCA: Not checked', state: 'unknown' })
       }
       if (sec && sec.lookup.hits > 0) {
-        entries.push({ label: `SEC EDGAR: ${sec.lookup.hits} mention${sec.lookup.hits === 1 ? '' : 's'}`, state: 'found' })
+        // A full-text phrase match is NOT a registration or an enforcement
+        // signal — for a generic brand name the hits are usually unrelated
+        // filings, and the raw count drifts on every re-lookup. Show a neutral,
+        // honestly-caveated badge instead of an amber "N mentions" that reads as
+        // SEC scrutiny of the scam.
+        entries.push({ label: 'SEC EDGAR: Full-text match (not a registration)', state: 'unknown' })
       } else if (sec) {
-        entries.push({ label: 'SEC EDGAR: No records', state: 'absent' })
+        entries.push({ label: 'SEC EDGAR: No filing match', state: 'absent' })
       } else {
         entries.push({ label: 'SEC: Not checked', state: 'unknown' })
       }
