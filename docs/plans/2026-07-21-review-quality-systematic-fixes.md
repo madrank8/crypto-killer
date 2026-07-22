@@ -60,6 +60,19 @@ whether `internal_links` is rendered inline; if not, render them (or a determini
 fallback: the methodology page + one related published review) as real `<a>` links
 in the article. Never invent a target — only link to pages that exist.
 
+## 6. Uncited / non-evidentiary source trips the publish gate  *(added after a re-veto)*
+
+**Cause:** a source in `sources[]` that is not tied to a body claim trips
+`source_ledger_claims_without_links`. The recurring offender is ScamAdviser — a
+seeded generic consumer-trust aggregator, not an authoritative citation for a
+specific fraud claim on a YMYL page.
+
+**Fix:** deterministic filter in the remediation pass — drop any source whose
+domain is not inline-linked anywhere in the prose (uncited = not evidence we
+used), and drop known non-evidentiary aggregators (ScamAdviser) regardless.
+Never invents a source. Verified against the real quantum-ai source set: only
+ScamAdviser goes; every inline-cited regulator stays.
+
 ## 5. EDGAR document count as a bare literal  *(prompt discipline)*
 
 **Cause:** the SEC EDGAR full-text lookup returns a real `hits` count (239); the

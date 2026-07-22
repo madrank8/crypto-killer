@@ -713,7 +713,7 @@ export async function POST(request) {
       })
       reviewContent = remediation.review
       const rep = remediation.report
-      if (rep.tokenized.length || rep.roster_dropped.length || rep.faq_dropped.length || rep.impersonation_dropped.length) {
+      if (rep.tokenized.length || rep.roster_dropped.length || rep.faq_dropped.length || rep.impersonation_dropped.length || rep.sources_dropped.length) {
         const impNames = rep.impersonation_dropped.flatMap((d) => d.names)
         send({
           step: 'remediate',
@@ -727,6 +727,9 @@ export async function POST(request) {
               : '') +
             (rep.impersonation_dropped.length
               ? `; dropped ${rep.impersonation_dropped.length} prose item(s) naming off-roster impersonation target(s) (${impNames.slice(0, 3).join(', ')}${impNames.length > 3 ? '…' : ''})`
+              : '') +
+            (rep.sources_dropped.length
+              ? `; dropped ${rep.sources_dropped.length} uncited/non-evidentiary source(s) (${rep.sources_dropped.slice(0, 3).join(', ')}${rep.sources_dropped.length > 3 ? '…' : ''})`
               : ''),
         })
       }

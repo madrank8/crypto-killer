@@ -1,5 +1,5 @@
 const { test } = require('node:test'); const assert = require('node:assert/strict')
-const { remediateStatLiterals, filterRosterToGroundTruth, pruneIncompleteFaqs, findOffRosterNames, dropOffRosterImpersonation, remediateReview, nameKey } = require('../lib/review-remediate')
+const { remediateStatLiterals, filterRosterToGroundTruth, pruneIncompleteFaqs, findOffRosterNames, dropOffRosterImpersonation, filterUncitedSources, remediateReview, nameKey } = require('../lib/review-remediate')
 
 const BRAND = { total_creatives: 4846, total_geos: 49, velocity_7d: 157 }
 
@@ -275,6 +275,67 @@ test('remediateReview drops off-roster impersonation items and reports them', ()
   assert.equal(fixed.faq.length, 1)                            // Musk+Gates FAQ kept
   assert.equal(report.impersonation_dropped.length, 1)
   assert.deepEqual(report.impersonation_dropped[0].names, ['Pauline Hanson'])
+})
+
+// ── uncited / non-evidentiary source filter (real quantum-ai source set) ────
+test('the real quantum-ai case: ScamAdviser dropped, every cited regulator kept', () => {
+  const review = {
+    // Body cites each regulator domain inline; ScamAdviser is only linked as a
+    // generic homepage (and is a crowd trust-score aggregator anyway).
+    full_article: 'The <a href="https://www.fca.org.uk/news/warnings/quantum-ai">FCA Warning List</a> names it. ' +
+      'Not in the <a href="https://register.fca.org.uk/">FCA register</a>. ' +
+      '<a href="https://www.sec.gov/edgar/search/#/q=%22Quantum%20AI%22">SEC EDGAR</a> shows no registration.',
+    protection_steps: 'Report to <a href="https://www.ic3.gov/">IC3</a> and <a href="https://reportfraud.ftc.gov/">the FTC</a>. ' +
+      'Check <a href="https://www.scamadviser.com/">ScamAdviser</a>.',
+    sources: [
+      { url: 'https://www.sec.gov/edgar/search/#/q=%22Quantum%20AI%22', title: 'SEC EDGAR full-text search' },
+      { url: 'https://register.fca.org.uk/', title: 'FCA Financial Services Register' },
+      { url: 'https://www.fca.org.uk/news/warnings/quantum-ai', title: 'FCA Warning List: Quantum AI' },
+      { url: 'https://www.fca.org.uk/scamsmart/warning-list', title: 'FCA ScamSmart Warning List' },
+      { url: 'https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany', title: 'SEC EDGAR Company Search' },
+      { url: 'https://www.ic3.gov/', title: 'IC3 Internet Crime Complaint Center' },
+      { url: 'https://reportfraud.ftc.gov/', title: 'FTC Report Fraud' },
+      { url: 'https://www.scamadviser.com/', title: 'ScamAdviser' },
+    ],
+  }
+  const { sources, dropped } = filterUncitedSources(review)
+  assert.deepEqual(dropped, ['ScamAdviser'])                       // only the aggregator goes
+  assert.equal(sources.length, 7)
+  assert.ok(!sources.some((s) => s.url.includes('scamadviser')))
+  // the two same-domain fca.org.uk sources both survive (domain is cited)
+  assert.equal(sources.filter((s) => s.url.includes('fca.org.uk')).length, 3)
+})
+
+test('a source whose domain is never inline-linked is dropped as uncited', () => {
+  const review = {
+    full_article: 'Body cites <a href="https://www.fca.org.uk/x">FCA</a> only.',
+    sources: [
+      { url: 'https://www.fca.org.uk/x', title: 'FCA' },
+      { url: 'https://random-blog.example/post', title: 'Uncited blog' },
+    ],
+  }
+  const { sources, dropped } = filterUncitedSources(review)
+  assert.deepEqual(sources.map((s) => s.title), ['FCA'])
+  assert.deepEqual(dropped, ['Uncited blog'])
+})
+
+test('filterUncitedSources: no sources / malformed input never throws', () => {
+  for (const bad of [null, undefined, {}, { sources: 'nope' }, { sources: [null, { title: 'x' }] }]) {
+    assert.doesNotThrow(() => filterUncitedSources(bad))
+  }
+})
+
+test('remediateReview drops the uncited source and reports it', () => {
+  const review = {
+    full_article: 'Cites <a href="https://www.fca.org.uk/warn">FCA</a>.',
+    sources: [
+      { url: 'https://www.fca.org.uk/warn', title: 'FCA' },
+      { url: 'https://www.scamadviser.com/', title: 'ScamAdviser' },
+    ],
+  }
+  const { review: fixed, report } = remediateReview(review, { brand: BRAND, groundTruthNames: GT })
+  assert.deepEqual(fixed.sources.map((s) => s.title), ['FCA'])
+  assert.deepEqual(report.sources_dropped, ['ScamAdviser'])
 })
 
 // ── remediateReview end-to-end ──────────────────────────────────────────────
