@@ -23,8 +23,14 @@ test('falls back to Organization when neither source is usable', () => {
   assert.equal(pickItemReviewedType(null, null), 'Organization')
 })
 
-test('editorial type is trimmed before lookup', () => {
-  assert.equal(pickItemReviewedType({ item_reviewed: { type: '  Service  ' } }, {}), 'Organization')
+test('editorial type is trimmed before lookup (distinguishes trim from fallback)', () => {
+  // With trim: '  FinancialProduct  ' → 'FinancialProduct' → 'Product'.
+  // Without trim: unknown key → falls back to brand entity_type ('SoftwareApplication').
+  // Asserting 'Product' proves .trim() actually runs.
+  assert.equal(
+    pickItemReviewedType({ item_reviewed: { type: '  FinancialProduct  ' } }, { entity_type: 'SoftwareApplication' }),
+    'Product',
+  )
 })
 
 // End-to-end: the built graph's Review.itemReviewed and WebPage.about[0] agree.

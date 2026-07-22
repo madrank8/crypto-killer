@@ -707,6 +707,9 @@ export async function POST(request) {
       const remediation = remediateReview(reviewContent, {
         brand: brandData,
         groundTruthNames: cleanCelebrityList,
+        // Only prune punctuation-incomplete trailing FAQs when generation was
+        // actually cut off (max_tokens); a normal generation is left untouched.
+        truncated: contentResult?.stopReason === 'max_tokens',
       })
       reviewContent = remediation.review
       const rep = remediation.report

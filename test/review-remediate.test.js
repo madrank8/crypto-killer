@@ -88,57 +88,87 @@ test('nameKey normalises', () => {
 })
 
 // ── incomplete-FAQ pruning (truncated JSON-LD guard) ────────────────────────
-test('a truncated final FAQ answer (no terminal punctuation) is dropped', () => {
+test('on a TRUNCATED generation, the cut trailing FAQ answer is dropped', () => {
   const faq = [
     { question: 'Is it a scam?', answer: 'Yes. The platform shows every hallmark of an advance-fee fraud.' },
     { question: 'How do they reach victims?', answer: 'They run paid ads that impersonate public figures and then' }, // cut off
   ]
-  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq, { truncated: true })
   assert.equal(kept.length, 1)
   assert.equal(kept[0].question, 'Is it a scam?')
   assert.deepEqual(dropped, ['How do they reach victims?'])
 })
 
-test('complete answers are kept; punctuation + closing quote/paren counts as complete', () => {
+test('WITHOUT truncation, a period-less answer is KEPT (no false positive)', () => {
+  // The reviewer set: legit complete answers that do not end in a period must
+  // survive on a normal (non-truncated) generation.
   const faq = [
-    { question: 'A?', answer: 'A finished sentence.' },
-    { question: 'B?', answer: 'It ends with a quote."' },
-    { question: 'C?', answer: 'It ends with a paren (like this).' },
-    { question: 'D?', answer: 'A question inside? Yes!' },
+    { question: 'Report?', answer: 'File a complaint with the FTC at https://reportfraud.ftc.gov' },
+    { question: 'Since?', answer: 'The platform has been running ads since 2021' },
+    { question: 'Registered?', answer: 'No registration was found (checked via FCA register)' },
+    { question: 'Scam?', answer: 'Yes, this is almost certainly a scam 🚨' },
   ]
-  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq) // no truncated flag
   assert.equal(kept.length, 4)
   assert.deepEqual(dropped, [])
 })
 
-test('empty / missing answer or question is dropped', () => {
+test('even under truncation, URL/number/emoji-terminated tails are NOT dropped', () => {
+  for (const answer of [
+    'File a complaint with the FTC at https://reportfraud.ftc.gov',
+    'The platform has been running ads since 2021',
+    'Yes, this is almost certainly a scam 🚨',
+    'No registration was found (checked via FCA register)',
+  ]) {
+    const { kept: _k, dropped } = (() => {
+      const r = pruneIncompleteFaqs([{ question: 'Q', answer }], { truncated: true })
+      return { kept: r.faq, dropped: r.dropped }
+    })()
+    assert.deepEqual(dropped, [], `should keep: ${answer}`)
+  }
+})
+
+test('only the TRAILING cut items are pruned; an earlier complete answer stays', () => {
+  const faq = [
+    { question: 'A?', answer: 'First answer is complete.' },
+    { question: 'B?', answer: 'Second answer was cut mid' },
+  ]
+  const { faq: kept, dropped } = pruneIncompleteFaqs(faq, { truncated: true })
+  assert.deepEqual(kept.map((f) => f.question), ['A?'])
+  assert.deepEqual(dropped, ['B?'])
+})
+
+test('empty / missing answer or question is dropped regardless of truncation', () => {
   const faq = [
     { question: 'Has answer', answer: '' },
     { question: '', answer: 'Orphan answer.' },
     { question: 'No answer key' },
     { question: 'Good one', answer: 'Kept.' },
   ]
-  const { faq: kept, dropped } = pruneIncompleteFaqs(faq)
+  const { faq: kept } = pruneIncompleteFaqs(faq) // no truncated flag
   assert.equal(kept.length, 1)
   assert.equal(kept[0].question, 'Good one')
 })
 
 test('pruneIncompleteFaqs never throws on malformed input', () => {
   for (const bad of [null, undefined, 'x', 42, [null, 'str', { }]]) {
-    assert.doesNotThrow(() => pruneIncompleteFaqs(bad))
+    assert.doesNotThrow(() => pruneIncompleteFaqs(bad, { truncated: true }))
   }
 })
 
-test('remediateReview drops a truncated FAQ and reports it', () => {
+test('remediateReview drops a truncated trailing FAQ when context.truncated', () => {
   const review = {
     faq: [
       { question: 'Complete?', answer: 'Absolutely, this one is finished.' },
       { question: 'Truncated?', answer: 'This answer was cut off right in the mid' },
     ],
   }
-  const { review: fixed, report } = remediateReview(review, { brand: BRAND, groundTruthNames: GT })
+  const { review: fixed, report } = remediateReview(review, { brand: BRAND, groundTruthNames: GT, truncated: true })
   assert.equal(fixed.faq.length, 1)
   assert.deepEqual(report.faq_dropped, ['Truncated?'])
+  // Same input WITHOUT the truncated flag keeps both.
+  const again = remediateReview({ faq: review.faq }, { brand: BRAND, groundTruthNames: GT })
+  assert.equal(again.review.faq.length, 2)
 })
 
 // ── off-roster impersonation guard (real quantum-ai fixtures) ───────────────
@@ -146,12 +176,44 @@ test('remediateReview drops a truncated FAQ and reports it', () => {
 // it; Pauline Hanson / Sudha Murthy / Narayana Murthy are NOT.
 const QAI_ROSTER = ['Elon Musk', 'Bill Gates', 'Nigel Farage', 'Nirmala Sitharaman', 'Cristiano Ronaldo', 'Ana Botín']
 
-test('drops a bullet naming off-roster people (Sudha/Narayana Murthy)', () => {
-  const sig = 'The same India-targeted creatives recycle Sudha Murthy, Narayana Murthy, and Finance Minister Nirmala Sitharaman together, pairing a trusted philanthropist face with a sitting official.'
+test('drops names in a cued list (deepfakes X and Y); roster-backed Sitharaman survives', () => {
+  const sig = 'The operator deepfakes Sudha Murthy and Narayana Murthy alongside Finance Minister Nirmala Sitharaman to manufacture approval.'
   const names = findOffRosterNames(sig, new Set(QAI_ROSTER.map(nameKey)))
-  // Sitharaman is roster-backed even behind the "Finance Minister" title; only
-  // the two genuinely-absent names are flagged.
+  // "deepfakes" cue → names that follow it. Sitharaman is roster-backed even
+  // behind the "Finance Minister" title; only the two absent names are flagged.
   assert.deepEqual(names.sort(), ['Narayana Murthy', 'Sudha Murthy'])
+})
+
+test('gerund cue forms are caught (deepfaking / impersonating)', () => {
+  const roster = new Set(QAI_ROSTER.map(nameKey))
+  assert.deepEqual(findOffRosterNames('The scam is deepfaking Sudha Murthy in a viral clip.', roster), ['Sudha Murthy'])
+  assert.deepEqual(findOffRosterNames('Ads impersonating Pauline Hanson circulated in Australia.', roster), ['Pauline Hanson'])
+})
+
+// ── construction gating: these MUST NOT drop (adversarial false-positive set) ─
+test('a quoted source next to a scam word is NOT flagged', () => {
+  const t = 'Action Fraud spokesperson Sarah Jones said victims lost thousands to this celebrity endorsement scheme.'
+  assert.deepEqual(findOffRosterNames(t, new Set(QAI_ROSTER.map(nameKey))), [])
+})
+
+test('a city subject in a scam sentence is NOT flagged', () => {
+  const t = 'New York regulators are investigating this platform amid a growing celebrity endorsement scandal.'
+  assert.deepEqual(findOffRosterNames(t, new Set(QAI_ROSTER.map(nameKey))), [])
+})
+
+test('an org phrase before an impersonation word is NOT flagged (name must FOLLOW the cue)', () => {
+  const t = 'Government Officials have flagged this operation as a likely impersonation scam figure in ongoing probes.'
+  assert.deepEqual(findOffRosterNames(t, new Set(QAI_ROSTER.map(nameKey))), [])
+})
+
+test('a sentence-boundary capitalised pair is NOT flagged', () => {
+  const t = 'No. Regulators warn that this platform is a scam. Users should face facts.'
+  assert.deepEqual(findOffRosterNames(t, new Set(QAI_ROSTER.map(nameKey))), [])
+})
+
+test('an org name inside a construction is filtered by the stoplist', () => {
+  const t = 'The clip is a deepfake of the Financial Ombudsman Service logo, not a person.'
+  assert.deepEqual(findOffRosterNames(t, new Set(QAI_ROSTER.map(nameKey))), [])
 })
 
 test('KEEPS a bullet whose only names are roster-backed, incl. non-Latin script', () => {
