@@ -2,6 +2,8 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 const { validateImportedPages } = require('../../lib/topical-map/import/validate-sheet')
+const { mapPageRow } = require('../../lib/topical-map/import/field-map')
+const { parseSheetInput } = require('../../lib/topical-map/import/parse-sheet')
 
 describe('validateImportedPages', () => {
   it('fails when Primary Query Cluster / Search Intent / Phase / Internal Links missing on a page row', () => {
@@ -224,5 +226,62 @@ describe('validateImportedPages', () => {
     ])
     assert.equal(result.ok, true)
     assert.ok(result.warnings.some((w) => /Notes/i.test(w)))
+  })
+})
+
+describe('mapPageRow → validateImportedPages integration', () => {
+  const blankTitleRaw = {
+    Section: 'CORE',
+    Cluster: '1. Wiki',
+    'Page Title (Title Tag Style)': '',
+    'Suggested URL': '/wiki/missing-title/',
+    'Primary Query Cluster': 'test keyword',
+    'Search Intent': 'Informational',
+    Phase: '1',
+    'Internal Links To': '/crypto-scams/',
+  }
+
+  it('mapPageRow keeps blank-title rows with other page-map signals', () => {
+    const mapped = mapPageRow(blankTitleRaw)
+    assert.ok(mapped, 'expected mapped object, not null')
+    assert.equal(mapped.title, '')
+    assert.equal(mapped.url_path, '/wiki/missing-title/')
+    assert.deepEqual(mapped._sheet['Page Title (Title Tag Style)'], '')
+  })
+
+  it('validateImportedPages fails blank-title rows from mapPageRow', () => {
+    const mapped = mapPageRow(blankTitleRaw)
+    const result = validateImportedPages([mapped])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Page Title (Title Tag Style)'))
+  })
+
+  it('mapPageRow returns null for completely blank padding rows', () => {
+    assert.equal(mapPageRow({}), null)
+    assert.equal(
+      mapPageRow({
+        Section: '',
+        Cluster: '',
+        'Page Title (Title Tag Style)': '',
+        'Suggested URL': '',
+        'Primary Query Cluster': '',
+        Phase: '',
+        'Internal Links To': '',
+      }),
+      null
+    )
+  })
+
+  it('parseSheetInput includes blank-title rows and they fail validation', () => {
+    const csv = [
+      'Section,Cluster,Page Title (Title Tag Style),Suggested URL,Primary Query Cluster,Lead KW Volume,KD,Search Intent,Internal Links To,Notes / Angle,Phase',
+      'CORE,1. Wiki,,/wiki/missing-title/,test keyword,,,Informational,/crypto-scams/,,1',
+    ].join('\n')
+    const { pages } = parseSheetInput({ csvText: csv })
+    assert.equal(pages.length, 1)
+    assert.equal(pages[0].title, '')
+    const result = validateImportedPages(pages)
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Page Title (Title Tag Style)'))
   })
 })
