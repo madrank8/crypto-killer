@@ -265,11 +265,26 @@ describe('mapPageRow → validateImportedPages integration', () => {
         'Page Title (Title Tag Style)': '',
         'Suggested URL': '',
         'Primary Query Cluster': '',
+        'Search Intent': '',
         Phase: '',
         'Internal Links To': '',
+        'Notes / Angle': '',
+        'Lead KW Volume': '',
+        KD: '',
       }),
       null
     )
+  })
+
+  it('mapPageRow keeps blank-title rows when only Search Intent is filled', () => {
+    const mapped = mapPageRow({
+      'Page Title (Title Tag Style)': '',
+      'Search Intent': 'Informational',
+    })
+    assert.ok(mapped, 'Search Intent alone is a page-map signal')
+    const result = validateImportedPages([mapped])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Page Title (Title Tag Style)'))
   })
 
   it('parseSheetInput includes blank-title rows and they fail validation', () => {
