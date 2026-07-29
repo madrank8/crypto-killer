@@ -5,6 +5,11 @@ const assert = require('node:assert/strict')
 
 const { proposeSullivanType } = require('../../lib/topical-map/readiness/propose-sullivan-type')
 const { gatherStackEvidence } = require('../../lib/topical-map/readiness/gather-stack')
+const {
+  gatherFirecrawlEvidence,
+  mergeFirecrawlIntoEvidence,
+  isAllowedFirecrawlUrl,
+} = require('../../lib/topical-map/readiness/gather-firecrawl')
 
 // ── proposeSullivanType ──────────────────────────────────────────────────────
 
@@ -289,5 +294,202 @@ describe('gatherStackEvidence: no proposal', () => {
     assert.ok(out.missing.includes('methodology'))
     assert.ok(out.missing.includes('novel_finding'))
     assert.ok(out.missing.includes('collection_date'))
+  })
+})
+
+// ── gatherFirecrawlEvidence ──────────────────────────────────────────────────
+
+describe('gatherFirecrawlEvidence', () => {
+  it('returns skipped when no apiKey is passed and no env key is set', async () => {
+    const prev = process.env.FIRECRAWL_API_KEY
+    delete process.env.FIRECRAWL_API_KEY
+    try {
+      const out = await gatherFirecrawlEvidence({
+        urls: ['https://cryptokiller.org/review/quantum-ai/'],
+        fetchImpl: async () => {
+          throw new Error('should not be called')
+        },
+      })
+      assert.deepEqual(out, { skipped: true })
+    } finally {
+      if (prev !== undefined) process.env.FIRECRAWL_API_KEY = prev
+    }
+  })
+
+  it('scrapes the current Firecrawl v2 endpoint with the expected request shape', async () => {
+    let capturedUrl = null
+    let capturedOpts = null
+    const fetchImpl = async (url, opts) => {
+      capturedUrl = url
+      capturedOpts = opts
+      return {
+        ok: true,
+        json: async () => ({ success: true, data: { markdown: 'hello', links: ['https://cryptokiller.org/other/'] } }),
+      }
+    }
+    const out = await gatherFirecrawlEvidence({
+      urls: ['https://cryptokiller.org/review/quantum-ai/'],
+      apiKey: 'fc-test-key',
+      fetchImpl,
+    })
+    assert.equal(capturedUrl, 'https://api.firecrawl.dev/v2/scrape')
+    assert.equal(capturedOpts.method, 'POST')
+    assert.equal(capturedOpts.headers.Authorization, 'Bearer fc-test-key')
+    const body = JSON.parse(capturedOpts.body)
+    assert.equal(body.url, 'https://cryptokiller.org/review/quantum-ai/')
+    assert.deepEqual(body.formats, ['markdown', 'links'])
+    assert.equal(out.pages.length, 1)
+    assert.equal(out.pages[0].markdown, 'hello')
+    assert.deepEqual(out.pages[0].links, ['https://cryptokiller.org/other/'])
+  })
+
+  it('rejects an arbitrary competitor URL that is not our domain and not already linked', async () => {
+    let calls = 0
+    const out = await gatherFirecrawlEvidence({
+      urls: ['https://some-competitor-blog.example/best-crypto-scam-list/'],
+      apiKey: 'fc-test-key',
+      allowedOutboundLinks: ['https://ftc.gov/known-source/'],
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: true, json: async () => ({ data: { markdown: '', links: [] } }) }
+      },
+    })
+    assert.equal(calls, 0)
+    assert.deepEqual(out.pages, [])
+  })
+
+  it('allows our own domain and an outbound URL already linked from our pages', async () => {
+    const scraped = []
+    const out = await gatherFirecrawlEvidence({
+      urls: ['https://cryptokiller.org/wiki/pig-butchering/', 'https://ftc.gov/known-source/', 'https://random-serp-result.example/'],
+      apiKey: 'fc-test-key',
+      allowedOutboundLinks: ['https://ftc.gov/known-source/'],
+      fetchImpl: async (_endpoint, opts) => {
+        scraped.push(JSON.parse(opts.body).url)
+        return { ok: true, json: async () => ({ data: { markdown: '', links: [] } }) }
+      },
+    })
+    assert.equal(scraped.length, 2)
+    assert.ok(scraped.includes('https://cryptokiller.org/wiki/pig-butchering/'))
+    assert.ok(scraped.includes('https://ftc.gov/known-source/'))
+    assert.ok(!scraped.includes('https://random-serp-result.example/'))
+    assert.equal(out.pages.length, 2)
+  })
+
+  it('surfaces per-url scrape failures in error without throwing', async () => {
+    const out = await gatherFirecrawlEvidence({
+      urls: ['https://cryptokiller.org/wiki/broken/'],
+      apiKey: 'fc-test-key',
+      fetchImpl: async () => ({ ok: false, status: 500 }),
+    })
+    assert.equal(out.pages.length, 0)
+    assert.match(out.error, /500/)
+  })
+})
+
+describe('isAllowedFirecrawlUrl', () => {
+  it('always allows our own domain, including subdomains', () => {
+    assert.equal(isAllowedFirecrawlUrl('https://cryptokiller.org/x/'), true)
+    assert.equal(isAllowedFirecrawlUrl('https://www.cryptokiller.org/x/'), true)
+    assert.equal(isAllowedFirecrawlUrl('https://blog.cryptokiller.org/x/'), true)
+  })
+
+  it('allows an outbound URL only when it is already in the known-links list', () => {
+    assert.equal(isAllowedFirecrawlUrl('https://ftc.gov/a/', ['https://ftc.gov/a/']), true)
+    assert.equal(isAllowedFirecrawlUrl('https://ftc.gov/a/', []), false)
+    assert.equal(isAllowedFirecrawlUrl('https://ftc.gov/a/'), false)
+  })
+
+  it('rejects malformed URLs and non-string input without throwing', () => {
+    assert.equal(isAllowedFirecrawlUrl('not a url'), false)
+    assert.equal(isAllowedFirecrawlUrl(null), false)
+    assert.equal(isAllowedFirecrawlUrl(undefined), false)
+  })
+})
+
+// ── mergeFirecrawlIntoEvidence ───────────────────────────────────────────────
+
+describe('mergeFirecrawlIntoEvidence', () => {
+  it('fills direct_anecdotes from >=3 distinct quoted sentences across scraped pages', () => {
+    const stackResult = {
+      content_type: 'firsthand_review',
+      forcing_inputs: {},
+      sources: [],
+      missing: ['direct_anecdotes', 'credentials'],
+    }
+    const firecrawlPages = [
+      {
+        url: 'https://cryptokiller.org/review/quantum-ai/',
+        markdown:
+          '"I sent them 400 dollars and never heard back again after that day." Some filler text here. ' +
+          '"Support stopped responding within twenty four hours of my withdrawal request."',
+      },
+      {
+        url: 'https://ftc.gov/known-source/',
+        markdown: '"The platform locked my account the moment I asked to cash out my balance."',
+      },
+    ]
+    const out = mergeFirecrawlIntoEvidence(stackResult, firecrawlPages, 'firsthand_review')
+    assert.equal(out.forcing_inputs.direct_anecdotes.length, 3)
+    assert.ok(!out.missing.includes('direct_anecdotes'))
+    assert.ok(out.missing.includes('credentials')) // untouched: no honest firecrawl source for it here
+    assert.ok(out.sources.some((s) => s.field === 'direct_anecdotes' && s.url === 'https://cryptokiller.org/review/quantum-ai/'))
+  })
+
+  it('never pads anecdotes below the 3-quote minimum', () => {
+    const stackResult = { content_type: 'firsthand_review', forcing_inputs: {}, sources: [], missing: ['direct_anecdotes'] }
+    const firecrawlPages = [
+      {
+        url: 'https://cryptokiller.org/review/x/',
+        markdown: '"Only one quote here that is long enough to matter for this test."',
+      },
+    ]
+    const out = mergeFirecrawlIntoEvidence(stackResult, firecrawlPages, 'firsthand_review')
+    assert.equal(out.forcing_inputs.direct_anecdotes, undefined)
+    assert.ok(out.missing.includes('direct_anecdotes'))
+  })
+
+  it('never invents a Wikidata Q-ID even when firecrawl pages are present', () => {
+    const stackResult = {
+      content_type: 'infrastructure',
+      forcing_inputs: {},
+      sources: [],
+      missing: ['entity_id', 'sub_entities'],
+    }
+    const firecrawlPages = [
+      { url: 'https://cryptokiller.org/wiki/crypto-scam/', markdown: 'Wikidata: Q999999 is definitely the entity id.' },
+    ]
+    const out = mergeFirecrawlIntoEvidence(stackResult, firecrawlPages, 'infrastructure')
+    assert.equal(out.forcing_inputs.entity_id, undefined)
+    assert.ok(out.missing.includes('entity_id'))
+    assert.equal(out.forcing_inputs.sub_entities, undefined)
+    assert.ok(out.missing.includes('sub_entities'))
+  })
+
+  it('is a no-op when the stack result did not report direct_anecdotes as missing', () => {
+    const stackResult = {
+      content_type: 'firsthand_review',
+      forcing_inputs: { direct_anecdotes: ['already', 'have', 'three'] },
+      sources: [],
+      missing: [],
+    }
+    const firecrawlPages = [
+      {
+        url: 'https://cryptokiller.org/review/x/',
+        markdown:
+          '"New quote one that would otherwise be long enough to count here." ' +
+          '"New quote two that would otherwise be long enough to count here." ' +
+          '"New quote three that would otherwise be long enough to count here."',
+      },
+    ]
+    const out = mergeFirecrawlIntoEvidence(stackResult, firecrawlPages)
+    assert.deepEqual(out.forcing_inputs.direct_anecdotes, ['already', 'have', 'three'])
+  })
+
+  it('handles no firecrawl pages gracefully', () => {
+    const stackResult = { content_type: 'firsthand_review', forcing_inputs: {}, sources: [], missing: ['direct_anecdotes'] }
+    const out = mergeFirecrawlIntoEvidence(stackResult, [], 'firsthand_review')
+    assert.equal(out.forcing_inputs.direct_anecdotes, undefined)
+    assert.ok(out.missing.includes('direct_anecdotes'))
   })
 })
