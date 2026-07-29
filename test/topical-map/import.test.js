@@ -8,6 +8,8 @@ const path = require('node:path')
 const { parseSheetInput, parseCsvText, extractSpreadsheetId } = require('../../lib/topical-map/import/parse-sheet')
 const { consolidateKoray, isGrowthPartnerShape } = require('../../lib/topical-map/import/koray-structure')
 const { mapPageRow, normalizeSection, buildTopicFields } = require('../../lib/topical-map/import/field-map')
+const { validateImportedPages } = require('../../lib/topical-map/import/validate-sheet')
+const { assertImportCoverage } = require('../../lib/topical-map/import/coverage')
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'page-map-sample.csv')
 
@@ -149,6 +151,34 @@ describe('field-map section vs page_role', () => {
     )
     assert.equal(leaf.page_role, 'Outer')
     assert.equal(leaf.section, 'core')
+  })
+})
+
+describe('import route gate order (validate -> consolidate -> coverage)', () => {
+  it('passes the required-field gate and the coverage gate for the page-map sample CSV', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+
+    const gate = validateImportedPages(pages)
+    assert.equal(gate.ok, true, `expected gate ok, got errors: ${JSON.stringify(gate.errors)}`)
+
+    const { structure, counts } = consolidateKoray(pages)
+
+    const coverage = assertImportCoverage({ pages, structure, counts })
+    assert.equal(coverage.ok, true, `expected coverage ok, got errors: ${coverage.errors.join('; ')}`)
+    assert.equal(coverage.missing_titles.length, 0)
+  })
+
+  it('fails the gate before consolidation ever runs when a required cell is blank', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+    const mutated = pages.map((p, i) =>
+      i === 0 ? { ...p, _sheet: { ...p._sheet, 'Primary Query Cluster': '' } } : p
+    )
+
+    const gate = validateImportedPages(mutated)
+    assert.equal(gate.ok, false)
+    assert.ok(gate.errors[0].missing_columns.includes('Primary Query Cluster'))
   })
 })
 
