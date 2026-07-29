@@ -100,6 +100,73 @@ function StatusBadge({ status }) {
   );
 }
 
+function EvidenceBadge({ outcome }) {
+  if (!outcome || outcome === 'skipped') return null;
+  const isOk = outcome === 'sullivan_ok';
+  return (
+    <span
+      title={isOk ? 'Sullivan evidence satisfied' : 'Missing Sullivan evidence - run readiness or fill manually'}
+      className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${
+        isOk
+          ? 'bg-green-500/10 text-green-400 border-green-500/20'
+          : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+      }`}
+    >
+      {isOk ? 'evidence ok' : 'needs evidence'}
+    </span>
+  );
+}
+
+function ImportErrorList({ detailErrors }) {
+  if (!detailErrors) return null;
+  const { validation_errors, coverage_errors, missing_titles } = detailErrors;
+  const hasValidation = Array.isArray(validation_errors) && validation_errors.length > 0;
+  const hasCoverage = Array.isArray(coverage_errors) && coverage_errors.length > 0;
+  if (!hasValidation && !hasCoverage) return null;
+
+  return (
+    <div className="mt-3 rounded-lg border border-red-600/30 bg-red-950/30 p-3 text-xs max-h-48 overflow-y-auto">
+      {hasValidation && (
+        <>
+          <p className="text-red-300 font-semibold mb-1.5">Missing required columns</p>
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-red-400/70">
+                <th className="pr-2 pb-1 font-medium">Row</th>
+                <th className="pr-2 pb-1 font-medium">Title</th>
+                <th className="pb-1 font-medium">Missing</th>
+              </tr>
+            </thead>
+            <tbody>
+              {validation_errors.map((err, i) => (
+                <tr key={i} className="border-t border-red-800/20">
+                  <td className="pr-2 py-1 text-red-200 tabular-nums">{err.row}</td>
+                  <td className="pr-2 py-1 text-gray-300 max-w-[140px] truncate">{err.title}</td>
+                  <td className="py-1 text-red-300">{(err.missing_columns || []).join(', ')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {hasCoverage && (
+        <>
+          <p className={`text-red-300 font-semibold mb-1 ${hasValidation ? 'mt-3' : ''}`}>Coverage errors</p>
+          <ul className="list-disc pl-4 text-red-300 space-y-0.5">
+            {coverage_errors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+          {Array.isArray(missing_titles) && missing_titles.length > 0 && (
+            <p className="mt-1.5 text-gray-400">
+              Missing titles: {missing_titles.slice(0, 10).join('; ')}
+              {missing_titles.length > 10 ? ` (+${missing_titles.length - 10} more)` : ''}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // content_role taxonomy: money (monetization), pillar (authority hubs),
 // supporting (informational fan-out), trust (E-E-A-T builders)
 const roleColors = {
@@ -817,7 +884,7 @@ function TopicEditor({ topic, token, onCancel, onSaved }) {
 
 // ─── Topic Row (leaf or nested) ───
 
-function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArticle, writingId, editingId, setEditingId, descendantCountById, statusFilter }) {
+function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArticle, writingId, editingId, setEditingId, descendantCountById, statusFilter, readinessTopics }) {
   const children = byParent.get(topic.id) || [];
   const isLeaf = children.length === 0;
   const editing = editingId === topic.id;
@@ -926,7 +993,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
                 byParent={byParent} token={token} onPatch={onPatch} onDelete={onDelete}
                 onWriteArticle={onWriteArticle} writingId={writingId} editingId={editingId}
                 setEditingId={setEditingId} descendantCountById={descendantCountById}
-                statusFilter={statusFilter}
+                statusFilter={statusFilter} readinessTopics={readinessTopics}
               />
             ))}
           </div>
@@ -999,7 +1066,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
                 byParent={byParent} token={token} onPatch={onPatch} onDelete={onDelete}
                 onWriteArticle={onWriteArticle} writingId={writingId} editingId={editingId}
                 setEditingId={setEditingId} descendantCountById={descendantCountById}
-                statusFilter={statusFilter}
+                statusFilter={statusFilter} readinessTopics={readinessTopics}
               />
             ))}
           </div>
@@ -1019,6 +1086,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <TypeBadge contentType={topic.content_type} />
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
             <MetaBadges topic={topic} />
+            <EvidenceBadge outcome={readinessTopics?.[topic.id]?.outcome} />
           </div>
           {(topic.target_keyword && topic.target_keyword !== topic.title) || hasMetricChips(topic) ? (
             <div className="mt-0.5 flex items-center gap-2 flex-wrap">
@@ -1378,7 +1446,9 @@ export default function TopicalMapPage() {
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [importDetailErrors, setImportDetailErrors] = useState(null);
   const [enriching, setEnriching] = useState(false);
+  const [readinessRunning, setReadinessRunning] = useState(false);
 
   // Phase 4 — free-form topic / content creation modal state
   const [newOpen, setNewOpen] = useState(false);
@@ -1614,6 +1684,7 @@ export default function TopicalMapPage() {
 
   const openImportModal = () => {
     setImportError('');
+    setImportDetailErrors(null);
     setImportResult(null);
     setImportFile(null);
     setImportSheetUrl('');
@@ -1625,6 +1696,7 @@ export default function TopicalMapPage() {
   const runImport = async () => {
     if (!token) return;
     setImportError('');
+    setImportDetailErrors(null);
     setImportResult(null);
     setImporting(true);
     try {
@@ -1649,12 +1721,22 @@ export default function TopicalMapPage() {
         });
       }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (!res.ok) {
+        if (res.status === 422 && (data.validation_errors || data.coverage_errors)) {
+          setImportDetailErrors({
+            validation_errors: data.validation_errors || null,
+            coverage_errors: data.coverage_errors || null,
+            missing_titles: data.missing_titles || null,
+          });
+        }
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
       setImportResult(data);
       if (data.map_id) selectGeneratedMap(data.map_id);
       const c = data.counts || {};
+      const readinessNote = data.readiness?.started ? ' - evidence readiness running in background' : '';
       showToast(
-        `Imported ${c.pillars || 0} pillars, ${c.clusters || 0} clusters, ${c.supporting || 0} pages`,
+        `Imported ${c.pillars || 0} pillars, ${c.clusters || 0} clusters, ${c.supporting || 0} pages${readinessNote}`,
         'success',
       );
     } catch (e) {
@@ -1684,6 +1766,28 @@ export default function TopicalMapPage() {
       showToast(e.message);
     } finally {
       setEnriching(false);
+    }
+  };
+
+  const runReadiness = async () => {
+    if (!token || !mapId) return;
+    setReadinessRunning(true);
+    try {
+      const res = await fetch(`/api/admin/topical-map/${encodeURIComponent(mapId)}/readiness`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      showToast(
+        `Readiness: ${data.sullivan_ok || 0} ok, ${data.needs_evidence || 0} need evidence, ${data.skipped || 0} skipped`,
+        'success',
+      );
+      await loadMaps();
+    } catch (e) {
+      showToast(`Readiness failed: ${e.message}`);
+    } finally {
+      setReadinessRunning(false);
     }
   };
 
@@ -1845,6 +1949,22 @@ export default function TopicalMapPage() {
         {selectedMap && (
           <span className="text-xs text-gray-600">{topics.length} topics</span>
         )}
+        {selectedMap && (
+          <button
+            type="button"
+            onClick={runReadiness}
+            disabled={readinessRunning}
+            title="Re-run Sullivan evidence readiness for all supporting topics"
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-600/40 text-emerald-400 hover:text-emerald-300 hover:border-emerald-500/60 bg-emerald-900/10 transition disabled:opacity-50"
+          >
+            {readinessRunning ? 'Running...' : 'Re-run readiness'}
+          </button>
+        )}
+        {selectedMap?.stats?.readiness?.ran_at && (
+          <span className="text-[10px] text-gray-600" title={`Last readiness: ${selectedMap.stats.readiness.ran_at}`}>
+            {selectedMap.stats.readiness.sullivan_ok || 0} ok / {selectedMap.stats.readiness.needs_evidence || 0} need evidence
+          </span>
+        )}
       </div>
 
       {/* ── Stats Dashboard ── */}
@@ -1975,7 +2095,7 @@ export default function TopicalMapPage() {
               byParent={byParent} token={token} onPatch={loadTopics} onDelete={deleteTopic}
               onWriteArticle={writeArticle} writingId={writingId} editingId={editingId}
               setEditingId={setEditingId} descendantCountById={descendantCountById}
-              statusFilter={statusFilter}
+              statusFilter={statusFilter} readinessTopics={selectedMap?.stats?.readiness?.topics}
             />
           ))}
         </div>
@@ -2310,6 +2430,13 @@ export default function TopicalMapPage() {
             )}
 
             {importError && <p className="text-red-400 text-sm mt-3">{importError}</p>}
+            <ImportErrorList detailErrors={importDetailErrors} />
+
+            {importResult?.readiness?.started && (
+              <p className="text-xs text-emerald-400/80 mt-2">
+                Evidence readiness check is running in the background. Per-topic badges will update when it finishes.
+              </p>
+            )}
 
             <div className="mt-5 flex flex-wrap gap-2">
               {!importResult ? (
@@ -2325,7 +2452,7 @@ export default function TopicalMapPage() {
                   <button
                     type="button"
                     className="flex-1 min-w-[8rem] py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
-                    onClick={() => { setImportOpen(false); setImportError(''); setImportResult(null); }}
+                    onClick={() => { setImportOpen(false); setImportError(''); setImportDetailErrors(null); setImportResult(null); }}
                   >
                     Cancel
                   </button>
@@ -2345,7 +2472,7 @@ export default function TopicalMapPage() {
                   <button
                     type="button"
                     className="flex-1 min-w-[8rem] py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
-                    onClick={() => { setImportOpen(false); setImportError(''); setImportResult(null); }}
+                    onClick={() => { setImportOpen(false); setImportError(''); setImportDetailErrors(null); setImportResult(null); }}
                   >
                     Done
                   </button>
