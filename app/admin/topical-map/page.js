@@ -1369,6 +1369,17 @@ export default function TopicalMapPage() {
   const [seedKeyword, setSeedKeyword] = useState('');
   const [seedError, setSeedError] = useState('');
 
+  // Sheet import modal
+  const [importOpen, setImportOpen] = useState(false);
+  const [importTab, setImportTab] = useState('upload'); // upload | url
+  const [importName, setImportName] = useState('');
+  const [importSheetUrl, setImportSheetUrl] = useState('');
+  const [importFile, setImportFile] = useState(null);
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [enriching, setEnriching] = useState(false);
+
   // Phase 4 — free-form topic / content creation modal state
   const [newOpen, setNewOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -1596,6 +1607,86 @@ export default function TopicalMapPage() {
     }
   };
 
+  const defaultImportName = () => {
+    const d = new Date().toISOString().slice(0, 10);
+    return `Imported: CryptoKiller Topical Map (${d})`;
+  };
+
+  const openImportModal = () => {
+    setImportError('');
+    setImportResult(null);
+    setImportFile(null);
+    setImportSheetUrl('');
+    setImportTab('upload');
+    setImportName(defaultImportName());
+    setImportOpen(true);
+  };
+
+  const runImport = async () => {
+    if (!token) return;
+    setImportError('');
+    setImportResult(null);
+    setImporting(true);
+    try {
+      let res;
+      if (importTab === 'url') {
+        const url = importSheetUrl.trim();
+        if (!url) throw new Error('Paste a Google Sheet URL');
+        res = await fetch('/api/admin/topical-map/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ sheet_url: url, map_name: importName.trim() || undefined }),
+        });
+      } else {
+        if (!importFile) throw new Error('Choose a .xlsx or .csv file');
+        const fd = new FormData();
+        fd.append('file', importFile);
+        if (importName.trim()) fd.append('map_name', importName.trim());
+        res = await fetch('/api/admin/topical-map/import', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setImportResult(data);
+      if (data.map_id) selectGeneratedMap(data.map_id);
+      const c = data.counts || {};
+      showToast(
+        `Imported ${c.pillars || 0} pillars, ${c.clusters || 0} clusters, ${c.supporting || 0} pages`,
+        'success',
+      );
+    } catch (e) {
+      setImportError(e.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const runEnrichMetrics = async () => {
+    const id = importResult?.map_id || mapId;
+    if (!token || !id) return;
+    setEnriching(true);
+    setImportError('');
+    try {
+      const res = await fetch(`/api/admin/topical-map/maps/${encodeURIComponent(id)}/enrich-metrics`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      showToast(`Enriched ${data.updated || 0} topics (${data.failed || 0} failed)`, 'success');
+      loadTopicsForMap(id);
+    } catch (e) {
+      setImportError(e.message);
+      showToast(e.message);
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   const cancelRun = async () => {
     if (!run?.id) return;
     if (!window.confirm('Cancel this run? It will stop here and cannot be resumed.')) return;
@@ -1719,6 +1810,14 @@ export default function TopicalMapPage() {
             className="text-sm font-medium px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition"
           >
             + New Content
+          </button>
+          <button
+            type="button"
+            onClick={openImportModal}
+            disabled={generating || importing}
+            className="text-sm font-medium px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 transition disabled:opacity-50"
+          >
+            Import Map
           </button>
           <button
             type="button"
@@ -2132,6 +2231,126 @@ export default function TopicalMapPage() {
             <div className="mt-4 flex gap-2">
               <button type="button" className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-sm text-white" onClick={() => startRun(seedKeyword)}>Generate</button>
               <button type="button" className="flex-1 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white" onClick={() => { setSeedOpen(false); setSeedError(''); }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 w-full max-w-lg mx-4 shadow-xl">
+            <h3 className="text-white font-semibold text-lg">Import Map</h3>
+            <p className="text-gray-500 text-sm mt-1">
+              Create a new topical map from a Koray-style page-map sheet (.xlsx / .csv or Google Sheet URL).
+            </p>
+
+            <label className="block text-xs text-gray-400 mt-4 mb-1">Map name</label>
+            <input
+              type="text"
+              value={importName}
+              onChange={(e) => setImportName(e.target.value)}
+              className="search-input w-full"
+            />
+
+            <div className="mt-4 flex gap-1 p-1 rounded-lg bg-gray-950 border border-gray-800">
+              <button
+                type="button"
+                onClick={() => { setImportTab('upload'); setImportError(''); }}
+                className={`flex-1 py-1.5 rounded-md text-sm ${importTab === 'upload' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                Upload file
+              </button>
+              <button
+                type="button"
+                onClick={() => { setImportTab('url'); setImportError(''); }}
+                className={`flex-1 py-1.5 rounded-md text-sm ${importTab === 'url' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+              >
+                Google Sheet URL
+              </button>
+            </div>
+
+            {importTab === 'upload' ? (
+              <div className="mt-4">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-gray-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-gray-800 file:text-gray-200"
+                />
+                {importFile && <p className="text-xs text-gray-500 mt-2">{importFile.name}</p>}
+              </div>
+            ) : (
+              <div className="mt-4">
+                <input
+                  type="url"
+                  value={importSheetUrl}
+                  onChange={(e) => setImportSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  className="search-input w-full"
+                />
+              </div>
+            )}
+
+            {importResult && (
+              <div className="mt-4 rounded-lg border border-gray-800 bg-gray-950 p-3 text-sm text-gray-300">
+                <p>
+                  Map created:{' '}
+                  <span className="text-white font-medium">
+                    {importResult.counts?.pillars ?? 0} pillars · {importResult.counts?.clusters ?? 0} clusters · {importResult.counts?.supporting ?? 0} pages
+                  </span>
+                </p>
+                {Array.isArray(importResult.warnings) && importResult.warnings.length > 0 && (
+                  <ul className="mt-2 text-xs text-amber-300/90 list-disc pl-4 space-y-0.5 max-h-24 overflow-y-auto">
+                    {importResult.warnings.slice(0, 8).map((w) => (
+                      <li key={w}>{w}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {importError && <p className="text-red-400 text-sm mt-3">{importError}</p>}
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              {!importResult ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={importing}
+                    className="flex-1 min-w-[8rem] py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm text-white disabled:opacity-50"
+                    onClick={runImport}
+                  >
+                    {importing ? 'Importing\u2026' : 'Import'}
+                  </button>
+                  <button
+                    type="button"
+                    className="flex-1 min-w-[8rem] py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
+                    onClick={() => { setImportOpen(false); setImportError(''); setImportResult(null); }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  {importResult.enrich_available !== false && (
+                    <button
+                      type="button"
+                      disabled={enriching}
+                      className="flex-1 min-w-[8rem] py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-sm text-white disabled:opacity-50"
+                      onClick={runEnrichMetrics}
+                    >
+                      {enriching ? 'Enriching\u2026' : 'Enrich metrics'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="flex-1 min-w-[8rem] py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm text-white"
+                    onClick={() => { setImportOpen(false); setImportError(''); setImportResult(null); }}
+                  >
+                    Done
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
