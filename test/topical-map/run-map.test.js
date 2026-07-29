@@ -182,6 +182,7 @@ describe('startMapReadiness', () => {
     assert.equal(t1Write.body.content_type, 'firsthand_review')
     assert.equal(t1Write.body.forcing_inputs.direct_anecdotes.length, 3)
     assert.equal(t1Write.body.forcing_inputs.field_observation_count, '400 callouts since 2019')
+    assert.equal(t1Write.body.status, undefined, 'PATCH must not demote brief status')
 
     // t-2: needed Firecrawl to fill the anecdotes; existing human fields preserved.
     const t2Write = supaFetch.briefWrites.find((w) => w.topicId === 't-2')
@@ -189,12 +190,14 @@ describe('startMapReadiness', () => {
     assert.equal(t2Write.body.sullivan_ok, true)
     assert.equal(t2Write.body.forcing_inputs.direct_anecdotes.length, 3)
     assert.equal(t2Write.body.forcing_inputs.recurring_pattern, 'Same fake KYC delay tactic every time')
+    assert.equal(t2Write.body.status, undefined)
 
     // t-3: nothing anywhere -> still missing, never invented, new row created.
     const t3Write = supaFetch.briefWrites.find((w) => w.topicId === 't-3')
     assert.equal(t3Write.method, 'POST')
     assert.equal(t3Write.body.sullivan_ok, false)
     assert.deepEqual(t3Write.body.forcing_inputs, {})
+    assert.equal(t3Write.body.status, 'draft')
 
     // Map-level readiness summary persisted to topical_maps.stats.readiness.
     const stats = supaFetch.savedStats.current
