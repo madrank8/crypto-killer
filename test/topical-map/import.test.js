@@ -151,3 +151,45 @@ describe('field-map section vs page_role', () => {
     assert.equal(leaf.section, 'core')
   })
 })
+
+describe('persist slug uniqueness', () => {
+  const {
+    allocateUniqueSlug,
+    assignSlugsAgainstUsed,
+  } = require('../../lib/topical-map/import/persist')
+
+  it('suffixes when slug already exists globally', () => {
+    const used = new Set(['biggest-crypto-scammers'])
+    assert.equal(allocateUniqueSlug('biggest-crypto-scammers', used), 'biggest-crypto-scammers-2')
+    assert.equal(allocateUniqueSlug('biggest-crypto-scammers', used), 'biggest-crypto-scammers-3')
+  })
+
+  it('rewrites internal_links_to when a linked slug is remapped', () => {
+    const used = new Set(['biggest-crypto-scammers'])
+    const structure = {
+      pillars: [
+        {
+          section: 'core',
+          pillar: {
+            title: 'Hub',
+            slug: 'hub',
+            internal_links_to: ['biggest-crypto-scammers'],
+          },
+          clusters: [
+            {
+              title: 'Biggest Crypto Scammers',
+              slug: 'biggest-crypto-scammers',
+              internal_links_to: [],
+              supporting: [],
+            },
+          ],
+        },
+      ],
+    }
+    assignSlugsAgainstUsed(structure, used)
+    assert.equal(structure.pillars[0].clusters[0].slug, 'biggest-crypto-scammers-2')
+    assert.deepEqual(structure.pillars[0].pillar.internal_links_to, [
+      'biggest-crypto-scammers-2',
+    ])
+  })
+})
