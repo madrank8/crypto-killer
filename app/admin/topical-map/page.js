@@ -2434,7 +2434,7 @@ export default function TopicalMapPage() {
 
             {importResult?.readiness?.started && (
               <p className="text-xs text-emerald-400/80 mt-2">
-                Evidence readiness check is running in the background. Per-topic badges will update when it finishes.
+                Evidence readiness check started in the background. Reload the map or click Re-run readiness to refresh per-topic badges.
               </p>
             )}
 

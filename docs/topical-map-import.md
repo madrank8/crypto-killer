@@ -48,7 +48,7 @@ These checks run **before any database write**. If any fail, nothing is persiste
 
 **Persist verification** (`lib/topical-map/import/persist.js`):
 - Post-insert topic count does not match expected count: the map and all topics are
-  deleted, and the import returns an error
+  deleted, and the import returns **HTTP 500** (not a structured 422 row table)
 
 ### Warn-only (import succeeds with warnings)
 
@@ -56,8 +56,11 @@ These checks run **before any database write**. If any fail, nothing is persiste
 - Consolidator structural warnings (e.g. cluster with zero supporting pages)
 - Parse-level warnings from the sheet parser
 
-When an import fails with 422, the admin UI shows a scrollable table of every failing row,
-its row number, title, and which columns are missing.
+When an import fails with **422**, the admin UI shows:
+- **Validation errors**: a scrollable table (row number, title, missing columns)
+- **Coverage errors**: a bulleted list of messages, plus truncated missing titles when present
+
+Persist/cleanup failures surface as a generic error toast (500), not the 422 table.
 
 ---
 
