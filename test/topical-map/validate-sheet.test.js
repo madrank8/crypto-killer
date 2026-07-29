@@ -48,6 +48,55 @@ describe('validateImportedPages', () => {
     assert.equal(result.errors.length, 0)
   })
 
+  it('fails when Page Title is blank on a page row', () => {
+    const result = validateImportedPages([
+      {
+        title: '',
+        url_path: '/wiki/test/',
+        section: 'core',
+        cluster_raw: '1. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': '',
+          'Suggested URL': '/wiki/test/',
+          Section: 'CORE',
+          Cluster: '1. Wiki',
+          'Primary Query Cluster': 'test keyword',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '/crypto-scams/',
+        },
+      },
+    ])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Page Title (Title Tag Style)'))
+  })
+
+  it('does not require Internal Links for cluster/pillar shell rows', () => {
+    const result = validateImportedPages([
+      {
+        title: 'Scam Type Wiki',
+        topic_type: 'cluster',
+        url_path: '/wiki/',
+        section: 'core',
+        cluster_raw: '2. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': 'Scam Type Wiki',
+          'Suggested URL': '/wiki/',
+          Section: 'CORE',
+          Cluster: '2. Wiki',
+          'Primary Query Cluster': 'scam types',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '',
+        },
+      },
+    ])
+    assert.equal(result.ok, true)
+    assert.equal(result.errors.length, 0)
+  })
+
   it('warns when Notes / Angle blank but does not fail', () => {
     const result = validateImportedPages([
       {
