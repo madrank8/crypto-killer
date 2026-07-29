@@ -3,13 +3,25 @@
 How to produce a content brief in the admin, what every bracketed marker means, and
 which guardrails will refuse you (and why).
 
-Port of the `content-brief-generator` v1.4 skill. The brief is the handoff artifact
-between the topical map and the writing pipeline:
+Port of the `content-brief-generator` **v1.4** skill (Plan 6). The brief is the
+handoff artifact between the topical map and the writing pipeline:
 
 ```
 topical-map-creation  →  CONTENT BRIEF  →  seo-blog-generator
    (topics + SERP)        (this doc)         (the article)
 ```
+
+**Next (not shipped yet):** [Plan 7 — skill v1.5 port](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md)
+gates **Generate Outline** on a Sullivan-ok brief, adds on-demand SERP capture for
+imported topics with empty PAA/SERP, and adds per-section `ple_unit`
+(Pixel/Letter/Byte). Until Plan 7 lands, the content editor outline path can still
+run without a brief — use the topical-map clipboard panel for the real 12-section
+brief before writing pillars.
+
+**Name collision:** `topics.content_type` (`pillar_page`, `guide`, …) is the map /
+page-format field. Sullivan `content_type` on `content_briefs` is the SC-098
+non-commodity path (`case_study`, `original_data_study`, …). Do not treat
+`pillar_page` as a Sullivan value.
 
 ---
 
@@ -172,8 +184,10 @@ silently destroyed.
 
 Canonical spec: `~/.claude/skills/content-brief-generator/` —
 `references/brief-template.md` (the 12 sections and exact field names, which
-`seo-blog-generator` parses) and `SKILL.md` (honesty rules, Step 1.6 gate).
+`seo-blog-generator` parses) and `SKILL.md` (honesty rules, Step 1.6 gate;
+v1.5 adds Step 1.5 SERP intel + `ple_unit`).
 
-> Not in scope for this port: the SERP-intel / consensus-map chain the skill runs to
-> populate sections 6/7/10/11. We reuse SERP data the topical map already measured;
-> genuine gaps stay `[NO DATA]`.
+> Plan 6 scope: no live SERP-intel / consensus-map chain — reuse map-measured SERP;
+> genuine gaps stay `[NO DATA]`. **Plan 7** adds on-demand topic SERP capture +
+> outline gating + `ple_unit` — see
+> [`docs/superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md`](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md).

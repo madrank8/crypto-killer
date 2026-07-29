@@ -1,5 +1,9 @@
 # Plan 6 — Full 12-section Content Brief (content-brief-generator v1.4 port)
 
+**Status:** shipped (v1.4 port). Follow-on: [Plan 7](./2026-07-29-plan7-content-brief-v15-port.md)
+(skill v1.5 — outline gate, on-demand SERP, `ple_unit`). Plan 6 decision #2
+(map-SERP-only, no new API spend) is **superseded for empty-SERP topics** by Plan 7.
+
 **Branch:** `design/plan6-full-content-brief` (off `main`)
 **Spec:** `~/.claude/skills/content-brief-generator/` — `references/brief-template.md`
 (canonical 12-section YAML), SKILL.md HONESTY RULES + Step 1.6 Sullivan Gate.
