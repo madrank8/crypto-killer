@@ -97,6 +97,105 @@ describe('validateImportedPages', () => {
     assert.equal(result.errors.length, 0)
   })
 
+  it('fails when sheet Page Title blank even if page.title is derived', () => {
+    const result = validateImportedPages([
+      {
+        title: 'Derived Title',
+        url_path: '/wiki/derived/',
+        section: 'core',
+        cluster_raw: '1. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': '',
+          'Suggested URL': '/wiki/derived/',
+          Section: 'CORE',
+          Cluster: '1. Wiki',
+          'Primary Query Cluster': 'derived keyword',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '/crypto-scams/',
+        },
+      },
+    ])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Page Title (Title Tag Style)'))
+    assert.equal(result.errors[0].title, 'Derived Title')
+  })
+
+  it('fails when sheet Suggested URL blank even if page.url_path is derived', () => {
+    const result = validateImportedPages([
+      {
+        title: 'Has Title',
+        url_path: '/wiki/derived-url/',
+        section: 'core',
+        cluster_raw: '1. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': 'Has Title',
+          'Suggested URL': '',
+          Section: 'CORE',
+          Cluster: '1. Wiki',
+          'Primary Query Cluster': 'keyword',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '/crypto-scams/',
+        },
+      },
+    ])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Suggested URL'))
+  })
+
+  it('does not require Internal Links for pillar hub rows', () => {
+    const result = validateImportedPages([
+      {
+        title: 'Crypto Scams Hub',
+        url_path: '/crypto-scams/',
+        cluster_number: 1,
+        section: 'core',
+        cluster_raw: '1. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': 'Crypto Scams Hub',
+          'Suggested URL': '/crypto-scams/',
+          Section: 'CORE',
+          Cluster: '1. Wiki',
+          'Primary Query Cluster': 'crypto scams',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '',
+        },
+      },
+    ])
+    assert.equal(result.ok, true)
+    assert.equal(result.errors.length, 0)
+  })
+
+  it('requires Internal Links for explicit supporting rows', () => {
+    const result = validateImportedPages([
+      {
+        title: 'Supporting Article',
+        topic_type: 'supporting',
+        url_path: '/wiki/supporting/',
+        section: 'core',
+        cluster_raw: '1. Wiki',
+        rolling_placeholder: false,
+        _sheet: {
+          'Page Title (Title Tag Style)': 'Supporting Article',
+          'Suggested URL': '/wiki/supporting/',
+          Section: 'CORE',
+          Cluster: '1. Wiki',
+          'Primary Query Cluster': 'supporting keyword',
+          'Search Intent': 'Informational',
+          Phase: '1',
+          'Internal Links To': '',
+        },
+      },
+    ])
+    assert.equal(result.ok, false)
+    assert.ok(result.errors[0].missing_columns.includes('Internal Links To'))
+  })
+
   it('warns when Notes / Angle blank but does not fail', () => {
     const result = validateImportedPages([
       {
@@ -111,6 +210,10 @@ describe('validateImportedPages', () => {
         rolling_placeholder: false,
         notes: null,
         _sheet: {
+          'Page Title (Title Tag Style)': 'Checker',
+          'Suggested URL': '/check/',
+          Section: 'CORE',
+          Cluster: '4. Verification',
           'Primary Query Cluster': 'crypto scam checker',
           'Search Intent': 'Transactional',
           Phase: '1',
