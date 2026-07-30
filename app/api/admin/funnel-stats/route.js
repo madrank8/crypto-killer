@@ -28,9 +28,9 @@ export async function GET(request) {
       supabaseRequest('/creatives?select=id&limit=1&offset=0', {
         headers: { Prefer: 'count=exact' },
       }),
-      // 3. Last completed scrape
+      // 3. Last finished scrape (completed or completed_with_errors)
       supabaseRequest(
-        '/sync_runs?status=eq.completed&order=finished_at.desc&limit=1&select=id,started_at,finished_at,creatives_synced,brands_updated,total_api,new_creatives'
+        '/sync_runs?status=in.(completed,completed_with_errors)&order=finished_at.desc&limit=1&select=id,started_at,finished_at,creatives_synced,brands_updated,total_api,new_creatives,status,error_message'
       ),
       // 4. Last 10 scrapes for history sparkline
       supabaseRequest(

@@ -438,18 +438,83 @@ function ContentOpsTab({ token }) {
 
         {/* Scraper health */}
         <div className="bg-dark-card border border-gray-800 rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-3">Scraper runs (last 20)</h3>
-          <div className="space-y-1.5">
-            {(data.scraper || []).map((r, i) => (
-              <div key={i} className="flex justify-between items-center text-sm">
-                <span className="text-gray-400">{new Date(r.started_at).toLocaleDateString()} <span className="text-gray-600 text-xs">{r.trigger_type}</span></span>
-                <span className="flex items-center gap-3">
-                  <span className="text-gray-500 text-xs tabular-nums">+{fmt(r.new_creatives)} new</span>
-                  <span className={`w-2 h-2 rounded-full ${r.status === 'complete' || r.status === 'completed' || r.status === 'success' ? 'bg-green-500' : r.status === 'running' ? 'bg-blue-500' : 'bg-red-500'}`} title={r.status} />
-                </span>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white">Scraper health</h3>
+            <a href="/admin/scraper" className="text-xs text-gray-500 hover:text-gray-300">Open scraper →</a>
           </div>
+          {(() => {
+            const scraper = Array.isArray(data.scraper) ? { runs: data.scraper, reliability: null } : (data.scraper || { runs: [] });
+            const runs = scraper.runs || [];
+            const rel = scraper.reliability;
+            const statusDot = (status) => {
+              if (status === 'completed') return 'bg-green-500';
+              if (status === 'completed_with_errors') return 'bg-amber-500';
+              if (status === 'running' || status === 'pending') return 'bg-blue-500';
+              return 'bg-red-500';
+            };
+            const fmtDur = (sec) => {
+              if (sec == null) return '—';
+              if (sec < 60) return `${sec}s`;
+              return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+            };
+            return (
+              <>
+                {rel && (
+                  <div className="grid grid-cols-3 gap-2 mb-4 text-xs">
+                    <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-2.5 py-2">
+                      <div className="text-gray-500">Freshness</div>
+                      <div className={`font-medium ${rel.cron_miss ? 'text-red-400' : 'text-green-400'}`}>
+                        {rel.hours_since_last_success == null
+                          ? 'never'
+                          : rel.hours_since_last_success < 1
+                            ? `${Math.round(rel.hours_since_last_success * 60)}m`
+                            : `${Math.round(rel.hours_since_last_success * 10) / 10}h`}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-2.5 py-2">
+                      <div className="text-gray-500">30d warn / fail</div>
+                      <div className="font-medium text-gray-300">
+                        {rel.warning_rate == null ? '—' : `${Math.round(rel.warning_rate * 100)}%`}
+                        {' / '}
+                        {rel.failure_rate == null ? '—' : `${Math.round(rel.failure_rate * 100)}%`}
+                      </div>
+                    </div>
+                    <div className="rounded-lg bg-gray-900/60 border border-gray-800 px-2.5 py-2">
+                      <div className="text-gray-500">Avg duration</div>
+                      <div className="font-medium text-gray-300">{fmtDur(rel.avg_duration_seconds)}</div>
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  {runs.slice(0, 12).map((r, i) => (
+                    <div key={i} className="flex justify-between items-center text-sm">
+                      <span className="text-gray-400">
+                        {new Date(r.started_at).toLocaleDateString()}{' '}
+                        <span className="text-gray-600 text-xs">{r.trigger_type || r.source || ''}</span>
+                      </span>
+                      <span className="flex items-center gap-3">
+                        <span className="text-gray-500 text-xs tabular-nums">{fmtDur(r.durationSec)}</span>
+                        <span className="text-gray-500 text-xs tabular-nums">+{fmt(r.new_creatives)} new</span>
+                        <span className={`w-2 h-2 rounded-full ${statusDot(r.status)}`} title={r.status} />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {(rel?.recent_failures || []).length > 0 && (
+                  <div className="mt-4 pt-3 border-t border-gray-800">
+                    <div className="text-xs text-gray-500 mb-2">Recent failures</div>
+                    <div className="space-y-1.5">
+                      {rel.recent_failures.slice(0, 3).map((f) => (
+                        <div key={f.id} className="text-xs text-red-400/80 truncate" title={f.error_message || ''}>
+                          {f.error_message || 'Failed'}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>

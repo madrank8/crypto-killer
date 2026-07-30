@@ -255,8 +255,11 @@ function ActiveJobPanel({ job, avgDuration }) {
     steps: [], percent: 0, message: '',
   };
   const isFailed = progress.phase === 'failed' || job.status === 'failed';
-  const isDone = progress.phase === 'done' || job.status === 'completed';
-  const hasWarning = isDone && job.error_message;
+  const isDone =
+    progress.phase === 'done' ||
+    job.status === 'completed' ||
+    job.status === 'completed_with_errors';
+  const hasWarning = job.status === 'completed_with_errors' || (isDone && !!job.error_message);
   const currentPhaseIdx = isFailed
     ? SCRAPE_PHASES.length - 1
     : Math.max(0, SCRAPE_PHASES.findIndex(p => p.id === progress.phase));
@@ -574,9 +577,9 @@ function ScrapeControl({ token, spyowlConnected }) {
   const activeJob = history?.active_job;
   const hasRuns = history?.runs?.length > 0;
 
-  // Show the most recent completed/failed job as a "just finished" panel for context
+  // Show the most recent finished job as a "just finished" panel for context
   const justFinished = !activeJob && hasRuns && history.runs[0]
-    && (history.runs[0].status === 'completed' || history.runs[0].status === 'failed')
+    && ['completed', 'completed_with_errors', 'failed'].includes(history.runs[0].status)
     && history.runs[0].finished_at
     && (Date.now() - new Date(history.runs[0].finished_at).getTime() < 120000) // within last 2 min
     ? history.runs[0]
@@ -586,6 +589,7 @@ function ScrapeControl({ token, spyowlConnected }) {
     pending: 'text-yellow-400 bg-yellow-500/10',
     running: 'text-blue-400 bg-blue-500/10',
     completed: 'text-green-400 bg-green-500/10',
+    completed_with_errors: 'text-amber-400 bg-amber-500/10',
     failed: 'text-red-400 bg-red-500/10',
   };
 
@@ -593,6 +597,7 @@ function ScrapeControl({ token, spyowlConnected }) {
     pending: '⏳',
     running: '⚡',
     completed: '✓',
+    completed_with_errors: '!',
     failed: '✗',
   };
 
@@ -605,6 +610,7 @@ function ScrapeControl({ token, spyowlConnected }) {
   }
 
   return (
+    <>
     <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl overflow-hidden">
       <div className="px-5 pt-5 pb-4">
         <div className="flex items-center justify-between mb-3">
@@ -700,18 +706,18 @@ function ScrapeControl({ token, spyowlConnected }) {
                   <span className="text-gray-500">
                     {last.started_at ? new Date(last.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
-                  {last.status === 'completed' && (
+                  {(last.status === 'completed' || last.status === 'completed_with_errors') && (
                     <>
                       <span className="text-gray-400">
-                        {last.new_brands || 0} new brands • {last.new_creatives || 0} new creatives
+                        {last.new_brands || 0} new brands • {last.new_creatives || 0} new • {last.updated_creatives || 0} updated
                       </span>
                       <span className="text-gray-600">
                         {formatDuration(last.started_at, last.finished_at)}
                       </span>
                     </>
                   )}
-                  {last.status === 'failed' && last.error_message && (
-                    <span className="text-red-400/70 text-xs truncate max-w-xs">{last.error_message}</span>
+                  {(last.status === 'failed' || last.status === 'completed_with_errors') && last.error_message && (
+                    <span className={`${last.status === 'failed' ? 'text-red-400/70' : 'text-amber-400/70'} text-xs truncate max-w-xs`}>{last.error_message}</span>
                   )}
                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 capitalize">{last.trigger_type || 'manual'}</span>
                 </>
@@ -734,6 +740,7 @@ function ScrapeControl({ token, spyowlConnected }) {
                   <th className="text-right px-3 py-2">Duration</th>
                   <th className="text-right px-3 py-2">New Brands</th>
                   <th className="text-right px-3 py-2">New Creatives</th>
+                  <th className="text-right px-3 py-2">Updated</th>
                   <th className="text-right px-3 py-2">Total Synced</th>
                   <th className="text-right px-3 py-2">API Calls</th>
                   <th className="text-left px-5 py-2">Details</th>
@@ -743,8 +750,8 @@ function ScrapeControl({ token, spyowlConnected }) {
                 {history.runs.map((run) => (
                   <tr key={run.id} className="border-b border-gray-800/30 hover:bg-white/[0.02] transition">
                     <td className="px-5 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[run.status]}`}>
-                        {statusIcons[run.status]} {run.status}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[run.status] || 'text-gray-400 bg-gray-500/10'}`}>
+                        {statusIcons[run.status] || '?'} {run.status}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -758,10 +765,11 @@ function ScrapeControl({ token, spyowlConnected }) {
                     </td>
                     <td className="text-right px-3 py-3 text-green-400 font-medium">{run.new_brands || 0}</td>
                     <td className="text-right px-3 py-3 text-blue-400 font-medium">{run.new_creatives || 0}</td>
+                    <td className="text-right px-3 py-3 text-gray-400">{run.updated_creatives || 0}</td>
                     <td className="text-right px-3 py-3 text-gray-400">{run.creatives_synced || 0}</td>
                     <td className="text-right px-3 py-3 text-gray-500">{run.total_api || 0}</td>
                     <td className="px-5 py-3 text-xs text-gray-500 max-w-[200px] truncate">
-                      {run.geo_filter || (run.error_message ? <span className="text-red-400/70">{run.error_message}</span> : '—')}
+                      {run.geo_filter || (run.error_message ? <span className={run.status === 'completed_with_errors' ? 'text-amber-400/70' : 'text-red-400/70'}>{run.error_message}</span> : '—')}
                     </td>
                   </tr>
                 ))}
@@ -772,12 +780,189 @@ function ScrapeControl({ token, spyowlConnected }) {
             <div className="px-5 py-3 border-t border-gray-800/40 flex items-center gap-6 text-xs text-gray-500">
               <span>Total runs: {history.summary.total_runs}</span>
               <span>Completed: {history.summary.completed}</span>
+              {(history.summary.completed_with_errors || 0) > 0 && (
+                <span className="text-amber-400/80">With errors: {history.summary.completed_with_errors}</span>
+              )}
               <span>Failed: {history.summary.failed}</span>
               {history.summary.avg_duration_seconds > 0 && (
                 <span>Avg duration: {formatDuration(0, history.summary.avg_duration_seconds * 1000)}</span>
               )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+    {history?.reliability && (
+      <div className="mt-4">
+        <ReliabilityPanel
+          reliability={history.reliability}
+          token={token}
+          onResumed={(data) => {
+            if (data?.success) {
+              setTriggerResult({ success: true, message: data.message || 'Resume scrape initiated' });
+              fetchHistory();
+            } else {
+              setTriggerResult({ error: data?.error || data?.message || 'Resume failed' });
+            }
+          }}
+        />
+      </div>
+    )}
+    </>
+  );
+}
+
+/* ─── Reliability panel (from sync_runs / history.reliability) ─── */
+function formatPct(rate) {
+  if (rate == null || !Number.isFinite(rate)) return '—';
+  return `${Math.round(rate * 100)}%`;
+}
+
+function formatHoursAgo(hours) {
+  if (hours == null) return 'never';
+  if (hours < 1) return `${Math.round(hours * 60)}m ago`;
+  if (hours < 48) return `${Math.round(hours * 10) / 10}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function ReliabilityPanel({ reliability, token, onResumed }) {
+  const [resuming, setResuming] = useState(false);
+  if (!reliability) return null;
+
+  const last = reliability.last_finished;
+
+  const handleResume = async () => {
+    if (!token || resuming) return;
+    setResuming(true);
+    try {
+      const res = await fetch('/api/admin/scraper/trigger', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (onResumed) onResumed(data);
+    } catch (e) {
+      if (onResumed) onResumed({ error: e.message });
+    }
+    setResuming(false);
+  };
+
+  const avgThroughput =
+    reliability.throughput?.length > 0
+      ? Math.round(
+          (reliability.throughput.reduce((s, t) => s + (t.creatives_per_min || 0), 0) /
+            reliability.throughput.length) *
+            10
+        ) / 10
+      : null;
+
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+      <SectionHeader
+        title="Reliability"
+        sub={`${reliability.window_days || 30}d scrape health from sync_runs`}
+      />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <StatCard
+          label="Last finished"
+          value={last ? last.status.replace(/_/g, ' ') : 'none'}
+          sub={last?.finished_at ? new Date(last.finished_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined}
+          color={last?.status === 'completed' ? 'green' : last?.status === 'completed_with_errors' ? 'amber' : last?.status === 'failed' ? 'red' : 'gray'}
+        />
+        <StatCard
+          label="Freshness"
+          value={formatHoursAgo(reliability.hours_since_last_success)}
+          sub={reliability.cron_miss ? 'cron miss (>25h)' : 'within cron window'}
+          color={reliability.cron_miss ? 'red' : 'green'}
+        />
+        <StatCard
+          label="30d completion"
+          value={formatPct(reliability.completion_rate)}
+          sub={`${formatPct(reliability.warning_rate)} warn • ${formatPct(reliability.failure_rate)} fail`}
+          color={reliability.failure_rate > 0.2 ? 'red' : reliability.warning_rate > 0.2 ? 'amber' : 'green'}
+        />
+        <StatCard
+          label="Avg duration"
+          value={
+            reliability.avg_duration_seconds > 0
+              ? reliability.avg_duration_seconds < 60
+                ? `${reliability.avg_duration_seconds}s`
+                : `${Math.floor(reliability.avg_duration_seconds / 60)}m`
+              : '—'
+          }
+          sub={avgThroughput != null ? `~${avgThroughput} new creatives/min` : undefined}
+          color="blue"
+        />
+      </div>
+
+      {reliability.cron_miss && (
+        <div className="mb-4 text-sm rounded-lg px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-300">
+          No finished scrape in the last {reliability.cron_miss_hours || 25}h. Cron expects midnight UTC
+          {reliability.next_scheduled_at
+            ? ` (next: ${new Date(reliability.next_scheduled_at).toUTCString()})`
+            : ''}.
+        </div>
+      )}
+
+      {reliability.duration_trend?.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Recent duration</div>
+          <div className="flex items-end gap-1 h-16">
+            {(() => {
+              const max = Math.max(...reliability.duration_trend.map((d) => d.duration_sec || 0), 1);
+              return [...reliability.duration_trend].reverse().map((d) => {
+                const pct = ((d.duration_sec || 0) / max) * 100;
+                const color =
+                  d.status === 'completed' ? '#22c55e'
+                  : d.status === 'completed_with_errors' ? '#f59e0b'
+                  : '#ef4444';
+                return (
+                  <div
+                    key={d.id || d.finished_at}
+                    className="flex-1 rounded-t min-h-[2px]"
+                    style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: 0.8 }}
+                    title={`${d.status}: ${d.duration_sec || 0}s, +${d.new_creatives || 0} new`}
+                  />
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+
+      {(reliability.recent_failures || []).length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Recent failures</div>
+          <div className="space-y-2">
+            {reliability.recent_failures.map((f) => (
+              <div key={f.id} className="flex items-start justify-between gap-3 text-sm border border-gray-800/60 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-red-300/90 truncate" title={f.error_message || ''}>
+                    {f.error_message || 'Failed (no message)'}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">
+                    {f.started_at ? new Date(f.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {f.duration_sec != null ? ` • ${f.duration_sec}s` : ''}
+                    {f.next_skip != null ? ` • resume @ ${Number(f.next_skip).toLocaleString()}` : ''}
+                  </div>
+                </div>
+                {f.next_skip != null && (
+                  <button
+                    type="button"
+                    onClick={handleResume}
+                    disabled={resuming}
+                    className="shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                  >
+                    {resuming ? '…' : 'Resume'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

@@ -1,5 +1,6 @@
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { buildReliabilityMetrics } from '@/lib/sync-runs-status'
 
 export const maxDuration = 30
 
@@ -45,7 +46,7 @@ export async function GET(request) {
         { useServiceRole: true }
       ),
       supabaseRequest(
-        '/sync_runs?select=started_at,finished_at,status,new_creatives,creatives_synced,new_brands,trigger_type&order=started_at.desc&limit=20',
+        '/sync_runs?select=started_at,finished_at,status,new_creatives,creatives_synced,updated_creatives,new_brands,brands_updated,total_api,trigger_type,error_message,source&order=started_at.desc&limit=50',
         { useServiceRole: true }
       ),
       supabaseRequest(
@@ -136,18 +137,27 @@ export async function GET(request) {
         items: (regenQueue || []).filter((q) => !['published', 'skipped'].includes(q.status)).slice(0, 15),
         recentPublished: (regenQueue || []).filter((q) => q.status === 'published').slice(0, 5),
       },
-      scraper: (syncRuns || []).map((r) => ({
-        started_at: r.started_at,
-        status: r.status,
-        new_creatives: r.new_creatives,
-        creatives_synced: r.creatives_synced,
-        new_brands: r.new_brands,
-        trigger_type: r.trigger_type,
-        durationSec:
-          r.finished_at && r.started_at
-            ? Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000)
-            : null,
-      })),
+      scraper: {
+        runs: (syncRuns || []).slice(0, 20).map((r) => ({
+          started_at: r.started_at,
+          finished_at: r.finished_at,
+          status: r.status,
+          new_creatives: r.new_creatives,
+          updated_creatives: r.updated_creatives,
+          creatives_synced: r.creatives_synced,
+          new_brands: r.new_brands,
+          brands_updated: r.brands_updated,
+          total_api: r.total_api,
+          trigger_type: r.trigger_type,
+          source: r.source,
+          error_message: r.error_message,
+          durationSec:
+            r.finished_at && r.started_at
+              ? Math.round((new Date(r.finished_at) - new Date(r.started_at)) / 1000)
+              : null,
+        })),
+        reliability: buildReliabilityMetrics(syncRuns || [], { windowDays: 30, cronMissHours: 25 }),
+      },
     })
   } catch (err) {
     console.error('[admin/analytics/content-ops]', err)

@@ -199,6 +199,7 @@ async function runChunk(jobId, cookie, startSkip) {
         updated_creatives: updated,
         brands_updated:    brandsUpdated,
         new_brands:        brandsInserted,
+        total_api:         result.spyowlTotal || 0,
         error_message:     brandError,
       },
       {
