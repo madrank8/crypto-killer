@@ -65,7 +65,7 @@ export async function GET(request) {
       console.log(`[cron] Resuming from job ${resumedFrom} at skip=${startSkip}`);
     }
 
-    const job = await createJob('scheduled', null, startSkip);
+    const job = await createJob('scheduled', null, startSkip, 'cron');
 
     // ─── SpyOwl auth ───
     const cookie = await getSpyOwlCookie();
@@ -183,6 +183,7 @@ async function runFirstChunk(jobId, cookie, startSkip) {
         updated_creatives: updated,
         brands_updated:    brandsUpdated,
         new_brands:        brandsInserted,
+        total_api:         result.spyowlTotal || 0,
         error_message:     brandError,
       },
       {

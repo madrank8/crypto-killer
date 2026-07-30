@@ -37,7 +37,7 @@ export async function POST(request) {
       return Response.json({ error: 'job_id required' }, { status: 400 });
     }
 
-    const allowedStatuses = ['running', 'completed', 'failed'];
+    const allowedStatuses = ['running', 'completed', 'completed_with_errors', 'failed'];
     if (status && !allowedStatuses.includes(status)) {
       return Response.json({
         error: `Invalid status. Allowed: ${allowedStatuses.join(', ')}`,
@@ -53,7 +53,7 @@ export async function POST(request) {
     if (typeof total_api === 'number') update.total_api = total_api;
     if (error_message) update.error_message = error_message;
     if (body.progress && typeof body.progress === 'object') update.progress = body.progress;
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'completed' || status === 'completed_with_errors' || status === 'failed') {
       update.finished_at = new Date().toISOString();
     }
 

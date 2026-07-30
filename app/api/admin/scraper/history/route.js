@@ -2,6 +2,11 @@ import { waitUntil } from '@vercel/functions';
 import { supaFetch } from '@/lib/supabase';
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth';
 import { cleanupStaleJobs } from '@/lib/scraper';
+import {
+  isActiveStatus,
+  summarizeSyncRuns,
+  buildReliabilityMetrics,
+} from '@/lib/sync-runs-status';
 
 // Default Vercel function timeout is 10s. Under DB contention (active
 // scraper writing to sync_runs while this endpoint also queries it),
@@ -13,7 +18,7 @@ export const maxDuration = 60;
 
 /**
  * GET /api/admin/scraper/history
- * Returns recent scrape runs with stats
+ * Returns recent scrape runs with stats + reliability metrics.
  */
 export async function GET(request) {
   try {
@@ -29,44 +34,31 @@ export async function GET(request) {
     const url = new URL(request.url);
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '25'), 100);
     const offset = parseInt(url.searchParams.get('offset') || '0');
+    // Reliability window needs more history than the default table page.
+    const reliabilityLimit = Math.min(Math.max(limit, 50), 100);
 
     const result = await supaFetch(
-      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,new_brands,total_api,error_message,source,progress&order=started_at.desc&limit=${limit}&offset=${offset}`,
+      `/sync_runs?select=id,status,trigger_type,geo_filter,started_at,finished_at,creatives_synced,brands_updated,new_creatives,updated_creatives,new_brands,total_api,error_message,source,progress&order=started_at.desc&limit=${reliabilityLimit}&offset=${offset}`,
       { headers: { Prefer: 'count=exact' } }
     );
 
-    const runs = result?.data || result || [];
-    const total = result?.count || runs.length;
+    const allFetched = result?.data || result || [];
+    const total = result?.count || allFetched.length;
+    const runs = allFetched.slice(0, limit);
 
-    // Check if there's currently a running job
-    const activeJobs = runs.filter(r => r.status === 'running' || r.status === 'pending');
+    const activeJobs = allFetched.filter((r) => isActiveStatus(r.status));
+    const summary = summarizeSyncRuns(allFetched);
+    summary.total_runs = total || summary.total_runs;
 
-    // Calculate summary stats
-    const completedRuns = runs.filter(r => r.status === 'completed');
-    const totalCreativesSynced = completedRuns.reduce((sum, r) => sum + (r.creatives_synced || 0), 0);
-    const totalBrandsUpdated = completedRuns.reduce((sum, r) => sum + (r.brands_updated || 0), 0);
-    const avgDuration = completedRuns.length > 0
-      ? Math.round(completedRuns.reduce((sum, r) => {
-          if (r.started_at && r.finished_at) {
-            return sum + (new Date(r.finished_at) - new Date(r.started_at)) / 1000;
-          }
-          return sum;
-        }, 0) / completedRuns.length)
-      : 0;
+    const reliability = buildReliabilityMetrics(allFetched, { windowDays: 30, cronMissHours: 25 });
 
     return Response.json({
       runs,
       total,
       has_active: activeJobs.length > 0,
       active_job: activeJobs[0] || null,
-      summary: {
-        total_runs: total || 0,
-        completed: completedRuns.length,
-        failed: (runs || []).filter(r => r.status === 'failed').length,
-        total_creatives_synced: totalCreativesSynced,
-        total_brands_updated: totalBrandsUpdated,
-        avg_duration_seconds: avgDuration,
-      },
+      summary,
+      reliability,
     });
   } catch (error) {
     if (error.message.includes('Unauthorized')) {

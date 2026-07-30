@@ -255,8 +255,11 @@ function ActiveJobPanel({ job, avgDuration }) {
     steps: [], percent: 0, message: '',
   };
   const isFailed = progress.phase === 'failed' || job.status === 'failed';
-  const isDone = progress.phase === 'done' || job.status === 'completed';
-  const hasWarning = isDone && job.error_message;
+  const isDone =
+    progress.phase === 'done' ||
+    job.status === 'completed' ||
+    job.status === 'completed_with_errors';
+  const hasWarning = job.status === 'completed_with_errors' || (isDone && !!job.error_message);
   const currentPhaseIdx = isFailed
     ? SCRAPE_PHASES.length - 1
     : Math.max(0, SCRAPE_PHASES.findIndex(p => p.id === progress.phase));
@@ -574,9 +577,9 @@ function ScrapeControl({ token, spyowlConnected }) {
   const activeJob = history?.active_job;
   const hasRuns = history?.runs?.length > 0;
 
-  // Show the most recent completed/failed job as a "just finished" panel for context
+  // Show the most recent finished job as a "just finished" panel for context
   const justFinished = !activeJob && hasRuns && history.runs[0]
-    && (history.runs[0].status === 'completed' || history.runs[0].status === 'failed')
+    && ['completed', 'completed_with_errors', 'failed'].includes(history.runs[0].status)
     && history.runs[0].finished_at
     && (Date.now() - new Date(history.runs[0].finished_at).getTime() < 120000) // within last 2 min
     ? history.runs[0]
@@ -586,6 +589,7 @@ function ScrapeControl({ token, spyowlConnected }) {
     pending: 'text-yellow-400 bg-yellow-500/10',
     running: 'text-blue-400 bg-blue-500/10',
     completed: 'text-green-400 bg-green-500/10',
+    completed_with_errors: 'text-amber-400 bg-amber-500/10',
     failed: 'text-red-400 bg-red-500/10',
   };
 
@@ -593,6 +597,7 @@ function ScrapeControl({ token, spyowlConnected }) {
     pending: '⏳',
     running: '⚡',
     completed: '✓',
+    completed_with_errors: '!',
     failed: '✗',
   };
 
@@ -605,6 +610,7 @@ function ScrapeControl({ token, spyowlConnected }) {
   }
 
   return (
+    <>
     <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl overflow-hidden">
       <div className="px-5 pt-5 pb-4">
         <div className="flex items-center justify-between mb-3">
@@ -700,18 +706,18 @@ function ScrapeControl({ token, spyowlConnected }) {
                   <span className="text-gray-500">
                     {last.started_at ? new Date(last.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
                   </span>
-                  {last.status === 'completed' && (
+                  {(last.status === 'completed' || last.status === 'completed_with_errors') && (
                     <>
                       <span className="text-gray-400">
-                        {last.new_brands || 0} new brands • {last.new_creatives || 0} new creatives
+                        {last.new_brands || 0} new brands • {last.new_creatives || 0} new • {last.updated_creatives || 0} updated
                       </span>
                       <span className="text-gray-600">
                         {formatDuration(last.started_at, last.finished_at)}
                       </span>
                     </>
                   )}
-                  {last.status === 'failed' && last.error_message && (
-                    <span className="text-red-400/70 text-xs truncate max-w-xs">{last.error_message}</span>
+                  {(last.status === 'failed' || last.status === 'completed_with_errors') && last.error_message && (
+                    <span className={`${last.status === 'failed' ? 'text-red-400/70' : 'text-amber-400/70'} text-xs truncate max-w-xs`}>{last.error_message}</span>
                   )}
                   <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-500 capitalize">{last.trigger_type || 'manual'}</span>
                 </>
@@ -734,6 +740,7 @@ function ScrapeControl({ token, spyowlConnected }) {
                   <th className="text-right px-3 py-2">Duration</th>
                   <th className="text-right px-3 py-2">New Brands</th>
                   <th className="text-right px-3 py-2">New Creatives</th>
+                  <th className="text-right px-3 py-2">Updated</th>
                   <th className="text-right px-3 py-2">Total Synced</th>
                   <th className="text-right px-3 py-2">API Calls</th>
                   <th className="text-left px-5 py-2">Details</th>
@@ -743,8 +750,8 @@ function ScrapeControl({ token, spyowlConnected }) {
                 {history.runs.map((run) => (
                   <tr key={run.id} className="border-b border-gray-800/30 hover:bg-white/[0.02] transition">
                     <td className="px-5 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[run.status]}`}>
-                        {statusIcons[run.status]} {run.status}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[run.status] || 'text-gray-400 bg-gray-500/10'}`}>
+                        {statusIcons[run.status] || '?'} {run.status}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -758,10 +765,11 @@ function ScrapeControl({ token, spyowlConnected }) {
                     </td>
                     <td className="text-right px-3 py-3 text-green-400 font-medium">{run.new_brands || 0}</td>
                     <td className="text-right px-3 py-3 text-blue-400 font-medium">{run.new_creatives || 0}</td>
+                    <td className="text-right px-3 py-3 text-gray-400">{run.updated_creatives || 0}</td>
                     <td className="text-right px-3 py-3 text-gray-400">{run.creatives_synced || 0}</td>
                     <td className="text-right px-3 py-3 text-gray-500">{run.total_api || 0}</td>
                     <td className="px-5 py-3 text-xs text-gray-500 max-w-[200px] truncate">
-                      {run.geo_filter || (run.error_message ? <span className="text-red-400/70">{run.error_message}</span> : '—')}
+                      {run.geo_filter || (run.error_message ? <span className={run.status === 'completed_with_errors' ? 'text-amber-400/70' : 'text-red-400/70'}>{run.error_message}</span> : '—')}
                     </td>
                   </tr>
                 ))}
@@ -772,12 +780,189 @@ function ScrapeControl({ token, spyowlConnected }) {
             <div className="px-5 py-3 border-t border-gray-800/40 flex items-center gap-6 text-xs text-gray-500">
               <span>Total runs: {history.summary.total_runs}</span>
               <span>Completed: {history.summary.completed}</span>
+              {(history.summary.completed_with_errors || 0) > 0 && (
+                <span className="text-amber-400/80">With errors: {history.summary.completed_with_errors}</span>
+              )}
               <span>Failed: {history.summary.failed}</span>
               {history.summary.avg_duration_seconds > 0 && (
                 <span>Avg duration: {formatDuration(0, history.summary.avg_duration_seconds * 1000)}</span>
               )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+    {history?.reliability && (
+      <div className="mt-4">
+        <ReliabilityPanel
+          reliability={history.reliability}
+          token={token}
+          onResumed={(data) => {
+            if (data?.success) {
+              setTriggerResult({ success: true, message: data.message || 'Resume scrape initiated' });
+              fetchHistory();
+            } else {
+              setTriggerResult({ error: data?.error || data?.message || 'Resume failed' });
+            }
+          }}
+        />
+      </div>
+    )}
+    </>
+  );
+}
+
+/* ─── Reliability panel (from sync_runs / history.reliability) ─── */
+function formatPct(rate) {
+  if (rate == null || !Number.isFinite(rate)) return '—';
+  return `${Math.round(rate * 100)}%`;
+}
+
+function formatHoursAgo(hours) {
+  if (hours == null) return 'never';
+  if (hours < 1) return `${Math.round(hours * 60)}m ago`;
+  if (hours < 48) return `${Math.round(hours * 10) / 10}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function ReliabilityPanel({ reliability, token, onResumed }) {
+  const [resuming, setResuming] = useState(false);
+  if (!reliability) return null;
+
+  const last = reliability.last_finished;
+
+  const handleResume = async () => {
+    if (!token || resuming) return;
+    setResuming(true);
+    try {
+      const res = await fetch('/api/admin/scraper/trigger', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ resume: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (onResumed) onResumed(data);
+    } catch (e) {
+      if (onResumed) onResumed({ error: e.message });
+    }
+    setResuming(false);
+  };
+
+  const avgThroughput =
+    reliability.throughput?.length > 0
+      ? Math.round(
+          (reliability.throughput.reduce((s, t) => s + (t.creatives_per_min || 0), 0) /
+            reliability.throughput.length) *
+            10
+        ) / 10
+      : null;
+
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+      <SectionHeader
+        title="Reliability"
+        sub={`${reliability.window_days || 30}d scrape health from sync_runs`}
+      />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <StatCard
+          label="Last finished"
+          value={last ? last.status.replace(/_/g, ' ') : 'none'}
+          sub={last?.finished_at ? new Date(last.finished_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined}
+          color={last?.status === 'completed' ? 'green' : last?.status === 'completed_with_errors' ? 'amber' : last?.status === 'failed' ? 'red' : 'gray'}
+        />
+        <StatCard
+          label="Freshness"
+          value={formatHoursAgo(reliability.hours_since_last_success)}
+          sub={reliability.cron_miss ? 'cron miss (>25h)' : 'within cron window'}
+          color={reliability.cron_miss ? 'red' : 'green'}
+        />
+        <StatCard
+          label="30d completion"
+          value={formatPct(reliability.completion_rate)}
+          sub={`${formatPct(reliability.warning_rate)} warn • ${formatPct(reliability.failure_rate)} fail`}
+          color={reliability.failure_rate > 0.2 ? 'red' : reliability.warning_rate > 0.2 ? 'amber' : 'green'}
+        />
+        <StatCard
+          label="Avg duration"
+          value={
+            reliability.avg_duration_seconds > 0
+              ? reliability.avg_duration_seconds < 60
+                ? `${reliability.avg_duration_seconds}s`
+                : `${Math.floor(reliability.avg_duration_seconds / 60)}m`
+              : '—'
+          }
+          sub={avgThroughput != null ? `~${avgThroughput} new creatives/min` : undefined}
+          color="blue"
+        />
+      </div>
+
+      {reliability.cron_miss && (
+        <div className="mb-4 text-sm rounded-lg px-4 py-3 bg-red-500/10 border border-red-500/20 text-red-300">
+          No finished scrape in the last {reliability.cron_miss_hours || 25}h. Cron expects midnight UTC
+          {reliability.next_scheduled_at
+            ? ` (next: ${new Date(reliability.next_scheduled_at).toUTCString()})`
+            : ''}.
+        </div>
+      )}
+
+      {reliability.duration_trend?.length > 0 && (
+        <div className="mb-4">
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Recent duration</div>
+          <div className="flex items-end gap-1 h-16">
+            {(() => {
+              const max = Math.max(...reliability.duration_trend.map((d) => d.duration_sec || 0), 1);
+              return [...reliability.duration_trend].reverse().map((d) => {
+                const pct = ((d.duration_sec || 0) / max) * 100;
+                const color =
+                  d.status === 'completed' ? '#22c55e'
+                  : d.status === 'completed_with_errors' ? '#f59e0b'
+                  : '#ef4444';
+                return (
+                  <div
+                    key={d.id || d.finished_at}
+                    className="flex-1 rounded-t min-h-[2px]"
+                    style={{ height: `${Math.max(pct, 4)}%`, backgroundColor: color, opacity: 0.8 }}
+                    title={`${d.status}: ${d.duration_sec || 0}s, +${d.new_creatives || 0} new`}
+                  />
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
+
+      {(reliability.recent_failures || []).length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Recent failures</div>
+          <div className="space-y-2">
+            {reliability.recent_failures.map((f) => (
+              <div key={f.id} className="flex items-start justify-between gap-3 text-sm border border-gray-800/60 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-red-300/90 truncate" title={f.error_message || ''}>
+                    {f.error_message || 'Failed (no message)'}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-0.5">
+                    {f.started_at ? new Date(f.started_at).toLocaleString('en', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {f.duration_sec != null ? ` • ${f.duration_sec}s` : ''}
+                    {f.next_skip != null ? ` • resume @ ${Number(f.next_skip).toLocaleString()}` : ''}
+                  </div>
+                </div>
+                {f.next_skip != null && (
+                  <button
+                    type="button"
+                    onClick={handleResume}
+                    disabled={resuming}
+                    className="shrink-0 text-xs font-medium px-2.5 py-1 rounded-lg border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 disabled:opacity-50"
+                  >
+                    {resuming ? '…' : 'Resume'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1087,6 +1272,340 @@ function CountriesTab({ token }) {
   );
 }
 
+/* ─── Creative Analytics (SpyOwl live proxy) ─── */
+function AdsTimelineChart({ timeline }) {
+  if (!timeline || timeline.length === 0) {
+    return (
+      <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5 text-gray-600 text-sm text-center py-10">
+        No timeline data for this window
+      </div>
+    );
+  }
+  const max = Math.max(...timeline.map(d => d.totalCreatives || 0), 1);
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+      <SectionHeader title="Ads Over Time" sub="SpyOwl catalog creatives per day" />
+      <div className="flex items-end gap-1 h-32">
+        {timeline.map((d, i) => {
+          const count = d.totalCreatives || 0;
+          const pct = (count / max) * 100;
+          const isLast = i === timeline.length - 1;
+          return (
+            <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: ${count}`}>
+              <span className="text-[10px] text-gray-500">{count > 0 ? count : ''}</span>
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: `${Math.max(pct, 2)}%`,
+                  backgroundColor: isLast ? '#a855f7' : count > 0 ? '#3b82f6' : '#1f2937',
+                  minHeight: '2px',
+                }}
+              />
+              <span className="text-[9px] text-gray-600">
+                {new Date(d.date).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RankingTable({ title, sub, items, nameKey = 'name' }) {
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl overflow-hidden">
+      <div className="px-5 pt-5 pb-3">
+        <SectionHeader title={title} sub={sub} />
+      </div>
+      {!items || items.length === 0 ? (
+        <div className="text-gray-600 text-sm py-6 text-center">No data</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-t border-gray-800/60 text-left text-xs text-gray-500 uppercase tracking-wider">
+                <th className="px-5 py-2 font-medium">#</th>
+                <th className="px-5 py-2 font-medium">Name</th>
+                <th className="px-5 py-2 font-medium text-right">Count</th>
+                <th className="px-5 py-2 font-medium text-right">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row, i) => (
+                <tr key={`${row[nameKey]}-${i}`} className="border-t border-gray-800/40 hover:bg-white/[0.02]">
+                  <td className="px-5 py-2.5 text-gray-500">{i + 1}</td>
+                  <td className="px-5 py-2.5 text-white font-medium">{row[nameKey] || row.code || '—'}</td>
+                  <td className="px-5 py-2.5 text-right text-gray-300">{(row.count || 0).toLocaleString()}</td>
+                  <td className="px-5 py-2.5 text-right text-gray-500">
+                    {row.frequencyPercent != null ? `${Number(row.frequencyPercent).toFixed(1)}%` : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LocalFormatBars({ localFormat }) {
+  if (!localFormat) {
+    return (
+      <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+        <SectionHeader
+          title="Image vs Video Ads"
+          sub="Our scraped creatives (format unavailable this request)"
+        />
+        <p className="text-sm text-gray-500">Could not load format counts from the creatives table.</p>
+      </div>
+    );
+  }
+  const { video = 0, image = 0, unknown = 0, total = 0, videoPercent = 0, imagePercent = 0 } = localFormat;
+  return (
+    <div className="bg-gray-900/50 border border-gray-800/60 rounded-xl p-5">
+      <SectionHeader
+        title="Image vs Video Ads"
+        sub={`From creatives.is_video in our DB (${total.toLocaleString()} in window)`}
+      />
+      <div className="space-y-3 mt-2">
+        <div>
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Image ads</span>
+            <span>{image.toLocaleString()} ({imagePercent.toFixed(1)}%)</span>
+          </div>
+          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.max(imagePercent, image > 0 ? 1 : 0)}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Video ads</span>
+            <span>{video.toLocaleString()} ({videoPercent.toFixed(1)}%)</span>
+          </div>
+          <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full" style={{ width: `${Math.max(videoPercent, video > 0 ? 1 : 0)}%` }} />
+          </div>
+        </div>
+        {unknown > 0 && (
+          <div className="text-xs text-gray-500">
+            Unclassified format: {unknown.toLocaleString()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CreativeAnalyticsTab({ token }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [range, setRange] = useState('7d');
+  const [geo, setGeo] = useState('');
+
+  const fetchAnalytics = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const qs = new URLSearchParams({ range, topLimit: '10' });
+      if (geo) qs.set('geo', geo);
+      const res = await fetch(`/api/admin/scraper/creative-analytics?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) {
+        throw new Error(body.error || `API ${res.status}`);
+      }
+      setData(body);
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    }
+    setLoading(false);
+  }, [token, range, geo]);
+
+  useEffect(() => { fetchAnalytics(); }, [fetchAnalytics]);
+
+  const geos = data?.geos || [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          {['7d', '30d', '90d'].map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRange(r)}
+              className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition ${
+                range === r
+                  ? 'bg-white/10 text-white border-gray-600'
+                  : 'text-gray-500 border-gray-700 hover:text-gray-300'
+              }`}
+            >
+              {r === '7d' ? 'Last 7 Days' : r === '30d' ? 'Last 30 Days' : 'Last 90 Days'}
+            </button>
+          ))}
+          <select
+            value={geo}
+            onChange={(e) => setGeo(e.target.value)}
+            className="text-xs bg-gray-800/60 border border-gray-700/50 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-gray-600"
+          >
+            <option value="">All Geos</option>
+            {geos.map((g) => (
+              <option key={g.code} value={g.code}>{g.code}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          onClick={fetchAnalytics}
+          className="text-xs font-medium text-gray-400 hover:text-white px-3 py-1.5 rounded-lg border border-gray-700 hover:border-gray-600 transition"
+        >
+          Refresh
+        </button>
+      </div>
+
+      {loading && !data && (
+        <div className="flex items-center justify-center py-16">
+          <div className="flex items-center gap-3 text-gray-500">
+            <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
+            Loading SpyOwl creative analytics...
+          </div>
+        </div>
+      )}
+
+      {!loading && error && !data && (
+        <div className="text-center py-12 space-y-3">
+          <p className="text-red-400">{error}</p>
+          <p className="text-xs text-gray-500">
+            If the cookie expired, refresh it under Settings, then retry.
+          </p>
+          <button
+            type="button"
+            onClick={fetchAnalytics}
+            className="text-sm text-gray-400 hover:text-white px-4 py-2 rounded-lg border border-gray-700 transition"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {error && data && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          Refresh failed: {error}
+        </div>
+      )}
+
+      {data && (
+        <>
+          {loading && (
+            <div className="text-xs text-gray-500 flex items-center gap-2">
+              <div className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-pulse" />
+              Updating...
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard label="Total Ads" value={data.kpis?.totalAds ?? 0} color="purple" icon="🖼" />
+            <StatCard label="Unique Offers" value={data.kpis?.uniqueOffers ?? 0} color="blue" icon="🎯" />
+            <StatCard label="Unique Celebrities" value={data.kpis?.uniqueCelebrities ?? 0} color="amber" />
+            <StatCard label="Unique Geos" value={data.kpis?.uniqueGeos ?? 0} color="green" icon="🌍" />
+          </div>
+
+          {/* Image / Video from our scraped creatives.is_video — SpyOwl analytics has no format field */}
+          <div>
+            <SectionHeader
+              title="Ad Format"
+              sub="Image vs video from our scraped creatives (same date window / geo filter)"
+            />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard
+                label="Image Ads"
+                value={data.kpis?.imageAds ?? data.localFormat?.image ?? '—'}
+                sub={
+                  data.kpis?.imagePercent != null
+                    ? `${Number(data.kpis.imagePercent).toFixed(1)}% of scraped`
+                    : data.localFormat
+                      ? undefined
+                      : 'DB format unavailable'
+                }
+                color="blue"
+              />
+              <StatCard
+                label="Video Ads"
+                value={data.kpis?.videoAds ?? data.localFormat?.video ?? '—'}
+                sub={
+                  data.kpis?.videoPercent != null
+                    ? `${Number(data.kpis.videoPercent).toFixed(1)}% of scraped`
+                    : data.localFormat
+                      ? undefined
+                      : 'DB format unavailable'
+                }
+                color="purple"
+              />
+              <StatCard
+                label="Scraped in Window"
+                value={data.kpis?.formatTotal ?? data.localFormat?.total ?? '—'}
+                sub="Our DB (may lag SpyOwl total)"
+                color="gray"
+              />
+              <StatCard
+                label="SpyOwl Catalog"
+                value={data.kpis?.totalAds ?? 0}
+                sub="Upstream total for window"
+                color="gray"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard label="Catalog" value={data.kpis?.catalog ?? 0} color="gray" />
+            <StatCard label="Non-Catalog" value={data.kpis?.nonCatalog ?? 0} color="gray" />
+            <StatCard label="Land" value={data.kpis?.land ?? 0} color="gray" />
+            <StatCard label="Land + Offer" value={data.kpis?.landAndOffer ?? 0} color="gray" />
+          </div>
+
+          {Array.isArray(data.statuses) && data.statuses.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {data.statuses.map((s) => (
+                <StatCard
+                  key={s.status}
+                  label={s.status}
+                  value={s.count ?? 0}
+                  sub={s.frequencyPercent != null ? `${Number(s.frequencyPercent).toFixed(1)}%` : undefined}
+                  color="gray"
+                />
+              ))}
+            </div>
+          )}
+
+          <AdsTimelineChart timeline={data.timeline} />
+
+          <LocalFormatBars localFormat={data.localFormat} />
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <RankingTable title="Top Offers" sub="Brands by creative count" items={data.topOffers} />
+            <RankingTable title="Top Celebrities" sub="Most frequent celebrity names" items={data.topCelebrities} />
+            <RankingTable
+              title="Top Geos"
+              sub="Countries by creative count"
+              items={(data.topGeos || []).map((g) => ({
+                name: g.code || g.geoId,
+                code: g.code,
+                count: g.count,
+                frequencyPercent: g.frequencyPercent,
+              }))}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════
    MAIN PAGE WITH TABS
    ═══════════════════════════════════════════════════════════════ */
@@ -1119,6 +1638,7 @@ export default function ScraperPage() {
   const tabs = [
     { id: 'overview', label: 'Overview' },
     { id: 'countries', label: 'Countries' },
+    { id: 'creative-analytics', label: 'Creative Analytics' },
   ];
 
   if (loading) {
@@ -1239,6 +1759,10 @@ export default function ScraperPage() {
 
       {activeTab === 'countries' && (
         <CountriesTab token={token} />
+      )}
+
+      {activeTab === 'creative-analytics' && (
+        <CreativeAnalyticsTab token={token} />
       )}
     </div>
   );
