@@ -1,6 +1,6 @@
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { getSpyOwlCookie, fetchEnabledGeoRegions, fetchCreativeAnalytics, isAuthFailureMessage } from '@/lib/scraper'
-import { supaFetch } from '@/lib/supabase'
+import { supabaseCount } from '@/lib/supabase'
 import {
   resolveAnalyticsPeriod,
   clampTopLimit,
@@ -144,26 +144,25 @@ export async function GET(request) {
  * Count creatives in our DB for the window by is_video (image vs video ads).
  * Uses first_seen_at (SpyOwl createdAt) when present.
  * Soft-fails to null so SpyOwl KPIs still return if Supabase is slow.
+ *
+ * IMPORTANT: use supabaseCount (Content-Range), not supaFetch HEAD.
+ * supabaseRequest/supaFetch only returns a JSON body and never exposes
+ * Prefer:count=exact totals, which made Image/Video always show 0.
  */
 async function fetchLocalFormatCounts(start, end, geoCode) {
   try {
     const base =
-      `/creatives?select=id` +
+      `/creatives?select=id&limit=1` +
       `&first_seen_at=gte.${encodeURIComponent(start)}` +
       `&first_seen_at=lte.${encodeURIComponent(end)}` +
       (geoCode ? `&geo=eq.${encodeURIComponent(geoCode)}` : '')
 
-    const head = { method: 'HEAD', headers: { Prefer: 'count=exact' } }
-    const [totalRes, videoRes, imageRes] = await Promise.all([
-      supaFetch(base, head),
-      supaFetch(`${base}&is_video=eq.true`, head),
-      // Image ads: explicit false (do not infer as total - video; nulls stay unknown)
-      supaFetch(`${base}&is_video=eq.false`, head),
+    const [total, video, image] = await Promise.all([
+      supabaseCount(base),
+      supabaseCount(`${base}&is_video=eq.true`),
+      supabaseCount(`${base}&is_video=eq.false`),
     ])
 
-    const total = totalRes?.count ?? 0
-    const video = videoRes?.count ?? 0
-    const image = imageRes?.count ?? 0
     const unknown = Math.max(0, total - video - image)
     return normalizeLocalFormat({ video, image, unknown, total })
   } catch (e) {
