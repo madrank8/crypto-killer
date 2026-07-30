@@ -8,6 +8,7 @@ import { topicalArticleWriterPrompt } from '@/lib/content-prompts'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { generateArticleImages, generateImageSet, injectImagesIntoHtml } from '@/lib/images'
 import { buildArticleHtml } from '@/lib/article-html'
+import { resolveResearchLedger, saveResearchLedger } from '@/lib/research-ledger'
 
 export const maxDuration = 300
 
@@ -282,18 +283,38 @@ export async function POST(request) {
           send({ step: 'research', progress: 18, message: 'Researching verified sources...' })
 
           let sourceLedger = []
-          try {
-            const srcPrompt = sourceResearchPrompt(topic, currentDate)
-            const srcResult = await callModel(
-              getAvailableModels().google ? 'gemini-pro' : 'claude-haiku',
-              srcPrompt.system,
-              srcPrompt.user,
-              { searchGrounding: getAvailableModels().google, timeoutMs: 45000 }
-            )
-            const parsed = extractJSON(srcResult.text)
-            sourceLedger = Array.isArray(parsed?.sources) ? parsed.sources : []
-          } catch {
-            sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+          const cachedLedger = await resolveResearchLedger('topic', String(topicId))
+          if (cachedLedger) {
+            sourceLedger = cachedLedger.sources
+            send({
+              step: 'research_cached',
+              progress: 22,
+              message: `Reusing verified source ledger (${sourceLedger.length} sources)`,
+            })
+          } else {
+            try {
+              const srcPrompt = sourceResearchPrompt(topic, currentDate)
+              const srcResult = await callModel(
+                getAvailableModels().google ? 'gemini-pro' : 'claude-haiku',
+                srcPrompt.system,
+                srcPrompt.user,
+                { searchGrounding: getAvailableModels().google, timeoutMs: 45000 }
+              )
+              const parsed = extractJSON(srcResult.text)
+              sourceLedger = Array.isArray(parsed?.sources) ? parsed.sources : []
+            } catch {
+              sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+            }
+            try {
+              await saveResearchLedger({
+                subjectType: 'topic',
+                subjectKey: String(topicId),
+                sources: sourceLedger,
+                meta: { path: 'content/generate' },
+              })
+            } catch (saveErr) {
+              console.warn('[generate] research ledger save failed (non-fatal):', saveErr.message)
+            }
           }
 
           send({ step: 'writing', progress: 45, message: 'Writing SEO article with Claude...' })

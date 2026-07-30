@@ -4,7 +4,7 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { lintProseFields, collectArticleProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { verifySourceLedger } from '@/lib/source-verify'
-import { shapeContentForSync } from '@/lib/content-sync-shape'
+import { enqueuePublishOutbox, tryImmediateOutboxDelivery } from '@/lib/publish-outbox'
 
 // ─── Publish quality gate ───
 //
@@ -269,82 +269,6 @@ async function validateSourcesForPublish(content) {
   return { ok: reasons.length === 0, reasons, warnings, deadSources }
 }
 
-async function syncToLiveBlog({ content, topic }) {
-  const replitUrl = process.env.REPLIT_SITE_URL
-  const syncSecret = process.env.SYNC_SECRET
-
-  // Env-presence diagnostic — boolean only, never leaks secret values. Lets
-  // operators tell from the publish response or runtime logs which env var
-  // is missing without exposing the secret itself.
-  const envState = {
-    REPLIT_SITE_URL: replitUrl ? 'set' : 'unset',
-    SYNC_SECRET: syncSecret ? 'set' : 'unset',
-    REPLIT_SITE_URL_host: replitUrl ? new URL(replitUrl).host : null,
-    SYNC_SECRET_length: syncSecret ? syncSecret.length : 0,
-  }
-
-  if (!replitUrl || !syncSecret) {
-    const result = { success: false, error: 'REPLIT_SITE_URL and SYNC_SECRET are not configured', env: envState }
-    console.error('[publish/sync] env missing:', JSON.stringify(envState))
-    return result
-  }
-
-  // Audit 2026-07-05 (A4): canonicalize the two schema-shape generations
-  // (legacy flat vs resolver JSON-LD) before the row leaves for Replit.
-  const payload = {
-    content: shapeContentForSync(content),
-    topic,
-    destination: 'blog',
-    url: `/blog/${content.slug}`,
-  }
-
-  const endpoints = ['/api/sync/blog', '/api/sync/content', '/api/sync/post']
-  const attempts = []
-
-  let lastErr = null
-  for (const endpoint of endpoints) {
-    const startedAt = Date.now()
-    try {
-      const res = await fetch(`${replitUrl}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${syncSecret}`,
-        },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30000),
-      })
-
-      const durationMs = Date.now() - startedAt
-
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}))
-        attempts.push({ endpoint, status: res.status, durationMs, ok: true })
-        console.log('[publish/sync] success:', JSON.stringify({ endpoint, status: res.status, durationMs, slug: content.slug }))
-        return { success: true, endpoint, result: data, attempts, env: envState }
-      }
-
-      const text = await res.text().catch(() => '')
-      const truncated = text.length > 200 ? text.slice(0, 200) + '…' : text
-      lastErr = `${endpoint} -> ${res.status} ${truncated}`
-      attempts.push({ endpoint, status: res.status, durationMs, ok: false, body: truncated })
-    } catch (e) {
-      const durationMs = Date.now() - startedAt
-      lastErr = `${endpoint} -> ${e.message}`
-      attempts.push({ endpoint, status: null, durationMs, ok: false, error: e.message })
-    }
-  }
-
-  const result = { success: false, error: lastErr || 'Unknown sync failure', attempts, env: envState }
-  console.error('[publish/sync] all endpoints failed:', JSON.stringify({
-    error: lastErr,
-    env: envState,
-    attempts,
-    slug: content.slug,
-  }))
-  return result
-}
-
 /**
  * POST /api/admin/content/[id]/publish
  * Body: { action: "publish" | "unpublish" }
@@ -467,18 +391,21 @@ export async function POST(request, { params }) {
       topic = Array.isArray(tRows) ? tRows[0] : null
     }
 
+    // Durable outbox + best-effort immediate delivery. DB flip already
+    // succeeded; Replit sync retries via /api/cron/publish-outbox.
     let liveSync = null
-    if (action === 'publish') {
-      liveSync = await syncToLiveBlog({
-        content: { ...content, ...contentUpdates },
-        topic,
+    let outboxJob = null
+    try {
+      outboxJob = await enqueuePublishOutbox({
+        kind: 'content',
+        entityId: id,
+        slug: content.slug,
+        action,
       })
-    } else if (action === 'unpublish') {
-      // Notify live site to remove/unpublish the article
-      liveSync = await syncToLiveBlog({
-        content: { ...content, ...contentUpdates, _action: 'unpublish' },
-        topic,
-      })
+      liveSync = await tryImmediateOutboxDelivery(outboxJob)
+    } catch (outboxErr) {
+      console.error('[publish] outbox enqueue/delivery failed:', outboxErr.message)
+      liveSync = { success: false, error: outboxErr.message }
     }
 
     try {
@@ -491,10 +418,10 @@ export async function POST(request, { params }) {
     }
 
     // The DB flip succeeded (success:true), but that is NOT the same as the
-    // live site receiving the article. syncToLiveBlog returns {success:false}
-    // when every Replit endpoint fails; surface that explicitly so the caller
-    // and UI can prompt a Re-sync instead of assuming the article is live.
-    const syncOk = action === 'unpublish' ? true : liveSync?.success !== false
+    // live site receiving the article. Outbox retries when immediate sync
+    // fails; surface sync_pending so the UI can show "syncing in background".
+    const syncOk = liveSync?.success === true
+    const syncPending = !syncOk && !!outboxJob?.id
     return Response.json({
       success: true,
       id,
@@ -503,11 +430,15 @@ export async function POST(request, { params }) {
       published_at: contentUpdates.published_at,
       overridden: !!overrideRecord,
       override: overrideRecord,
-      // true only when the article actually reached the live site.
       sync_ok: syncOk,
-      sync_error: syncOk ? null : (liveSync?.error || liveSync?.message || 'live-site sync failed — use Re-sync to retry'),
+      sync_pending: syncPending,
+      sync_error: syncOk
+        ? null
+        : (liveSync?.error || liveSync?.message || 'live-site sync pending — worker will retry'),
+      outbox_id: outboxJob?.id || null,
       live_sync: liveSync,
       blog_url: `https://cryptokiller.org/blog/${content.slug}`,
+      topic_title: topic?.title || null,
     })
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse()

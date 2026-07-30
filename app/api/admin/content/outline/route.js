@@ -3,6 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { verifySourceLedger } from '@/lib/source-verify'
 import { formatBriefForPrompt } from '@/lib/topical-map/content-brief'
+import { resolveResearchLedger, saveResearchLedger } from '@/lib/research-ledger'
 
 export const maxDuration = 120
 
@@ -195,45 +196,67 @@ export async function POST(request) {
             parentTopic = Array.isArray(parentRows) ? parentRows[0] : null
           }
 
-          // Phase 1: Source research
+          // Phase 1: Source research (reuse cached ledger when fresh)
           send({ step: 'research', progress: 18, message: 'Researching verified sources...' })
 
           const currentDate = new Date().toISOString().slice(0, 10)
           let sourceLedger = []
-          try {
-            const srcPrompt = sourceResearchPrompt(topic, currentDate)
-            const srcResult = await callModel(
-              getAvailableModels().google ? 'gemini-pro' : 'claude-haiku',
-              srcPrompt.system,
-              srcPrompt.user,
-              { searchGrounding: getAvailableModels().google, timeoutMs: 45000 }
-            )
-            const parsed = extractJSON(srcResult.text)
-            sourceLedger = Array.isArray(parsed?.sources) ? parsed.sources : []
-          } catch {
-            sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
-          }
-
-          if (sourceLedger.length === 0) {
-            sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
-          }
-
-          // Phase 1.5: Deterministic URL verification (lib/source-verify.js).
-          // The researcher self-asserts URLs; HEAD/GET-check them here so the
-          // outline + downstream writers never cite a dead or hallucinated
-          // source (P0-1, content-pipeline skill audit). Best-effort: an
-          // empty post-verification ledger falls back to the static set.
-          try {
-            const { verified, dropped } = await verifySourceLedger(sourceLedger)
-            if (dropped.length > 0) {
-              console.warn('[outline] dropped dead/unverifiable sources:', JSON.stringify(dropped.map((d) => ({ url: d.source.url, reason: d.reason }))))
-              send({ step: 'research_verified', progress: 22, message: `Verified sources: ${verified.length} live, ${dropped.length} dead URL${dropped.length === 1 ? '' : 's'} dropped` })
+          const ledgerKey = content.topic_id || content.slug || contentId
+          const cachedLedger = await resolveResearchLedger('topic', String(ledgerKey))
+          if (cachedLedger) {
+            sourceLedger = cachedLedger.sources
+            send({
+              step: 'research_cached',
+              progress: 22,
+              message: `Reusing verified source ledger (${sourceLedger.length} sources, cached ${cachedLedger.verified_at?.slice(0, 10) || ''})`,
+            })
+          } else {
+            try {
+              const srcPrompt = sourceResearchPrompt(topic, currentDate)
+              const srcResult = await callModel(
+                getAvailableModels().google ? 'gemini-pro' : 'claude-haiku',
+                srcPrompt.system,
+                srcPrompt.user,
+                { searchGrounding: getAvailableModels().google, timeoutMs: 45000 }
+              )
+              const parsed = extractJSON(srcResult.text)
+              sourceLedger = Array.isArray(parsed?.sources) ? parsed.sources : []
+            } catch {
+              sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
             }
-            sourceLedger = verified.length > 0
-              ? verified
-              : fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
-          } catch (verifyErr) {
-            console.error('[outline] source verification failed (non-fatal):', verifyErr.message)
+
+            if (sourceLedger.length === 0) {
+              sourceLedger = fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+            }
+
+            // Phase 1.5: Deterministic URL verification (lib/source-verify.js).
+            // The researcher self-asserts URLs; HEAD/GET-check them here so the
+            // outline + downstream writers never cite a dead or hallucinated
+            // source (P0-1, content-pipeline skill audit). Best-effort: an
+            // empty post-verification ledger falls back to the static set.
+            try {
+              const { verified, dropped } = await verifySourceLedger(sourceLedger)
+              if (dropped.length > 0) {
+                console.warn('[outline] dropped dead/unverifiable sources:', JSON.stringify(dropped.map((d) => ({ url: d.source.url, reason: d.reason }))))
+                send({ step: 'research_verified', progress: 22, message: `Verified sources: ${verified.length} live, ${dropped.length} dead URL${dropped.length === 1 ? '' : 's'} dropped` })
+              }
+              sourceLedger = verified.length > 0
+                ? verified
+                : fallbackSourceLedger(topic.target_keyword || topic.title, currentDate)
+            } catch (verifyErr) {
+              console.error('[outline] source verification failed (non-fatal):', verifyErr.message)
+            }
+
+            try {
+              await saveResearchLedger({
+                subjectType: 'topic',
+                subjectKey: String(ledgerKey),
+                sources: sourceLedger,
+                meta: { content_id: contentId, topic_id: content.topic_id || null },
+              })
+            } catch (saveErr) {
+              console.warn('[outline] research ledger save failed (non-fatal):', saveErr.message)
+            }
           }
 
           // Phase 2: Generate outline with Claude Sonnet (fast)

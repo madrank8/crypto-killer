@@ -1,15 +1,13 @@
 import { revalidatePath } from 'next/cache'
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { shapeReviewForSync, normalizeBrandLandingUrls } from '@/lib/sync-shape'
-import { computePlatformAggregates } from '@/lib/platform-aggregates'
 import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { headCheckUrl } from '@/lib/source-verify'
 import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
+import { enqueuePublishOutbox, tryImmediateOutboxDelivery } from '@/lib/publish-outbox'
 
-// Supabase → Replit shape transform lives in lib/sync-shape.js, shared
-// with the /sync route. That module handles field renames, funnel-stage
-// parsing, stats assembly, geo region grouping, placeholder stripping.
+// Live delivery lives in lib/live-sync.js (shared with /sync + outbox worker).
+// Publish quality gates stay in this file; sync is eventually consistent.
 
 // ─── Publish-time data integrity gates ───────────────────────────
 //
@@ -454,218 +452,63 @@ export async function POST(request, { params }) {
       console.warn('Revalidation error (non-fatal):', revalError.message)
     }
 
-    // ─── SYNC TO LIVE SITE (publish + unpublish) ───
+    // ─── SYNC TO LIVE SITE (publish + unpublish) via durable outbox ───
+    // Supabase status flip already happened. Enqueue + best-effort immediate
+    // delivery; cron /api/cron/publish-outbox retries failures. Publish is
+    // no longer fail-closed on Replit downtime — DB success stands, sync
+    // is eventually consistent.
     let syncStatus = null
-    if ((action === 'publish' || action === 'unpublish') && review) {
-      const replitUrl = process.env.REPLIT_SITE_URL
-      const syncSecret = process.env.SYNC_SECRET
-
-      if (replitUrl && syncSecret) {
-        try {
-          // Fetch brand data
-          let brand = null
-          if (review.brand_id) {
-            const brands = await supaFetch(
-              `/scam_brands?id=eq.${review.brand_id}&select=*&limit=1`
-            )
-            brand = brands?.[0]
-          }
-
-          // Fetch Wayback snapshot URLs for this brand so claims[].appearance
-          // cites archive URLs (zero traffic to scam domain, evidence
-          // persists through takedowns) rather than the live scam URL.
-          // Soft failure: if this errors or returns nothing, sync-shape
-          // falls back to brand.landing_urls (live URLs) automatically.
-          let landingUrls = []
-          if (brand?.id) {
-            try {
-              const rows = await supaFetch(
-                `/brand_landing_pages?brand_id=eq.${brand.id}` +
-                  `&select=archive_url,archive_status,live_url,captured_at` +
-                  `&order=captured_at.desc&limit=20`
-              )
-              landingUrls = normalizeBrandLandingUrls(rows)
-            } catch (e) {
-              console.warn('[publish] brand_landing_pages fetch failed (non-fatal):', e?.message)
-              landingUrls = []
-            }
-          }
-
-          // Pull translations + recent ads IN PARALLEL — both independent of
-          // each other, both soft-fail to empty arrays, both feed the Replit
-          // payload. Cuts ~100ms off every publish round-trip vs sequential.
-          const sinceIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-          const [translations, recentAds, platformStats] = await Promise.all([
-            // Published translations only — drafts never reach Replit.
-            supaFetch(
-              `/review_translations?review_id=eq.${review.id}&status=eq.published&select=*&order=locale.asc`
-            )
-              .then((rows) => (Array.isArray(rows) ? rows : []))
-              .catch((e) => {
-                console.warn('[publish] translations fetch failed (non-fatal):', e?.message)
-                return []
-              }),
-
-            // Last-7d ads for the brand, embedded with creative_text. Skip
-            // entirely if no normalized_name on brand (returns [] without hitting Supabase).
-            brand?.normalized_name
-              ? supaFetch(
-                  `/creatives?normalized_offer=eq.${encodeURIComponent(brand.normalized_name)}` +
-                    `&first_seen_at=gte.${encodeURIComponent(sinceIso)}` +
-                    `&select=id,offer_name,celebrity_name,geo,land_language,is_video,created_at,first_seen_at,creative_text(main_text,link_text,link_url,post_url,fp_link)` +
-                    `&order=first_seen_at.desc&limit=20`
-                )
-                  .then((rows) =>
-                    (Array.isArray(rows) ? rows : []).map((r) => {
-                      const t = Array.isArray(r.creative_text) ? r.creative_text[0] : r.creative_text || {}
-                      return {
-                        creative_id: r.id,
-                        offer_name: r.offer_name,
-                        celebrity_name: r.celebrity_name,
-                        geo: r.geo,
-                        land_language: r.land_language,
-                        is_video: r.is_video,
-                        spyowl_created_at: r.created_at,
-                        first_seen_at: r.first_seen_at,
-                        main_text: t?.main_text,
-                        link_text: t?.link_text,
-                        link_url: t?.link_url,
-                        post_url: t?.post_url,
-                        fp_link: t?.fp_link,
-                      }
-                    })
-                  )
-                  .catch((e) => {
-                    console.warn('[publish] recent ads fetch failed (non-fatal):', e?.message)
-                    return []
-                  })
-              : Promise.resolve([]),
-
-            // Platform aggregates for sync-time {{platform_stat:*}} token
-            // resolution (2026-07-08) — see sync route for rationale.
-            computePlatformAggregates().catch((e) => {
-              console.warn('[publish] platform aggregates fetch failed (non-fatal):', e?.message)
-              return null
-            }),
-          ])
-
-          if (brand) {
-            // Merge the updated fields into the review object for sync,
-            // then do the full Supabase→Replit shape transform.
-            const syncReview = shapeReviewForSync(
-              { ...review, ...updates },
-              brand,
-              { landingUrls, translations, recentAds, platformStats },
-            )
-
-            const syncRes = await fetch(`${replitUrl}/api/sync/review`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${syncSecret}`,
-              },
-              body: JSON.stringify({
-                review: syncReview,
-                brand,
-                expected_full_article_length: syncReview.full_article_length ?? null,
-                expected_full_article_hash: syncReview.full_article_hash ?? null,
-              }),
-              signal: AbortSignal.timeout(30000),
-            })
-
-            if (syncRes.ok) {
-              const syncResult = await syncRes.json()
-              const expectedLen = Number(syncReview.full_article_length ?? 0)
-              const receivedLen = Number(syncResult?.full_article_length ?? -1)
-              const lengthMatches = receivedLen === expectedLen
-              const lengthOk = receivedLen < 0 || lengthMatches
-              const expectedHash = String(syncReview.full_article_hash ?? '')
-              const storedHash = String(syncResult?.full_article_hash ?? '')
-              const incomingHash = String(syncResult?.incoming_full_article_hash ?? '')
-              const liveSyncOk = syncResult?.ok === true
-              const hashConfirmedByLive = syncResult?.full_article_hash_matches === true
-              const explicitIntegrityFail = syncResult?.full_article_hash_matches === false
-              const rescueIntegrity =
-                expectedHash.length === 64 &&
-                incomingHash === expectedHash &&
-                lengthOk
-              // Integrity must be POSITIVELY confirmed — explicit
-              // full_article_hash_matches:true, or an echoed incoming hash we
-              // verify ourselves. Omitting both counts as UNVERIFIED (failure).
-              const integrityOk = hashConfirmedByLive || rescueIntegrity
-              const hashMatches = liveSyncOk && integrityOk
-              syncStatus = {
-                success: hashMatches,
-                review_id: syncResult.review_id,
-                expected_full_article_length: expectedLen,
-                received_full_article_length: receivedLen,
-                full_article_length_matches: lengthMatches,
-                expected_full_article_hash: expectedHash,
-                received_full_article_hash: storedHash,
-                received_incoming_full_article_hash: incomingHash,
-                full_article_hash_matches: hashMatches,
-                ...(hashMatches
-                  ? {}
-                  : {
-                      error: !liveSyncOk
-                        ? 'live site sync response missing ok: true'
-                        : explicitIntegrityFail
-                          ? 'full_article hash mismatch on live sync'
-                          : 'live site did not confirm full_article integrity',
-                    }),
-              }
-              console.log(`[publish] Synced to live site: ${reviewSlug}`)
-            } else {
-              const text = await syncRes.text().catch(() => '')
-              syncStatus = { success: false, error: `${syncRes.status}: ${text}` }
-              console.error(`[publish] Live sync failed: ${syncRes.status} ${text}`)
-            }
-          } else {
-            syncStatus = { success: false, error: 'No brand data found' }
-          }
-        } catch (syncErr) {
-          syncStatus = { success: false, error: syncErr.message }
-          console.error('[publish] Live sync error:', syncErr.message)
-        }
+    let outboxJob = null
+    if (action === 'publish' || action === 'unpublish') {
+      try {
+        outboxJob = await enqueuePublishOutbox({
+          kind: 'review',
+          entityId: id,
+          slug: reviewSlug || review?.slug || null,
+          action,
+        })
+        syncStatus = await tryImmediateOutboxDelivery(outboxJob)
+      } catch (syncErr) {
+        syncStatus = { success: false, error: syncErr.message }
+        console.error('[publish] Live sync/outbox error:', syncErr.message)
       }
     }
 
-    // ─── Live-sync failure handling (audit 2026-07-05, R15) ─────────
-    // The Supabase status flip happened BEFORE the Replit sync. If the sync
-    // failed, the old response still said success:true — the DB claimed
-    // 'published' while the live site never received the review, and the
-    // discrepancy was invisible. Now: persist a live_sync_failed marker on
-    // the row (so the admin list can badge it) and return success:false so
-    // the editor surfaces the failure instead of a green toast.
-    const liveSyncFailed = action === 'publish' && syncStatus && syncStatus.success !== true
+    const syncOk = syncStatus?.success === true
+    const syncPending = !syncOk && !!outboxJob?.id
+    const liveSyncFailed = action === 'publish' && !syncOk
     if (liveSyncFailed) {
       try {
         await supaFetch(`/reviews?id=eq.${id}`, {
           method: 'PATCH',
           headers: { Prefer: 'return=minimal' },
           body: JSON.stringify({
-            // Append, don't overwrite — generation_notes also carries manual
-            // regeneration notes.
-            generation_notes: `${String(review?.generation_notes || '').slice(0, 1500)}${review?.generation_notes ? '\n\n' : ''}LIVE SYNC FAILED at publish (${new Date().toISOString()}): ${String(syncStatus.error || 'unconfirmed integrity').slice(0, 300)} — Supabase says published but the live site did not confirm. Use the Sync button to retry.`,
+            generation_notes: `${String(review?.generation_notes || '').slice(0, 1500)}${review?.generation_notes ? '\n\n' : ''}LIVE SYNC ${syncPending ? 'PENDING' : 'FAILED'} at publish (${new Date().toISOString()}): ${String(syncStatus?.error || 'unconfirmed integrity').slice(0, 300)} — Supabase says published; outbox will retry. Use the Sync button to force a retry.`,
           }),
         })
       } catch (markErr) {
-        console.error('[publish] failed to persist live_sync_failed marker:', markErr.message)
+        console.error('[publish] failed to persist live_sync marker:', markErr.message)
       }
     }
 
     return Response.json({
-      success: !liveSyncFailed,
+      // DB flip succeeded. Live sync may still be pending in the outbox.
+      success: true,
       id,
       action,
       status: updates.status,
       published_at: updates.published_at,
+      sync_ok: syncOk,
+      sync_pending: syncPending,
+      outbox_id: outboxJob?.id || null,
       live_sync: syncStatus,
       ...(action === 'publish' && syncStatus === null
-        ? { warnings_sync: 'Live sync SKIPPED — REPLIT_SITE_URL / SYNC_SECRET not configured. The live site did not receive this review.' }
+        ? { warnings_sync: 'Live sync SKIPPED — outbox enqueue failed or env missing.' }
         : {}),
       ...(liveSyncFailed
-        ? { error: `Published in Supabase but LIVE SYNC FAILED: ${syncStatus.error || 'integrity unconfirmed'}. The live site is stale — retry with the Sync button.` }
+        ? {
+            sync_error: `Published in Supabase but LIVE SYNC ${syncPending ? 'PENDING' : 'FAILED'}: ${syncStatus?.error || 'integrity unconfirmed'}. Worker will retry; or use Sync button.`,
+          }
         : {}),
       ...(action === 'publish' && updates.fact_check_status === 'ai_generated_with_warnings'
         ? { warnings: 'Review published with non-blocking warnings (plural agreement, coherence heuristics). See server logs.' }

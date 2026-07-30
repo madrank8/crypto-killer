@@ -13,6 +13,7 @@ import { verifySourceLedger, buildRegulatorSources, filterBrandOwnedSources } fr
 import { fetchRecencyEvidence } from '@/lib/recency-evidence'
 import { runReviewPipeline } from '@/lib/review-pipeline'
 import { buildAiDisclosure } from '@/lib/ai-disclosure'
+import { resolveResearchLedger, saveResearchLedger } from '@/lib/research-ledger'
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || ''
 const SPYOWL_API = 'https://api.spyowl.icu'
@@ -387,14 +388,26 @@ export async function POST(request) {
           brandData.celebrity_list = cleanCelebrityList
 
           // ═══════════════════════════════════════════════════════════════
-          // PHASE 2: SOURCE RESEARCH (Gemini Flash with search grounding, or Claude fallback)          // ═══════════════════════════════════════════════════════════════
+          // PHASE 2: SOURCE RESEARCH (cached ledger → Gemini/Claude → verify)
+          // ═══════════════════════════════════════════════════════════════
           send({ step: 'sources', progress: 30, message: 'Phase 2/5: Researching authoritative sources...' })
 
           const availableModelsInfo = getAvailableModels()
           const sourceModel = availableModelsInfo.google ? 'gemini-flash' : 'claude-haiku'
+          const brandLedgerKey = String(brandData.id || brandData.normalized_name || brandData.name)
 
           let sourceLedger = []
           let sourceResearchActualModel = 'default_templates'  // Track what actually produced sources
+          const cachedLedger = await resolveResearchLedger('brand', brandLedgerKey)
+          if (cachedLedger) {
+            sourceLedger = cachedLedger.sources
+            sourceResearchActualModel = `research_ledger_cache (${cachedLedger.verified_at || 'cached'})`
+            send({
+              step: 'sources_cached',
+              progress: 40,
+              message: `Reusing verified source ledger (${sourceLedger.length} sources)`,
+            })
+          } else {
           try {
             const srcPrompt = sourceResearcherPrompt(brandData.name, currentDate)
             const srcResult = await callModel(sourceModel, srcPrompt.system, srcPrompt.user, {
@@ -430,6 +443,7 @@ export async function POST(request) {
             ]
             send({ step: 'sources_fallback', progress: 40, message: `Source research failed — using ${sourceLedger.length} default regulatory sources` })
           }
+          }
 
           // ═══════════════════════════════════════════════════════════════
           // PHASE 2.5: DETERMINISTIC SOURCE VERIFICATION (source-verify.js)
@@ -443,7 +457,9 @@ export async function POST(request) {
           //       findings as verified sources — deterministic facts the
           //       LLM can no longer get wrong
           // Both are best-effort and never throw.
+          // Skip re-verify when we loaded a fresh cached ledger.
           // ═══════════════════════════════════════════════════════════════
+          if (!cachedLedger) {
           send({ step: 'sources_verify', progress: 41, message: `Verifying ${sourceLedger.length} source URLs + regulator registries...` })
           try {
             const [ledgerCheck, regulatorSources] = await Promise.all([
@@ -467,10 +483,23 @@ export async function POST(request) {
               message: `Source ledger verified: ${ledgerCheck.verified.length} live${droppedCount > 0 ? `, ${droppedCount} dead URL${droppedCount === 1 ? '' : 's'} dropped` : ''}${newRegulatorSources.length > 0 ? `, ${newRegulatorSources.length} regulator registry finding${newRegulatorSources.length === 1 ? '' : 's'} added` : ''}`,
               dropped: ledgerCheck.dropped,
             })
+            try {
+              await saveResearchLedger({
+                subjectType: 'brand',
+                subjectKey: brandLedgerKey,
+                sources: sourceLedger,
+                meta: { brand_name: brandData.name, path: 'reviews/generate' },
+              })
+            } catch (saveErr) {
+              console.warn('[generate] research ledger save failed (non-fatal):', saveErr.message)
+            }
           } catch (verifyErr) {
             // Verification is a quality gate, not a point of failure.
             console.error('[generate] source verification failed (non-fatal):', verifyErr.message)
             send({ step: 'sources_verify_failed', progress: 43, message: 'Source verification errored — continuing with unverified ledger' })
+          }
+          } else {
+            send({ step: 'sources_verified', progress: 43, message: `Source ledger from cache (${sourceLedger.length} sources) — skip re-verify` })
           }
 
           // ═══════════════════════════════════════════════════════════════
