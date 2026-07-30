@@ -125,3 +125,7 @@ forcing inputs or human-declared content types.
 6. Check per-topic evidence badges after readiness completes
 7. Use "Re-run readiness" if you add FIRECRAWL_API_KEY later or want to refresh evidence
 8. Fill remaining evidence gaps manually in the content-brief editor before generating outlines
+
+## Linking already-published pages
+
+On sheet import, `persistImportedMap` matches each topic's Suggested URL / `url_path` leaf slug (then `slug`) against published `content.slug` and `reviews.slug`. Hits are inserted as `content_status: published` with `content_id` or `review_id` set so the admin UI treats them as already written. Misses stay `planned`. Map readiness skips already-linked published topics (no duplicate brief churn). Matching is leaf-slug only: no fuzzy title matching.

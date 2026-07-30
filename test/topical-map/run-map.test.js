@@ -243,6 +243,27 @@ describe('startMapReadiness', () => {
     assert.equal(write.body.content_type, 'case_study')
   })
 
+
+  it('skips supporting topics already linked as published', async () => {
+    const topics = [
+      {
+        id: 't-pub',
+        title: 'Already Live Post',
+        content_type: 'educational',
+        url_path: '/blog/already-live/',
+        slug: 'already-live',
+        content_status: 'published',
+        content_id: 'c-live',
+        review_id: null,
+      },
+    ]
+    const supaFetch = buildMockSupaFetch({ topics, briefsByTopic: {}, reviewsBySlug: {}, mapStats: {} })
+    const summary = await startMapReadiness({ mapId: 'map-pub', supaFetch })
+    assert.deepEqual(summary, { processed: 1, sullivan_ok: 0, needs_evidence: 0, skipped: 1 })
+    assert.equal(supaFetch.briefWrites.length, 0)
+    assert.equal(supaFetch.savedStats.current.readiness.topics['t-pub'].reason, 'already_published')
+  })
+
   it('throws when mapId or supaFetch is missing', async () => {
     await assert.rejects(() => startMapReadiness({ supaFetch: async () => [] }), /mapId/)
     await assert.rejects(() => startMapReadiness({ mapId: 'map-1' }), /supaFetch/)
