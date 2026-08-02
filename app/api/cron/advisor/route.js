@@ -6,9 +6,9 @@ export const maxDuration = 120
 /**
  * GET /api/cron/advisor
  *
- * Weekly advisor run — Monday 07:00 UTC (vercel.json), 30 min after the
- * GSC sync so the analysis sees fresh search data. Skips politely when
- * there's no data to analyze yet. Auth pattern matches the other crons.
+ * Daily advisor run — 07:15 UTC (vercel.json), after the 06:30 GSC sync
+ * so the analysis sees fresh search data. Skips politely when there's no
+ * data to analyze yet. Auth pattern matches the other crons.
  */
 export async function GET(request) {
   const authHeader = request.headers.get('authorization') || ''
