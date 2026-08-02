@@ -52,6 +52,11 @@ const icons = {
       <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v16a2 2 0 002 2h16M7 14l4-4 3 3 5-6" />
     </svg>
   ),
+  chat: (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  ),
 };
 
 const navItems = [
@@ -62,10 +67,10 @@ const navItems = [
   // Content (blog/investigation articles) index — closes the discoverability
   // gap where free-form articles had no admin entry point. Reuses the freed
   // work-plan icon.
-  { href: '/admin/content', label: 'Content', icon: icons.workPlan },
+  { href: '/admin/content', label: 'Content', icon: icons.reviews },
   { href: '/admin/topical-map', label: 'Topical Map', icon: icons.topicalMap },
-  // Work Plan is a Phase-2 stub (app/admin/work-plan/page.js) — hidden from nav
-  // until the board ships so the link doesn't dead-end on an empty page.
+  { href: '/admin/work-plan', label: 'Work Plan', icon: icons.workPlan },
+  { href: '/admin/chat', label: 'Agent', icon: icons.chat },
   { href: '/admin/analytics', label: 'Analytics', icon: icons.analytics },
   { href: '/admin/settings', label: 'Settings', icon: icons.settings },
 ];

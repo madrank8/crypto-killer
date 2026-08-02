@@ -26,11 +26,19 @@
     },
     {
       "path": "/api/cron/advisor",
-      "schedule": "0 7 * * 1"
+      "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron/advisor-runner",
+      "schedule": "*/20 * * * *"
     },
     {
       "path": "/api/cron/content-maintenance",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/publish-outbox",
+      "schedule": "* * * * *"
     }
   ],
   "functions": {

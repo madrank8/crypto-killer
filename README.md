@@ -77,6 +77,19 @@ CRYPTOKILLER_GITHUB_URL=
 SPYOWL_COOKIE=
 ```
 
+Living growth agent (defaults: runner on, autopublish off):
+
+```
+AGENT_RUNNER=          # set to 0 to pause Work Plan execution
+AGENT_AUTOPUBLISH=0    # must be 1 to allow gated publish
+AGENT_AUTOPUBLISH_ALLOWLIST=   # comma-separated content/review slugs
+ADMIN_SECRET=
+CRON_SECRET=
+```
+
+Apply Supabase migration before using chat/work-plan:
+`migrations/024_agent_chat_and_work_plan.sql` on project Crypto Killer (`rqyfuioazbdixflqngcs`).
+
 ## Deployment
 
 Production deploys automatically on merge to `main` via Vercel GitHub integration.

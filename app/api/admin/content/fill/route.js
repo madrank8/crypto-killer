@@ -9,6 +9,7 @@ import { runArticlePipeline } from '@/lib/article-pipeline'
 import { resolveArticleEnrichment } from '@/lib/schema-enrichment-resolver'
 import { buildArticleHtml } from '@/lib/article-html'
 import { buildAiDisclosure } from '@/lib/ai-disclosure'
+import { stampAudit } from '@/lib/audit-freshness'
 
 export const maxDuration = 300
 
@@ -522,62 +523,73 @@ export async function POST(request) {
           const itemList = (schemaEnrichment.item_list && typeof schemaEnrichment.item_list === 'object') ? schemaEnrichment.item_list : null
           const quotes = Array.isArray(schemaEnrichment.quotes) ? schemaEnrichment.quotes : []
 
+          const patch = {
+            title: article.title || content.title,
+            headline: article.headline || content.headline,
+            meta_description: article.meta_description || content.meta_description,
+            summary: article.summary || content.summary,
+            full_article: fullArticleHtml,
+            sections: articleSections,
+            faq: articleFaq,
+            sources: article.sources || sourceLedger,
+            internal_links: article.internal_links || content.internal_links || [],
+            not_for_you: article.not_for_you || null,
+            information_gain_summary: article.information_gain_summary || null,
+            verify_tags_count: typeof article.verify_tags_count === 'number' ? article.verify_tags_count : null,
+            // Schema enrichment columns (v1 — slug + simple shapes)
+            about_slugs: aboutSlugs,
+            mention_slugs: mentionSlugs,
+            speakable_selectors: speakableSelectors,
+            citations: citations,
+            dataset: dataset,
+            // Schema enrichment v2 — full Schema.org entities and rich-result structures
+            about: about,
+            mentions: mentions,
+            claims: claims,
+            how_to: howTo,
+            item_list: itemList,
+            quotes: quotes,
+            word_count: wordCount,
+            ai_model: writerModelUsed,
+            // ai_audit is assigned below, after `patch` exists, so the verdict
+            // can be stamped with the hash of the row it ships with.
+            visual_meta: visualMeta.length > 0 ? visualMeta : null,
+            // Audit 2026-07-05 (A3): these four columns were silently
+            // dropped by the fill migration — every article shipped with
+            // target_keyword/persona/alt-headline null on the live site.
+            author_persona_id: personaMetadata.id,
+            target_keyword: topic.target_keyword || content.target_keyword || null,
+            alternative_headline: article.alternative_headline
+              // W5a: discover outlines store the held SEO re-title here —
+              // never clobber it with the derived fallback.
+              || content.alternative_headline
+              || (article.title && article.headline && article.title !== article.headline ? article.title : null),
+            reddit_test_passed: article.reddit_test_passed === true,
+            // Audit 2026-07-05 (A6): preserve the approved outline so
+            // re-running fill regenerates from full context, not bare
+            // headings.
+            outline_sections: outlineSections,
+            // AI disclosure (canon Step 6.8, audit 2026-07-05 W4c)
+            ai_disclosure: buildAiDisclosure({
+              kind: 'article',
+              model: writerModelUsed,
+              personaName: personaMetadata.name,
+            }),
+            updated_at: new Date().toISOString(),
+          }
+
+          // Stamp the verdict with the hash of the row it is about to be stored
+          // alongside, so a later edit is provably detectable as making this
+          // verdict stale (see lib/audit-freshness.js). The hash is taken over
+          // the MERGED row — `patch` alone omits columns the auditor reads but
+          // fill never writes (item_reviewed, schema_json), and hashing those as
+          // null here would mismatch on the next read and report false staleness.
+          patch.ai_audit = stampAudit(audit, { ...content, ...patch })
+
           await supaFetch(`/content?id=eq.${contentId}`, {
             method: 'PATCH',
             headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({
-              title: article.title || content.title,
-              headline: article.headline || content.headline,
-              meta_description: article.meta_description || content.meta_description,
-              summary: article.summary || content.summary,
-              full_article: fullArticleHtml,
-              sections: articleSections,
-              faq: articleFaq,
-              sources: article.sources || sourceLedger,
-              internal_links: article.internal_links || content.internal_links || [],
-              not_for_you: article.not_for_you || null,
-              information_gain_summary: article.information_gain_summary || null,
-              verify_tags_count: typeof article.verify_tags_count === 'number' ? article.verify_tags_count : null,
-              // Schema enrichment columns (v1 — slug + simple shapes)
-              about_slugs: aboutSlugs,
-              mention_slugs: mentionSlugs,
-              speakable_selectors: speakableSelectors,
-              citations: citations,
-              dataset: dataset,
-              // Schema enrichment v2 — full Schema.org entities and rich-result structures
-              about: about,
-              mentions: mentions,
-              claims: claims,
-              how_to: howTo,
-              item_list: itemList,
-              quotes: quotes,
-              word_count: wordCount,
-              ai_model: writerModelUsed,
-              ai_audit: audit,
-              visual_meta: visualMeta.length > 0 ? visualMeta : null,
-              // Audit 2026-07-05 (A3): these four columns were silently
-              // dropped by the fill migration — every article shipped with
-              // target_keyword/persona/alt-headline null on the live site.
-              author_persona_id: personaMetadata.id,
-              target_keyword: topic.target_keyword || content.target_keyword || null,
-              alternative_headline: article.alternative_headline
-                // W5a: discover outlines store the held SEO re-title here —
-                // never clobber it with the derived fallback.
-                || content.alternative_headline
-                || (article.title && article.headline && article.title !== article.headline ? article.title : null),
-              reddit_test_passed: article.reddit_test_passed === true,
-              // Audit 2026-07-05 (A6): preserve the approved outline so
-              // re-running fill regenerates from full context, not bare
-              // headings.
-              outline_sections: outlineSections,
-              // AI disclosure (canon Step 6.8, audit 2026-07-05 W4c)
-              ai_disclosure: buildAiDisclosure({
-                kind: 'article',
-                model: writerModelUsed,
-                personaName: personaMetadata.name,
-              }),
-              updated_at: new Date().toISOString(),
-            }),
+            body: JSON.stringify(patch),
           })
 
           send({
