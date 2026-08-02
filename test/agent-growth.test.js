@@ -59,6 +59,30 @@ function prioritySort(items) {
   })
 }
 
+/** Mirror lib/agent-chat.js bulk insert shape (PostgREST PGRST102). */
+function chatMessageBulkRows(threadId, userText, assistantReply, citations) {
+  return [
+    {
+      thread_id: threadId,
+      role: 'user',
+      content: userText,
+      citations_json: null,
+    },
+    {
+      thread_id: threadId,
+      role: 'assistant',
+      content: assistantReply,
+      citations_json: citations,
+    },
+  ]
+}
+
+function sameKeys(rows) {
+  if (!rows.length) return true
+  const keys = Object.keys(rows[0]).sort().join(',')
+  return rows.every((r) => Object.keys(r).sort().join(',') === keys)
+}
+
 test('materialize skips done/dismissed/running fingerprints', () => {
   assert.equal(shouldSkipMaterialize('queued'), false)
   assert.equal(shouldSkipMaterialize('blocked'), false)
@@ -118,4 +142,11 @@ test('prioritySort puts P0 before P1/P2', () => {
     sorted.map((x) => x.title),
     ['a', 'b', 'c']
   )
+})
+
+test('chat message bulk rows share keys (avoids PostgREST PGRST102)', () => {
+  const rows = chatMessageBulkRows('tid', 'hi', 'hello', { tools: [] })
+  assert.equal(sameKeys(rows), true)
+  assert.equal(rows[0].citations_json, null)
+  assert.deepEqual(rows[1].citations_json, { tools: [] })
 })
