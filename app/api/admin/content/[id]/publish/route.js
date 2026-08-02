@@ -4,6 +4,8 @@ import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { lintProseFields, collectArticleProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { verifySourceLedger } from '@/lib/source-verify'
+import { auditFreshness } from '@/lib/audit-freshness'
+import { evaluateHardFails } from '@/lib/audit-gate'
 import { enqueuePublishOutbox, tryImmediateOutboxDelivery } from '@/lib/publish-outbox'
 
 // ─── Publish quality gate ───
@@ -153,10 +155,23 @@ function validateForPublish(content) {
 
   // 7. Quality-auditor verdict gate (lib/review-prompts qualityAuditorPrompt,
   //    run on Claude Sonnet 4.6 at fill time, persisted to ai_audit). The audit
-  //    is no longer advisory: a VETO (any_hard_fail) or a clear-fail score
+  //    is no longer advisory: a failed hard-fail check or a clear-fail score
   //    blocks publish. Only enforced when a verdict exists, so legacy rows
   //    without an audit aren't retroactively blocked — re-run Generate Article
   //    to produce a verdict.
+  //
+  //    Two things stand between the verdict and a block. `auditFreshness` asks
+  //    whether the verdict is still about this draft. `evaluateHardFails` asks
+  //    which checks actually failed, rather than trusting the model's own
+  //    `any_hard_fail` summary — which fires on checks that do not apply to the
+  //    content type. Both exist so the editor is never stuck choosing between an
+  //    unfixable veto and an override that disables every other check.
+  // Surfaced in the 422 so the editor UI can say "re-audit" rather than
+  // "rewrite", and so the remediation endpoint knows a re-audit alone may clear
+  // the block.
+  let auditStale = false
+  let auditUnverifiable = false
+
   const verdict = content.ai_audit && typeof content.ai_audit === 'object' ? content.ai_audit : null
   if (verdict) {
     const score = Number(verdict.overall_score)
@@ -180,9 +195,38 @@ function validateForPublish(content) {
         '. Click "Re-run Audit" to re-run just the auditor, or use "Publish anyway" to override. A failed audit is not a passing audit.'
       )
     } else {
-      if (verdict.hard_fail_checks?.any_hard_fail === true) {
-        reasons.push(`quality audit VETO — ${verdict.hard_fail_checks.hard_fail_reason || 'a hard-fail check failed (fabricated source, unverified claim, missing disclosure, fake freshness/reviews, or commodity content)'}. Fix and re-run Generate Article.`)
+      // Is this verdict still about the article as it stands? A verdict stamped
+      // with a content_hash that no longer matches describes text the editor has
+      // since replaced. Repeating its findings traps the editor: they fix every
+      // cited problem and the same dead reasons come back, leaving the override
+      // as the only exit. So a stale verdict blocks on its staleness, not on its
+      // (now unfounded) contents.
+      const freshness = auditFreshness(content)
+
+      if (freshness.state === 'stale') {
+        reasons.push(
+          'the quality audit is stale — the article changed after the audit ran, so its findings describe text that is no longer here' +
+          (freshness.audited_at ? ` (audited ${freshness.audited_at})` : '') +
+          '. Click "Re-run Audit" to get a verdict on the current draft.'
+        )
+        auditStale = true
+      } else {
+        // 'fresh' and 'unverifiable' are both enforced. Unverifiable means the
+        // verdict predates hash stamping: it cannot be proven current, but
+        // waving it through would let every legacy row bypass the gate.
+        const hardFails = evaluateHardFails(verdict, content)
+        for (const f of hardFails.failed) {
+          reasons.push(`quality audit VETO (${f.key}) — ${f.reason}`)
+        }
+        // Checks the auditor could not answer, and vetoes attributable to a
+        // check that does not apply to this content type, surface as warnings
+        // instead of silently vanishing.
+        warnings.push(...hardFails.warnings)
+        if (hardFails.failed.length > 0 && freshness.state === 'unverifiable') {
+          auditUnverifiable = true
+        }
       }
+
       if (Number.isFinite(score) && score < 60) {
         reasons.push(`quality audit score ${score}/100 is below the YMYL publish floor (60). Address the auditor's critical_fixes and re-run Generate Article.`)
       } else if (Number.isFinite(score) && score < 80) {
@@ -191,7 +235,7 @@ function validateForPublish(content) {
     }
   }
 
-  return { ok: reasons.length === 0, reasons, warnings }
+  return { ok: reasons.length === 0, reasons, warnings, auditStale, auditUnverifiable }
 }
 
 // ─── Source gate (async — network checks) ───
@@ -315,6 +359,11 @@ export async function POST(request, { params }) {
           // Machine-actionable: lets the UI offer a one-click remove-and-retry
           // for dead citations rather than a full article regeneration.
           dead_sources: sourceGate.deadSources || [],
+          // The audit's findings are about an older draft — a re-audit, not an
+          // edit, is the fix. Distinguished from `audit_unverifiable`, where the
+          // findings are being enforced but cannot be proven current.
+          audit_stale: gate.auditStale === true,
+          audit_unverifiable: gate.auditUnverifiable === true,
           content_id: id,
           slug: content.slug,
           ai_model: content.ai_model,
