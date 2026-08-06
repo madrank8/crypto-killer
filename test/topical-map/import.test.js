@@ -103,6 +103,11 @@ describe('koray consolidator', () => {
     assert.ok(crypto, 'Crypto Scams pillar present')
     assert.equal(crypto.section, 'core')
     assert.equal(crypto.pillar.page_role, 'Root')
+    assert.equal(
+      (crypto.pillar.qa_flags || []).some((f) => (f.type || f) === 'synthetic_hub'),
+      false,
+      'Real sheet hub is not synthetic'
+    )
 
     const clusterTitles = (crypto.clusters || []).map((c) => c.title)
     assert.ok(clusterTitles.some((t) => /wiki/i.test(t)), 'Wiki cluster nested under Crypto Scams')
@@ -113,6 +118,10 @@ describe('koray consolidator', () => {
 
     const victim = structure.pillars.find((b) => /victim journey/i.test(b.pillar.title))
     assert.ok(victim, 'Victim Journey pillar')
+    assert.ok(
+      (victim.pillar.qa_flags || []).some((f) => (f.type || f) === 'synthetic_hub'),
+      'Victim Journey marked synthetic_hub'
+    )
     const vClusters = (victim.clusters || []).map((c) => c.title.toLowerCase())
     assert.ok(vClusters.some((t) => t.includes('recover')))
     assert.ok(vClusters.some((t) => t.includes('report')))
@@ -121,6 +130,10 @@ describe('koray consolidator', () => {
     assert.ok(alerts)
     assert.equal(alerts.pillar.title, 'Scam Alerts (Trending)')
     assert.equal(alerts.pillar.url_path, '/alerts/')
+    assert.ok(
+      (alerts.pillar.qa_flags || []).some((f) => (f.type || f) === 'synthetic_hub'),
+      'Scam Alerts marked synthetic_hub'
+    )
     assert.ok(
       !(alerts.clusters || []).some((c) =>
         (c.supporting || []).some((s) => /ongoing|2-4/i.test(s.title))
