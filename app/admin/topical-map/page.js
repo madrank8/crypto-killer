@@ -1443,6 +1443,7 @@ export default function TopicalMapPage() {
   const [importName, setImportName] = useState('');
   const [importSheetUrl, setImportSheetUrl] = useState('');
   const [importFile, setImportFile] = useState(null);
+  const [importReplace, setImportReplace] = useState(false);
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
@@ -1690,6 +1691,7 @@ export default function TopicalMapPage() {
     setImportSheetUrl('');
     setImportTab('upload');
     setImportName(defaultImportName());
+    setImportReplace(Boolean(mapId));
     setImportOpen(true);
   };
 
@@ -1698,6 +1700,13 @@ export default function TopicalMapPage() {
     setImportError('');
     setImportDetailErrors(null);
     setImportResult(null);
+    const replaceId = importReplace && mapId ? mapId : null;
+    if (replaceId) {
+      const ok = window.confirm(
+        'Replace the currently selected map? The old map is deleted only after the new import succeeds. Slugs from the old map are freed so the new tree can use clean URLs.',
+      );
+      if (!ok) return;
+    }
     setImporting(true);
     try {
       let res;
@@ -1707,13 +1716,18 @@ export default function TopicalMapPage() {
         res = await fetch('/api/admin/topical-map/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ sheet_url: url, map_name: importName.trim() || undefined }),
+          body: JSON.stringify({
+            sheet_url: url,
+            map_name: importName.trim() || undefined,
+            ...(replaceId ? { replace_map_id: replaceId } : {}),
+          }),
         });
       } else {
         if (!importFile) throw new Error('Choose a .xlsx or .csv file');
         const fd = new FormData();
         fd.append('file', importFile);
         if (importName.trim()) fd.append('map_name', importName.trim());
+        if (replaceId) fd.append('replace_map_id', replaceId);
         res = await fetch('/api/admin/topical-map/import', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
@@ -2409,6 +2423,23 @@ export default function TopicalMapPage() {
                   className="search-input w-full"
                 />
               </div>
+            )}
+
+            {mapId && (
+              <label className="mt-4 flex items-start gap-2 text-sm text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={importReplace}
+                  onChange={(e) => setImportReplace(e.target.checked)}
+                />
+                <span>
+                  Replace current map after a successful import
+                  <span className="block text-xs text-gray-500 mt-0.5">
+                    Frees the old map&apos;s slugs first, then deletes it only when the new tree persists. Leave unchecked to stack another map (slugs get -2/-3 suffixes).
+                  </span>
+                </span>
+              </label>
             )}
 
             {importResult && (

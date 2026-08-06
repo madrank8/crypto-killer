@@ -45,6 +45,32 @@ describe('topical-map sheet import parse', () => {
     })
     assert.equal(row.url_path, '/check/')
   })
+
+  it('does not split Primary Query Cluster on semicolons inside parentheses', () => {
+    const { splitKeywords } = require('../../lib/topical-map/import/field-map')
+    assert.deepEqual(
+      splitKeywords('state of crypto scams (digital PR asset; journalist queries)'),
+      ['state of crypto scams']
+    )
+    assert.deepEqual(splitKeywords('kw one; kw two | kw three'), ['kw one', 'kw two', 'kw three'])
+    assert.deepEqual(splitKeywords('only one'), ['only one'])
+  })
+
+  it('mapPageRow uses cleaned primary keyword when notes are parenthetical', () => {
+    const row = mapPageRow({
+      Section: 'OUTER',
+      Cluster: '7. Data & Link Magnets',
+      'Page Title (Title Tag Style)': 'State of Crypto Scams: Annual Report',
+      'Suggested URL': '/data/state-of-crypto-scams/',
+      'Primary Query Cluster': 'state of crypto scams (digital PR asset; journalist queries)',
+      'Lead KW Volume': '20',
+      KD: '15',
+      'Search Intent': 'Informational',
+      Phase: '3',
+    })
+    assert.equal(row.target_keyword, 'state of crypto scams')
+    assert.deepEqual(row.secondary_keywords, [])
+  })
 })
 
 describe('koray consolidator', () => {

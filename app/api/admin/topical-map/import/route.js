@@ -3,7 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { supaFetch } from '@/lib/supabase'
 import { parseSheetInput, fetchGoogleSheetCsv } from '@/lib/topical-map/import/parse-sheet'
 import { consolidateKoray } from '@/lib/topical-map/import/koray-structure'
-import { persistImportedMap, deleteOrphanMap } from '@/lib/topical-map/import/persist'
+import { persistImportedMap, deleteOrphanMap, retireMapSlugs } from '@/lib/topical-map/import/persist'
 import { validateImportedPages } from '@/lib/topical-map/import/validate-sheet'
 import { assertImportCoverage } from '@/lib/topical-map/import/coverage'
 
@@ -121,6 +121,12 @@ export async function POST(request) {
       structure.pillars?.[0]?.pillar?.target_keyword ||
       parsed.pages.find((p) => p.target_keyword)?.target_keyword ||
       'crypto scams'
+
+    // Free the replaced map's slugs before persist so the new tree can use
+    // clean names. Old topics stay until deleteOrphanMap after success.
+    if (replaceMapId) {
+      await retireMapSlugs(supaFetch, replaceMapId)
+    }
 
     const saved = await persistImportedMap({
       structure,
