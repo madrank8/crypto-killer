@@ -71,6 +71,23 @@ describe('topical-map sheet import parse', () => {
     assert.equal(row.target_keyword, 'state of crypto scams')
     assert.deepEqual(row.secondary_keywords, [])
   })
+
+  it('mapPageRow falls back to title-derived keyword when Primary Query Cluster is paren-only', () => {
+    const row = mapPageRow({
+      Section: 'OUTER',
+      Cluster: '9. Data & Link Magnets',
+      'Page Title (Title Tag Style)':
+        'State of Crypto Scams: Annual Report From 22,000+ Tracked Brands',
+      'Suggested URL': '/research/state-of-crypto-scams/',
+      'Primary Query Cluster': '(digital PR asset; journalist queries)',
+      'Lead KW Volume': '20',
+      KD: '15',
+      'Search Intent': 'Informational',
+      Phase: '2',
+    })
+    assert.equal(row.target_keyword, 'state of crypto scams')
+    assert.deepEqual(row.secondary_keywords, [])
+  })
 })
 
 describe('koray consolidator', () => {
