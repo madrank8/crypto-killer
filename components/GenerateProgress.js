@@ -369,6 +369,80 @@ export function usePolishWithProgress(token) {
   return { isPolishing, progress, step, message, error, result, polish, reset };
 }
 
+/* ─── Hook: useFixAndPublishWithProgress (veto recovery) ─── */
+export function useFixAndPublishWithProgress(token) {
+  const [isRunning, setIsRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [step, setStep] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const reset = useCallback(() => {
+    setIsRunning(false);
+    setProgress(0);
+    setStep('');
+    setMessage('');
+    setError(null);
+    setResult(null);
+  }, []);
+
+  const fixAndPublish = useCallback(async (reviewId) => {
+    if (!reviewId) return;
+    reset();
+    setIsRunning(true);
+    setProgress(2);
+    setStep('load');
+    setMessage('Starting Fix & Publish…');
+
+    try {
+      const res = await fetch(`/api/admin/reviews/${reviewId}/fix-and-publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (typeof data.progress === 'number') setProgress(data.progress);
+            if (data.step) setStep(data.step);
+            if (data.message) setMessage(data.message);
+            if (data.step === 'error') setError(data.message);
+            if (data.result) setResult(data.result);
+          } catch {
+            // Ignore malformed SSE lines
+          }
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+      setStep('error');
+      setMessage(err.message);
+      setProgress(0);
+    } finally {
+      setIsRunning(false);
+    }
+  }, [token, reset]);
+
+  return { isRunning, progress, step, message, error, result, fixAndPublish, reset };
+}
+
 /* ─── Hook: useGenerateWithProgress ─── */
 export function useGenerateWithProgress(token) {
   const [isGenerating, setIsGenerating] = useState(false);

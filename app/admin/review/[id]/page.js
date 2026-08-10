@@ -10,6 +10,7 @@ import {
   GenerateProgressOverlay,
   useGenerateWithProgress,
   usePolishWithProgress,
+  useFixAndPublishWithProgress,
   PolishProgressBanner,
 } from '@/components/GenerateProgress';
 import SeoAeoAudit from '@/components/SeoAeoAudit';
@@ -502,6 +503,9 @@ export default function ReviewEditor({ params }) {
   const [polishBannerDismissed, setPolishBannerDismissed] = useState(false);
   const [polishAutoTriggered, setPolishAutoTriggered] = useState(false);
 
+  // Quality-veto recovery: mechanical fix → re-audit → publish (no override).
+  const fixPublish = useFixAndPublishWithProgress(token);
+
   const [title, setTitle] = useState('');
   const [headline, setHeadline] = useState('');
   const [metaDescription, setMetaDescription] = useState('');
@@ -675,6 +679,20 @@ export default function ReviewEditor({ params }) {
     polishProgress.reset();
     polishProgress.polish(id);
   }, [polishProgress, id]);
+
+  const handleFixAndPublish = useCallback(async () => {
+    if (!id || fixPublish.isRunning) return;
+    await fixPublish.fixAndPublish(id);
+  }, [id, fixPublish]);
+
+  // Refresh editor state when Fix & Publish finishes (published or still blocked).
+  useEffect(() => {
+    if (!fixPublish.step) return;
+    if (fixPublish.step === 'done' || fixPublish.step === 'blocked') {
+      fetchReview();
+    }
+  }, [fixPublish.step, fetchReview]);
+
 
   // Parse evidence images from current article
   const evidenceImages = useMemo(() => parseEvidenceImages(fullArticle), [fullArticle]);
@@ -1221,7 +1239,7 @@ export default function ReviewEditor({ params }) {
         <div className="rounded-xl border border-red-700/50 bg-red-950/40 p-4">
           <div className="flex items-start gap-3">
             <span className="text-red-400 text-lg leading-none mt-0.5">⛔</span>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-red-300 mb-1">
                 Publish blocked — quality audit VETO
               </p>
@@ -1242,8 +1260,81 @@ export default function ReviewEditor({ params }) {
                   </ul>
                 </details>
               )}
+
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={handleFixAndPublish}
+                  disabled={
+                    fixPublish.isRunning ||
+                    polishProgress.isPolishing ||
+                    gen.isGenerating ||
+                    publishing
+                  }
+                  title="Applies safe automatic fixes, re-runs the audit, and publishes only if the gate clears"
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                >
+                  {fixPublish.isRunning
+                    ? (fixPublish.message || 'Fixing…')
+                    : 'Fix & Publish'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setPolishBannerDismissed(false); polishProgress.polish(id); }}
+                  disabled={fixPublish.isRunning || polishProgress.isPolishing || gen.isGenerating}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-red-700/50 text-red-200/80 hover:text-white hover:border-red-500/60 disabled:opacity-50"
+                >
+                  Re-run Polish
+                </button>
+              </div>
+
+              {fixPublish.isRunning && (
+                <p className="text-xs text-emerald-300/80 mt-2">
+                  {fixPublish.progress}% — {fixPublish.message || fixPublish.step}
+                </p>
+              )}
+
+              {fixPublish.step === 'blocked' && fixPublish.result && (
+                <div className="mt-3 rounded-lg border border-amber-700/40 bg-amber-950/30 p-3 space-y-2">
+                  <p className="text-xs font-medium text-amber-200">
+                    Still blocked after automatic fixes
+                  </p>
+                  {Array.isArray(fixPublish.result.applied) && fixPublish.result.applied.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-emerald-400/80 mb-1">Applied</p>
+                      <ul className="text-xs text-emerald-100/80 list-disc pl-4 space-y-0.5">
+                        {fixPublish.result.applied.map((a, i) => (
+                          <li key={i}>{a.what || a.key}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(fixPublish.result.unfixable) && fixPublish.result.unfixable.length > 0 && (
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-amber-400/80 mb-1">Needs a human</p>
+                      <ul className="text-xs text-amber-100/80 list-disc pl-4 space-y-0.5">
+                        {fixPublish.result.unfixable.map((u, i) => (
+                          <li key={i}>{u.operator_action || u.reason}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(fixPublish.result.reasons) && fixPublish.result.reasons.length > 0 && (
+                    <ul className="text-xs text-red-200/80 list-disc pl-4 space-y-0.5">
+                      {fixPublish.result.reasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {fixPublish.error && (
+                <p className="text-xs text-red-300 mt-2">{fixPublish.error}</p>
+              )}
+
               <p className="text-xs text-red-300/70 mt-2">
-                Fix the flagged issues (edit the content or the brand data), then re-run <b>Polish</b> to re-audit. Publish stays blocked until the audit passes.
+                Fix &amp; Publish applies only proven mechanical fixes (e.g. Action Fraud contact linking). For everything else, edit the content or brand data, then re-run Polish.
               </p>
             </div>
           </div>
@@ -1293,7 +1384,7 @@ export default function ReviewEditor({ params }) {
              generate or a SpyOwl cookie refresh. */}
           <button
             onClick={() => { setPolishBannerDismissed(false); polishProgress.polish(id); }}
-            disabled={polishProgress.isPolishing || gen.isGenerating}
+            disabled={polishProgress.isPolishing || gen.isGenerating || fixPublish.isRunning}
             title="Re-run visuals, quality audit & ad-evidence embedding — without regenerating the article text (saves tokens)"
             className="flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg bg-sky-600/10 text-sky-400 hover:bg-sky-600/20 border border-sky-600/20 transition disabled:opacity-50"
           >

@@ -1,11 +1,8 @@
 import { revalidatePath } from 'next/cache'
 import { supabaseRequest } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { checkReviewIntegrity } from '@/lib/review-integrity'
+import { runReviewQualityAudit, PIPELINE_VERSION } from '@/lib/run-review-quality-audit'
 import { callModel, extractJSON } from '@/lib/ai-models'
-import { buildReviewSchema } from '@/lib/review-schema'
-import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { dedupeCelebrityList, classifyThreat } from '@/lib/threat-score'
 import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
@@ -18,8 +15,6 @@ import { generateArticleImages } from '@/lib/images'
 // that fails is logged and skipped — the whole run still lands at
 // generation_status='polished' so the UI unblocks.
 export const maxDuration = 300
-
-const PIPELINE_VERSION = 'multi-agent-v1.1-split'
 
 async function patchReview(id, patch) {
   await supabaseRequest(`/reviews?id=eq.${id}`, {
@@ -161,143 +156,37 @@ export async function POST(request, { params }) {
 
           // ─── PHASE B.2: AUDIT ──────────────────────────────────────────
           send({ step: 'audit', progress: 50, message: 'Running quality audit…' })
+          let auditHardFail = false
+          let auditHardFailReason = null
+          let auditTrustIndicators = null
           try {
-            // Rebuild enough context to call the auditor.
-            const currentDate = review.review_date || new Date().toISOString().split('T')[0]
-            const longevityDays = review.trust_indicators?.investigation_period_days ||
-              (brandData.last_seen_at && brandData.first_seen_at
-                ? Math.max(1, Math.round((new Date(brandData.last_seen_at) - new Date(brandData.first_seen_at)) / 86400000))
-                : 0)
-
-            const reviewContent = {
-              title: review.title,
-              headline: review.headline,
-              meta_description: review.meta_description,
-              summary: review.summary,
-              how_it_works: review.how_it_works,
-              red_flags: review.red_flags || [],
-              verdict: review.verdict,
-              faq: review.faq || [],
-              // Internal links live in this array (real published siblings carry
-              // target_slug; they render as the deterministic comparables table,
-              // which is assembled HTML the auditor never sees). Without this the
-              // link_audit false-reported "zero internal links" on every review
-              // that had a full comparables table.
-              internal_links: review.internal_links || [],
-              key_takeaways: review.key_takeaways || [],
-              not_for_you: review.not_for_you,
-              protection_steps: review.protection_steps,
-              experience_signals: review.experience_signals || [],
-              expertise_depth: review.expertise_depth,
-              methodology: review.methodology,
-              sources: review.sources || [],
-              disclaimer: review.disclaimer,
-              // Include the typed entity so the auditor can confirm
-              // item_reviewed.type directly (was only visible in the truncated
-              // SCHEMA JSON-LD, causing false "not typed" hard fails).
-              item_reviewed: review.item_reviewed || null,
-              // Schema enrichment fields (audit 2026-07-08): the hard-fail
-              // rules check schema_enrichment.dataset.spatialCoverage,
-              // schema_enrichment.claims[i].* and item_list counts. These
-              // live on the review row but were previously invisible to the
-              // re-audit (the rebuilt tempSchema omitted them and the 12k
-              // JSON-LD slice truncates the tail of the @graph), so every
-              // re-polish false-hard-failed with "spatialCoverage missing"
-              // even when the stored dataset had full coverage — the veto
-              // loop that stranded review fbbd3800.
-              schema_enrichment: {
-                dataset: review.dataset || null,
-                claims: review.claims || [],
-                item_list: review.item_list || null,
-                citations: review.citations || [],
-              },
-            }
-
-            // Real celebrity names (the raw celebrity_list stores comma-joined
-            // compound strings, so total_celebrities under-counts — e.g. 2 array
-            // elements holding 4 names). Pass the deduped/split names so the
-            // auditor cross-checks against the true roster, not a wrong count.
-            const auditBrandData = {
-              ...brandData,
-              celebrity_names: dedupeCelebrityList(brandData.celebrity_list || []),
-            }
-
-            const tempSchema = buildReviewSchema({
-              reviewContent,
-              brandData,
-              slug: review.slug,
-              currentDate,
-              wordCount: review.word_count || 0,
-              longevityDays,
-              // Keep schema polarity aligned with the stored tier instead of
-              // buildReviewSchema's internal fallback.
-              threat: classifyThreat(brandData.scam_score ?? 0),
-              // Enrichment payload from the review row (audit 2026-07-08):
-              // without these the rebuilt schema shipped NO Dataset/ItemList/
-              // citation nodes, so the auditor hard-failed spatialCoverage on
-              // every re-polish even though the row's dataset had it.
-              dataset: review.dataset || null,
-              claims: Array.isArray(review.claims) ? review.claims : [],
-              // item_list is stored as { name, description, items: [...] };
-              // buildReviewSchema wants the flat items array.
-              itemList: Array.isArray(review.item_list?.items)
-                ? review.item_list.items
-                : (Array.isArray(review.item_list) ? review.item_list : []),
-              typedCitations: Array.isArray(review.citations) ? review.citations : [],
+            const auditReview = { ...review, full_article: fullArticle }
+            const auditOut = await runReviewQualityAudit(auditReview, brandData, {
+              onProgress: (msg) => send({ step: 'audit_retry', progress: 55, message: msg }),
             })
+            auditReport = auditOut.auditReport
+            auditActualModel = auditOut.auditActualModel
+            auditHardFail = auditOut.audit_hard_fail
+            auditHardFailReason = auditOut.audit_hard_fail_reason
+            auditTrustIndicators = auditOut.trust_indicators
 
-            const auditPromptData = qualityAuditorPrompt()
-            const auditUserMsg = auditPromptData.userTemplate(
-              reviewContent,
-              auditBrandData,
-              review.sources || [],
-              tempSchema,
-            )
-
-            // Cross-vendor audit restored (audit 2026-07-05, W4a): GPT-5.4
-            // Mini gives a fresh-perspective gate over Claude-written prose —
-            // same-family self-audit is systematically more lenient. The
-            // original pin was abandoned because callOpenAI sent the legacy
-            // `max_tokens` param (400s on GPT-5.x); ai-models.js now sends
-            // `max_completion_tokens`. Claude Sonnet remains the fallback so
-            // an OpenAI outage can't wedge polishing. Haiku is deliberately
-            // NOT in this chain anymore — the weakest model in the map must
-            // not be the sole publish gate.
-            // GPT-5.4 Mini at high reasoning effort — cross-vendor judge — with
-            // Claude Sonnet (4.6) as the reliability fallback. Kept in sync with
-            // the content auditor (content/fill + content/[id]/audit). These are
-            // the callable IDs; `gpt-5.4`/`claude-sonnet-4-7` 403/404'd live.
-            const auditModels = ['gpt-5.4-mini', 'claude-sonnet']
-
-            let auditResult = null
-            for (const modelKey of auditModels) {
-              try {
-                auditResult = await callModel(modelKey, auditPromptData.system, auditUserMsg, {
-                  jsonMode: true,
-                  effort: 'high',
-                })
-                break
-              } catch (modelErr) {
-                console.error(`[polish] Audit model ${modelKey} failed:`, modelErr.message)
-                if (modelKey === auditModels[auditModels.length - 1]) throw modelErr
-                send({ step: 'audit_retry', progress: 55, message: `${modelKey} unavailable, retrying…` })
-              }
+            if (auditReport) {
+              finalStats.audit = true
+              const grade = auditReport.grade || '?'
+              const score = auditReport.overall_score || 0
+              const critCount = (auditReport.critical_fixes || []).length
+              send({
+                step: 'audit_done',
+                progress: 70,
+                message: `Audit: ${grade} (${score}/100) — ${critCount} critical fix${critCount !== 1 ? 'es' : ''}`,
+              })
+            } else {
+              send({
+                step: 'audit_skip',
+                progress: 70,
+                message: `Audit skipped: ${auditActualModel || 'no report'}`,
+              })
             }
-
-            auditReport = extractJSON(auditResult.text)
-            auditActualModel = auditResult.usedFallback
-              ? `${auditResult.resolvedModel} (fallback from ${auditResult.fallbackFrom})`
-              : auditResult.label || auditResult.resolvedModel
-
-            finalStats.audit = true
-            const grade = auditReport.grade || '?'
-            const score = auditReport.overall_score || 0
-            const critCount = (auditReport.critical_fixes || []).length
-            send({
-              step: 'audit_done',
-              progress: 70,
-              message: `Audit: ${grade} (${score}/100) — ${critCount} critical fix${critCount !== 1 ? 'es' : ''}`,
-            })
           } catch (auditError) {
             console.error('[polish] Quality audit failed:', auditError.message)
             auditActualModel = `failed (${auditError.message.slice(0, 100)})`
@@ -380,7 +269,7 @@ export async function POST(request, { params }) {
           // ─── PHASE B.4: SAVE EVERYTHING ────────────────────────────────
           send({ step: 'saving', progress: 93, message: 'Saving polished review…' })
 
-          const trustIndicators = {
+          const trustIndicators = auditTrustIndicators || {
             ...(review.trust_indicators || {}),
             pipeline_version: PIPELINE_VERSION,
             audit_model: auditActualModel || null,
@@ -389,27 +278,8 @@ export async function POST(request, { params }) {
             audit_critical_fixes: auditReport?.critical_fixes || [],
           }
 
-          // Persist the auditor VETO verdict so the publish gate can block on
-          // it (the audit is no longer advisory-only). hard_fail_checks.any_hard_fail
-          // → audit_hard_fail; the reason → audit_hard_fail_reason.
-          const llmHardFail = auditReport?.hard_fail_checks?.any_hard_fail === true
-          const llmHardFailReason = llmHardFail
-            ? (auditReport?.hard_fail_checks?.hard_fail_reason || 'Quality auditor flagged a hard fail (see critical_fixes).')
-            : null
-
-          // Deterministic checks the LLM auditor structurally cannot perform: it
-          // reads the article, so it has no way to know what the database
-          // currently says. Score drift went undetected on 25 of 27 stale reviews
-          // because of exactly that blind spot. These are pure comparisons.
-          const integrity = checkReviewIntegrity({
-            review: { ...review, full_article: fullArticle, scam_score: review.scam_score, title: review.title },
-            brand: brandData,
-          })
-
-          const hardFail = llmHardFail || !integrity.ok
-          const hardFailReason = [llmHardFailReason, integrity.hardFailReason]
-            .filter(Boolean)
-            .join(' || ') || null
+          const hardFail = auditHardFail
+          const hardFailReason = auditHardFailReason
 
           const polishPatch = {
             // Only persist full_article when this run modified it — see the
