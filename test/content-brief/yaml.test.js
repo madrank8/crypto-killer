@@ -88,6 +88,36 @@ test('nested structures round-trip: internal links, claim categories, headings',
   assert.equal(parsed.heading_structure[0].heading_level, 'H2')
 })
 
+test('v1.6 locale, faq_sweep, and ple_unit survive YAML round-trip', () => {
+  const b = brief()
+  const { brief: enriched } = mergeEnrichment(b, {
+    faq_sweep: {
+      carrier_h2: 'Common Questions About Rug Pulls',
+      items: [{
+        question: 'What is a soft rug?',
+        query_cluster: 'soft rug pull',
+        volume: PLACEHOLDER.NO_DATA,
+        answer_target: 'A soft rug drains value slowly via tax or unlocks rather than an instant LP pull.',
+        schema_eligible: true,
+      }],
+    },
+    heading_structure: b.heading_structure.map((h) => ({
+      h2: h.h2,
+      ple_unit: { pixel: 'figure', letter: 'prose', byte: 'Article' },
+    })),
+  })
+  const parsed = roundTrip(enriched)
+  assert.equal(parsed.locale, 'en-US')
+  assert.equal(parsed.orthography_notes, '')
+  assert.equal(parsed.faq_sweep.carrier_h2, 'Common Questions About Rug Pulls')
+  assert.equal(parsed.faq_sweep.items[0].volume, PLACEHOLDER.NO_DATA)
+  assert.equal(parsed.heading_structure[0].ple_unit.pixel, 'figure')
+  const y = toYaml(enriched)
+  assert.match(y, /v1\.6/)
+  assert.ok(y.indexOf('content_format') < y.indexOf('locale'))
+  assert.ok(y.indexOf('heading_structure') < y.indexOf('faq_sweep'))
+})
+
 // ── Export hygiene ──────────────────────────────────────────────────────────
 test('internal bookkeeping keys are stripped from the handoff', () => {
   const y = toYaml(brief())

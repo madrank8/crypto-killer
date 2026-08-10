@@ -3,6 +3,8 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { verifySourceLedger } from '@/lib/source-verify'
 import { formatBriefForPrompt } from '@/lib/topical-map/content-brief'
+import { formatFullBriefForPrompt } from '@/lib/content-brief/prompt'
+import { requireSullivanBrief } from '@/lib/content-brief/gate'
 import { resolveResearchLedger, saveResearchLedger } from '@/lib/research-ledger'
 
 export const maxDuration = 120
@@ -16,7 +18,7 @@ export const maxDuration = 120
  * Saves: title, headline, meta_description, sections (outline), faq, sources
  */
 
-function outlineGeneratorPrompt({ topic, parentTopic, sourceLedger }) {
+function outlineGeneratorPrompt({ topic, parentTopic, sourceLedger, contentBrief }) {
   const currentYear = new Date().getFullYear()
   const topicTitle = topic?.title || 'Untitled Topic'
   const topicKeyword = topic?.target_keyword || topicTitle
@@ -61,6 +63,8 @@ ${topic?.content_type === 'discover'
   : `Rules:
 - 5-8 sections total.
 - Each section should target 120-260 words in the final article.
+- Prefer the APPROVED CONTENT BRIEF heading skeleton order and starting_statement guidance when provided.
+- Fold faq_sweep items into FAQ when present.
 - At least 3 of the H2 headings MUST use question format (e.g., "How Do Scammers Fabricate Profits?" not "The Technology Scammers Use"). Critical for AI Overview extraction.
 - 4-8 FAQ items.
 - Include concrete, specific section headings (not generic).
@@ -68,21 +72,19 @@ ${topic?.content_type === 'discover'
 - YMYL content: include safety actions and reporting channels where relevant.
 - Assume ${currentYear} context.
 - BANNED phrases: "In today's rapidly evolving", "It's important to note", "Let's dive in", "landscape", "crucial", "comprehensive", "robust", "deep dive", "delve", "journey"
-- Sources must be real, navigable URLs.`}`
+- Sources must be real, navigable URLs.
+- Name collision: topics.content_type (pillar_page/guide/…) is map page format. Sullivan content_type (case_study/firsthand_review/…) is SC-098 — never treat pillar_page as Sullivan.`}`
 
-  // Topical-map brief: turns the topic's map metadata (content_format, schema_type,
-  // node_function, PAA questions, AIO risk, url_path, …) into explicit production
-  // directives. Empty string when the topic carries no such metadata (additive).
-  // Suppressed in Discover mode: the brief is answer-first/extraction-forward, the
-  // exact inverse of Discover's delayed-answer, no-question-format H2 strategy — so
-  // injecting it there would fight the mode's own rules.
+  // Lightweight map directives (format/schema/PAA) — separate from the full brief.
   const mapBrief = topic?.content_type === 'discover' ? '' : formatBriefForPrompt(topic, { parentTopic })
+  const fullBrief = topic?.content_type === 'discover' ? '' : formatFullBriefForPrompt(contentBrief)
 
   const user = `Create an article outline for:
 
 TOPIC: ${topicTitle}
 PRIMARY KEYWORD: ${topicKeyword}
 ${parentTitle ? `PARENT PILLAR/CLUSTER: ${parentTitle}` : ''}
+${fullBrief ? `\n${fullBrief}\n` : ''}
 ${mapBrief ? `\n${mapBrief}\n` : ''}
 TOPIC DETAILS:
 ${JSON.stringify(topic || {}, null, 2)}
@@ -190,9 +192,27 @@ export async function POST(request) {
           }
           if (!topic) throw new Error('Linked topic not found')
 
+          const gate = await requireSullivanBrief({
+            topicId: content.topic_id,
+            contentType: topic.content_type,
+          })
+          if (!gate.ok) {
+            send({
+              step: 'error',
+              status: 'failed',
+              error: true,
+              code: gate.code,
+              message: gate.error,
+              topic_id: gate.topic_id,
+            })
+            controller.close()
+            return
+          }
+          const contentBrief = gate.brief
+
           let parentTopic = null
           if (topic.parent_id) {
-            const parentRows = await supaFetch(`/topics?id=eq.${topic.parent_id}&select=id,title,target_keyword,content_type&limit=1`)
+            const parentRows = await supaFetch(`/topics?id=eq.${topic.parent_id}&select=id,title,target_keyword,content_type,url_path,slug&limit=1`)
             parentTopic = Array.isArray(parentRows) ? parentRows[0] : null
           }
 
@@ -265,7 +285,7 @@ export async function POST(request) {
           let outline = null
           let outlineModel = 'deterministic-fallback'
 
-          const prompt = outlineGeneratorPrompt({ topic, parentTopic, sourceLedger })
+          const prompt = outlineGeneratorPrompt({ topic, parentTopic, sourceLedger, contentBrief })
 
           const attempts = [
             { model: 'claude-sonnet', timeoutMs: 90000, label: 'sonnet-primary' },

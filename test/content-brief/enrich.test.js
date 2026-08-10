@@ -207,6 +207,48 @@ test('per-heading source_ledger_seeds are identifier-guarded too', () => {
   assert.ok(!row.source_ledger_seeds[0].includes('https://'))
 })
 
+test('ple_unit can be filled on measured headings', () => {
+  const base = assembled()
+  const paaH2 = base.heading_structure.find((h) => h._seed_source === 'serp_paa').h2
+  const { brief } = mergeEnrichment(base, {
+    heading_structure: [{
+      h2: paaH2,
+      ple_unit: { pixel: 'diagram of liquidity drain', letter: 'definitional prose', byte: 'FAQPage candidate' },
+    }],
+  })
+  const row = brief.heading_structure.find((h) => h.h2 === paaH2)
+  assert.equal(row.ple_unit.pixel, 'diagram of liquidity drain')
+  assert.equal(row.ple_unit.byte, 'FAQPage candidate')
+})
+
+test('faq_sweep accepts items but discards invented volumes', () => {
+  const base = assembled()
+  const { brief, rejected } = mergeEnrichment(base, {
+    faq_sweep: {
+      carrier_h2: 'Common Questions About Rug Pulls',
+      items: [{
+        question: 'Can you recover funds after a rug pull?',
+        query_cluster: 'rug pull recovery',
+        volume: 1200,
+        answer_target: 'Recovery is rare once liquidity is drained; report and preserve evidence first.',
+        schema_eligible: true,
+      }],
+    },
+  })
+  assert.equal(brief.faq_sweep.items.length, 1)
+  assert.equal(brief.faq_sweep.items[0].volume, PLACEHOLDER.NO_DATA)
+  assert.ok(rejected.some((r) => r.field === 'faq_sweep.items.volume'))
+})
+
+test('locale and orthography_notes are protected from the model', () => {
+  const base = assembled()
+  assert.equal(base.locale, 'en-US')
+  const { brief, rejected } = mergeEnrichment(base, { locale: 'de-CH', orthography_notes: 'ss never ß' })
+  assert.equal(brief.locale, 'en-US')
+  assert.equal(brief.orthography_notes, '')
+  assert.ok(rejected.some((r) => r.field === 'locale'))
+})
+
 // ── Normal enrichment + robustness ───────────────────────────────────────────
 test('enrichable creative fields are written through', () => {
   const { brief, enriched } = mergeEnrichment(assembled(), {

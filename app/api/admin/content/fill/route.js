@@ -10,6 +10,7 @@ import { resolveArticleEnrichment } from '@/lib/schema-enrichment-resolver'
 import { buildArticleHtml } from '@/lib/article-html'
 import { buildAiDisclosure } from '@/lib/ai-disclosure'
 import { stampAudit } from '@/lib/audit-freshness'
+import { requireSullivanBrief } from '@/lib/content-brief/gate'
 
 export const maxDuration = 300
 
@@ -162,6 +163,23 @@ export async function POST(request) {
             topic = Array.isArray(topicRows) ? topicRows[0] : null
           }
           if (!topic) throw new Error('Linked topic not found')
+
+          const gate = await requireSullivanBrief({
+            topicId: content.topic_id,
+            contentType: topic.content_type,
+          })
+          if (!gate.ok) {
+            send({
+              step: 'error',
+              status: 'failed',
+              error: true,
+              code: gate.code,
+              message: gate.error,
+              topic_id: gate.topic_id,
+            })
+            controller.close()
+            return
+          }
 
           // ── SELECT CONTENT-TYPE-AWARE WRITER PERSONA (after topic is loaded) ──
           const persona = selectPersona({

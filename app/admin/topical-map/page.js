@@ -584,13 +584,19 @@ function ContentBriefPanel({ topic, token }) {
         {row?.status && <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-gray-600/40 text-gray-400">{row.status}</span>}
       </div>
 
+      <p className="text-[11px] text-gray-500 mb-2">
+        Sullivan <span className="text-gray-300">content_type</span> is SC-098 (case study, firsthand review, …).
+        It is <span className="text-amber-300/90">not</span> the map field{' '}
+        <span className="text-gray-300">topics.content_type</span> ({topic?.content_type?.replace(/_/g, ' ') || 'pillar_page / guide / …'}).
+      </p>
+
       <p className="text-gray-400 mb-2">
-        A brief may only be generated for <span className="text-gray-200">non-commodity</span> content. Declare a content type and supply
+        A brief may only be generated for <span className="text-gray-200">non-commodity</span> content. Declare a Sullivan content type and supply
         its forcing inputs — these come from you, the team, or the dataset. They are never inferred.
       </p>
 
       <label className="block text-[11px] text-gray-500 mb-2">
-        Content type
+        Sullivan content type (SC-098)
         <select
           className="search-input w-full text-xs mt-0.5"
           value={contentType}
