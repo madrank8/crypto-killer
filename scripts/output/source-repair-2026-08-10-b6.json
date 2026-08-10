@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-08-10T08:33:23.561Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "celebrities-promoting-crypto-scams",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-red-flags",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "romance-scammer-red-flags",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/romance-scams",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

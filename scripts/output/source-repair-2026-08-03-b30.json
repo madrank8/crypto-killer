@@ -1,0 +1,24 @@
+{
+  "ranAt": "2026-08-03T05:10:47.954Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "crypto-scam",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-atm-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "paypal-crypto-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}

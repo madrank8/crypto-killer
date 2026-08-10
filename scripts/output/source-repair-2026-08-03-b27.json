@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-08-03T05:10:39.691Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "list-of-fake-crypto-trading-websites",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "fake-crypto-website",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-list",
+      "total": 2,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}
