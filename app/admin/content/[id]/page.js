@@ -328,6 +328,8 @@ export default function ContentEditorPage({ params }) {
   // reasons[] list so the user sees exactly which checks failed instead of
   // a single opaque "Publish blocked by quality gate" string.
   const [publishGate, setPublishGate] = useState(null);
+  const [fixingQuality, setFixingQuality] = useState(false);
+  const [qualityFixReport, setQualityFixReport] = useState(null);
   const [aeoFixing, setAeoFixing] = useState(false);
   const [aeoFixingId, setAeoFixingId] = useState(null);
   const [editorKey, setEditorKey] = useState(0);
@@ -595,6 +597,70 @@ export default function ContentEditorPage({ params }) {
       setError(e.message);
     } finally {
       setPublishing(false);
+    }
+  };
+
+  /* -- Quality Fix Agent: safe auto-fixes → reaudit → publish if hard fails clear -- */
+  const fixAndPublish = async () => {
+    if (!token || !id) return;
+    setFixingQuality(true);
+    setQualityFixReport(null);
+    setError('');
+    setMsg('Running quality fix…');
+    try {
+      await save();
+      const res = await fetch(`/api/admin/content/${id}/quality-fix`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_publish: true }),
+      });
+      if (!res.ok || !res.body) throw new Error('Quality fix failed to start');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let final = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.step === 'done' || data.step === 'needs_review' || data.step === 'error') {
+              final = data;
+            } else if (data.message) {
+              setMsg(data.message);
+            }
+          } catch {
+            /* ignore malformed SSE lines */
+          }
+        }
+      }
+      setQualityFixReport(final);
+      if (final?.published) {
+        setPublishGate(null);
+        setMsg('Published after quality fix');
+        await reloadContent();
+      } else if (final?.step === 'error') {
+        setError(final.message || 'Quality fix failed');
+        setMsg('');
+      } else if (final) {
+        // needs_review — keep gate open, reload so editor shows applied patches
+        setMsg(final.message || 'Quality fix finished — still needs review before publish');
+        await reloadContent();
+      } else {
+        setError('Quality fix returned no result');
+        setMsg('');
+      }
+    } catch (e) {
+      setError(e.message);
+      setMsg('');
+    } finally {
+      setFixingQuality(false);
     }
   };
 
@@ -1063,6 +1129,15 @@ export default function ContentEditorPage({ params }) {
                 {publishing ? 'Auditing…' : 'Re-run Audit'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={fixAndPublish}
+              disabled={publishing || saving || fixingQuality}
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+              title="Applies safe automatic fixes, re-runs the audit, and publishes only if hard fails clear."
+            >
+              {fixingQuality ? 'Fixing…' : 'Fix & Publish'}
+            </button>
             {/* Escape hatch — never trapped. Ships past the gate, recording the
                 bypassed reasons on the row. Deliberately styled as a
                 last-resort, not a primary action. */}
@@ -1076,7 +1151,7 @@ export default function ContentEditorPage({ params }) {
                     publishAction('publish', { override: true });
                   }
                 }}
-                disabled={publishing || saving}
+                disabled={publishing || saving || fixingQuality}
                 className="text-xs px-3 py-1.5 rounded-lg border border-red-700/60 text-red-300 hover:text-white hover:bg-red-700/40 disabled:opacity-50"
                 title="Bypass the quality gate and publish. Records the bypassed reasons on the row."
               >
@@ -1084,6 +1159,54 @@ export default function ContentEditorPage({ params }) {
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Quality Fix Agent report — applied (green) / unfixable (amber) */}
+      {qualityFixReport && (Array.isArray(qualityFixReport.applied) || Array.isArray(qualityFixReport.unfixable)) && (
+        <div className="rounded-lg border border-gray-700/50 bg-gray-900/40 px-4 py-3 space-y-3">
+          <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+            Quality fix report
+            {qualityFixReport.published ? (
+              <span className="ml-2 normal-case font-normal text-green-400">· published</span>
+            ) : qualityFixReport.step === 'needs_review' ? (
+              <span className="ml-2 normal-case font-normal text-amber-400">· needs review</span>
+            ) : null}
+          </p>
+          {Array.isArray(qualityFixReport.applied) && qualityFixReport.applied.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-green-400 font-medium">Applied ({qualityFixReport.applied.length})</p>
+              <ul className="text-xs text-green-300/90 space-y-1 list-disc pl-5">
+                {qualityFixReport.applied.map((item, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-[10px] text-green-500/80">{item.key || 'fix'}</span>
+                    {item.what ? ` — ${item.what}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {Array.isArray(qualityFixReport.unfixable) && qualityFixReport.unfixable.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-amber-400 font-medium">Unfixable ({qualityFixReport.unfixable.length})</p>
+              <ul className="text-xs text-amber-200/90 space-y-1.5 list-disc pl-5">
+                {qualityFixReport.unfixable.map((item, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-[10px] text-amber-500/80">{item.key || 'unknown'}</span>
+                    {item.reason ? ` — ${item.reason}` : ''}
+                    {item.operator_action ? (
+                      <span className="block text-amber-300/80 mt-0.5 pl-0">
+                        Operator: {item.operator_action}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(!qualityFixReport.applied?.length && !qualityFixReport.unfixable?.length) && (
+            <p className="text-xs text-gray-500">No fixes applied.</p>
+          )}
         </div>
       )}
 
