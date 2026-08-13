@@ -1,27 +1,29 @@
 ---
 name: topical-map-creation
 description: >-
-  Create comprehensive topical maps following Koray Tugberk Gubur's Semantic SEO methodology
-  for building topical authority. Covers audience research, entity identification, knowledge
-  domains, query semantics, ontology, topic generation, RPP filtering, SERP clustering,
-  Quality/Trending Nodes, title tags, URL slugs, meta descriptions, content briefs, internal
-  linking, NavBoost, DataForSEO/Ahrefs automation, and AI Overview strategy. v4.6 adds
-  per-author Author Authority Signature cluster assignment; references/supplementary.md S10b
-  owns visual semantics (layout semantics + page function). Trigger on: "topical map",
-  "content strategy", "keyword map", "topical authority", "what should I write", "build my
-  site structure", "content plan", "local SEO map", "affiliate site architecture", "visual
-  semantics", "layout semantics", "page function", "PM handoff", "sprint plan", "content
-  calendar". Do NOT trigger for individual blog posts; use seo-blog-generator.
+  Create comprehensive topical maps following Koray Tugberk Gubur's Semantic
+  SEO methodology for building topical authority. Covers entities, knowledge
+  domains, query semantics, ontology, topic generation, RPP filtering, SERP
+  clustering, Quality/Trending Nodes, internal linking, NavBoost,
+  DataForSEO/Ahrefs automation, AI Overview strategy, Launch Conditions
+  (v4.7), Reject List + QA layer (v4.8). v4.9 adds the Polarity/Condition
+  modifier axis (with X / without X / painless / after Y) + symptom-variant
+  expander — both poles of a searched attribute are distinct intents. Trigger
+  on: "topical map", "content strategy", "keyword map", "topical authority",
+  "build my site structure", "content plan", "local SEO map", "affiliate site
+  architecture", "PM handoff", "sprint plan", "content calendar", "launch
+  conditions", "page or segment". Do NOT trigger for individual blog posts;
+  use seo-blog-generator.
 metadata:
   author: nirotnt
-  version: '4.6'
+  version: '4.9'
 ---
 
 # Topical Map Creation Skill
 
 A methodology for creating topical maps that build topical authority, based on Koray Tugberk Gubur's *Semantic SEO for Topical Authority* course and supplementary teachings (2024–2026).
 
-**Version history (v4.2 → current):** see `references/changelog.md`. Current version: **v4.6**.
+**Version history (v4.2 → current):** see `references/changelog.md`. Current version: **v4.9**.
 
 ---
 
@@ -43,6 +45,8 @@ This skill uses progressive disclosure. The core workflow is below. Detailed ref
 | `references/case-studies.md` | 2025–2026 case study results and reference examples | Need examples, benchmarks, or proof points |
 | `references/pm-content-plan-spec.md` | Tier 4 PM Content Plan: XLSX workbook structure (6 sheets), writer brief template, sprint assignment logic, difficulty scoring rubric, jargon-to-PM mapping, formatting spec, honesty rules, quality checklist | Generating Tier 4 output — always read before producing PM handoff |
 | `references/author-cluster-assignment.md` *(v4.6)* | Per-author topical authority (Authority Signature, US8458196B1): the one-author-per-cluster assignment rule, the authorship-percent x topic-weight mechanic, map columns, and coverage checks | Phase 6 — when assigning author entities to clusters, or whenever the map must carry author attribution |
+| `references/launch-conditions.md` *(v4.7)* | New-site / zero-history launch mechanics: BQA check → NARROW-ROOT vs WIDE-FIRST breadth, Page-or-Segment (PoS) 4-factor test + PoS map column, launch URL budget, ranking-state KPI ladder (impressions-first, Phase A/B/C), expansion-origin + subfolder-proof selection, Checkpoint 1 declaration block, gate handoffs (AAG NEW-DOMAIN, SCN SQ-07/08/09) | Phase 1 — MANDATORY when Site Type = New Build, site age < 12mo, or central entity has ≈0 impressions; keep open through Phase 4 (PoS) and Phase 6 (budget + ladder) |
+| `references/v48-additions.md` *(v4.8)* | Full specs for the 8 deliverable/QA upgrades: Key Findings (§A), Reject List (§B), journey-stage organization (§C), Bridge Cluster tag (§D), Trending Node lifecycle (§E), Orphan-Reference Check (§F), cross-source volume verification (§G), template-separation notes (§H) | Executing any v4.8 feature — read the relevant section before producing output |
 
 **Repository fallback:** If `references/` files are not found locally (skill directory reset between sessions): fetch from `madrank8/ai-brain/skills/user/topical-map-creation/references/` via GitHub.
 
@@ -85,7 +89,7 @@ Before starting any work, Claude MUST declare which mode applies and state it to
 ### Audit Mode
 
 **Available resources:** An existing topical map provided by the user, plus any tools available.
-**What Claude produces:** Gap analysis, cannibalization review, expansion recommendations, structural critique.
+**What Claude produces:** Gap analysis, cannibalization review, expansion recommendations, structural critique, orphan-reference check (Phase 5.7), and — when data tools are available — a cross-source verification of the map's volume/KD claims per Honesty Rule 9 *(v4.8)*.
 **What Claude does NOT do:** Regenerate the full map from scratch. The audit modifies an existing map.
 
 ---
@@ -106,7 +110,13 @@ Not every invocation needs all tiers. Claude produces Tier 1 by default and asks
 | **Node Type** | Quality Node / Trending Node / Standard |
 | **Fan-Out Tag** *(v4.1)* | Which Quality Node's fan-out tree this topic belongs to (or `—` if not in a tree) |
 | **AIO Risk Score** *(v4.3)* | Low / Medium / High / Critical — read `references/aio-risk-score.md` for scoring rubric |
-| **Notes** | Mode flags, micro-context candidates, scope-creep flags, Node Function tag (`fn:…`) *(v4.4)* |
+| **Bridge Tag** *(v4.8)* | `BRIDGE` if this topic's internal links feed the money pages directly (see Phase 4 step 11), else `—` |
+| **Notes** | Mode flags, micro-context candidates, scope-creep flags, Node Function tag (`fn:…`) *(v4.4)*, template-separation flags *(v4.8)* |
+
+**Tier 1 also always includes two narrative artifacts** *(v4.8 — full specs: `references/v48-additions.md` §A–B)*:
+
+1. **Key Findings from the Data** — 5–7 strategic insights BEFORE the map table (noise share, biggest demand gap, bridge cluster, momentum engine, moat asset). The reader must understand the strategy without decoding the table.
+2. **Reject List** — named deliverable, not an internal step: rejected category → example queries with volume → one-sentence topical-border reason.
 
 > **Preferred-sources mitigation lever (May 2026):** Google's "preferred sources" feature rolled
 > into AI Overviews + AI Mode on May 27, 2026. For High/Critical AIO Risk topics, this is a new
@@ -140,6 +150,7 @@ These rules apply universally. The full restated set lives in `references/proced
 6. **Never claim a Google API signal or patent "confirms" a ranking mechanism.** Use: "The `[signal]` in Google's API documentation suggests..." or "Patent US[X] describes a method for..." Frame all API leak references, patent interpretations, and third-party study statistics as directional heuristics, not confirmed laws.
 7. **Never mark a checklist item as complete without evidence.** Each checkbox must reference the specific output, tool result, or reasoning that satisfies it.
 8. **Never fill Entity Map fields with guesses.** Unresolved is better than wrong. Schema types and entity identities that haven't been verified get `[UNRESOLVED]` or `[PROVISIONAL]` markers.
+9. **Cross-source volume verification** *(v4.8)*. In Tool-Assisted and Audit modes, spot-verify 8–12 representative keywords (incl. every flagship claim) against a second data source; flag **cluster-inflated**, `[DECLINING]` (>50% YoY), and `[SINGLE-SOURCE — directional]` figures. Full flag taxonomy: `references/v48-additions.md` §G.
 
 ---
 
@@ -213,8 +224,9 @@ Read `references/step-overview.md` for the full 31-step procedure overview (Phas
 - **Site Type:** New Build / Existing Expansion / Ecommerce / Blog-Publisher / Local / Affiliate / AI-GEO *(v4.4)* — read `references/site-type-playbooks.md` and apply the matching playbook's defaults (node mix, winning page-type patterns, AIO posture, cannibalization watch-out). If the site spans two types (e.g. publisher + affiliate), name the primary and note the secondary.
 - **Output Tier:** Default Tier 1 unless user requests more
 - **Scope:** How many topics are expected (small niche: 20–40, medium: 40–80, large: 80–150+)
+- **Launch Conditions** *(v4.7)* — if Site Type = New Build, site age < 12 months, or the central entity has ≈0 impressions: read `references/launch-conditions.md` and declare the full Launch Conditions block (BQA state → NARROW-ROOT / WIDE-FIRST breadth, launch URL budget, PoS column ON, ranking-state KPI ladder, gate route, expansion origin). Established properties skip this bullet.
 
-> **⛳ CHECKPOINT 1:** User confirms scope, mode, **site type**, and tier before proceeding.
+> **⛳ CHECKPOINT 1:** User confirms scope, mode, **site type**, tier — and, when applicable, the **Launch Conditions declaration** — before proceeding.
 
 ### Phase 2: Research Foundation
 
@@ -224,8 +236,9 @@ Read `references/step-overview.md` for the full 31-step procedure overview (Phas
 2. Identify knowledge domains and contextual layers
 3. Analyze query semantics and entity elements (all 10 word relation types)
 4. Build the ontology skeleton
+5. **Journey-stage check** *(v4.8)*: if the Central Search Intent has distinct pre/post phases, define a two-phase intent network and organize Core sub-sections by journey stage — demand often concentrates in the neglected post-phase. See `references/v48-additions.md` §C.
 
-**Deliverable:** A structured summary showing the 5 Core Components, knowledge domains, key entity elements (minimum: hypernyms, hyponyms, meronyms, predicates, attributes for the Central Entity), and the ontology skeleton.
+**Deliverable:** A structured summary showing the 5 Core Components, knowledge domains, key entity elements (minimum: hypernyms, hyponyms, meronyms, predicates, attributes for the Central Entity), the ontology skeleton, and the journey-stage decision (single-phase or two-phase, with reasoning).
 
 > **⛳ CHECKPOINT 2:** User reviews foundation. Confirms Core/Outer section boundaries, Central Entity, and Central Search Intent are correct before topic generation begins. This is the most important checkpoint — errors here cascade through the entire map.
 
@@ -265,8 +278,11 @@ Read `references/step-overview.md` for the full 31-step procedure overview (Phas
 7. Flag zero-demand topics as micro-context candidates
 8. Apply Vastness-Depth-Momentum balance
 9. **Assign AIO Risk Score** *(v4.3)* — per `references/aio-risk-score.md`
+10. **Apply Page-or-Segment (PoS)** *(v4.7 — New Build / zero-history properties only)* — per `references/launch-conditions.md` §3. After RPP and the SERP-Overlap tree, run the 4-factor test (independent demand, commercial value, conversion potential, relational depth) per attribute: all four → `page`; any missing → `segment: <host page>`. When PoS and the §1A tree disagree, the stricter (fewer-URLs) verdict wins at launch. Record the resulting **launch URL budget**.
 
-**Deliverable:** Filtered topic list with: Section (Core/Outer), Sub-section, Priority (with reasoning), Intent, SERP-overlap class + cluster decision, Winning Page Type, Node Function *(v4.4)*, AIO Risk Score, and merge/micro-context flags.
+11. **Assign Bridge Cluster tag** *(v4.8)* — tag `BRIDGE` the cluster(s) linking most directly into the money pages and weight them UP one priority tier in RPP; state the bridge logic in Key Findings. See `references/v48-additions.md` §D.
+
+**Deliverable:** Filtered topic list with: Section (Core/Outer), Sub-section, Priority (with reasoning), Intent, SERP-overlap class + cluster decision, Winning Page Type, Node Function *(v4.4)*, AIO Risk Score, **PoS** *(v4.7 — when Launch Conditions apply)*, **Bridge Tag** *(v4.8)*, and merge/micro-context flags.
 
 > **⛳ CHECKPOINT 4:** User reviews filtered and clustered map. Confirms Core/Outer assignments, priority tiers, AIO Risk Scores, and merge decisions before the cannibalization review.
 
@@ -300,7 +316,10 @@ Every topic in the map should plausibly reinforce the site's topical identity. I
 **5.6 Site-Type Watch-Out** *(v4.4)*
 Run the cannibalization risk named for the declared site type in `references/site-type-playbooks.md` § 2.x as a targeted pass (e.g. Affiliate: "best X" vs "X vs Y" vs "X review" overlap; Ecommerce: category vs blog-guide on the same head; Local: near-duplicate service×geo doorway risk; Existing Expansion: new pages colliding with live ranking URLs). Resolve with the §1A decision tree.
 
-**Deliverable:** A cannibalization report showing: merged topics, micro-context reassignments, flagged scope-creep topics, and the clean topic list.
+**5.7 Orphan-Reference Check** *(v4.8)*
+Every URL named in Internal Links / connection-logic columns must exist as a map row or be flagged `[REFERENCED — NOT MAPPED]` with a disposition. E-E-A-T pages (methodology/about/author) are required Core rows when the site makes trust claims; every Phase-1 spoke cluster's hub publishes no later than its spokes. Full procedure: `references/v48-additions.md` §F.
+
+**Deliverable:** A cannibalization report showing: merged topics, micro-context reassignments, flagged scope-creep topics, orphan-reference dispositions *(v4.8)*, and the clean topic list.
 
 > **⛳ CHECKPOINT 5:** User confirms the cleaned map. No topics with unresolved cannibalization or unjustified scope expansion proceed to the build phase.
 
@@ -308,14 +327,18 @@ Run the cannibalization risk named for the declared site type in `references/sit
 
 **Tier 1 output** (always produced):
 
-Produce the Tier 1 Strategic Map table (Section, Sub-section, Raw Topic, Search Intent [now 5 types], Priority with reasoning, Node Type, Fan-Out Tag, AIO Risk Score, Notes).
+Produce the Tier 1 Strategic Map table (Section, Sub-section, Raw Topic, Search Intent [now 5 types], Priority with reasoning, Node Type, Fan-Out Tag, AIO Risk Score, PoS *(v4.7 — when Launch Conditions apply)*, Bridge Tag *(v4.8)*, Notes).
 
 Plus:
+- **Key Findings from the Data** *(v4.8)* — the 5–7 insight narrative, placed before the map table
+- **Reject List** *(v4.8)* — the named deliverable per the Tier 1 spec
 - 5 Core Components summary
 - Quality Nodes (2–5) identified with reasoning + fan-out trees
-- Trending Nodes identified with reasoning
+- Trending Nodes identified with reasoning + **lifecycle rule** *(v4.8)*: publish during the spike at a dateless URL → evergreen-ify post-spike → rolling sections state a committed cadence; sunset only when no evergreen reframe exists (`references/v48-additions.md` §E)
 - Core ↔ Outer connection logic (which Outer sub-sections support which Core sub-sections)
+- **Template-separation notes** *(v4.8)*: flag trust-differentiated page classes (e.g., safety reports vs scam investigations) for visually distinct templates; record in Notes (`references/v48-additions.md` §H)
 - **Author-entity assignment** *(v4.6)* — one named author entity per Core/Outer sub-section (cluster). Record per cluster; concentration compounds per-author topical authority (Authority Signature). See Foundational Theory → Author Authority Signature and `references/author-cluster-assignment.md`.
+- **Launch Conditions block** *(v4.7 — when applicable)* — restate the Checkpoint 1 declaration against the built map: launch breadth honored (NARROW-ROOT wave scoped to root taxonomy / WIDE-FIRST coverage present), launch URL budget met post-PoS, wave-1 scope (or subfolder-proof cluster) named, expansion-origin node identified. See `references/launch-conditions.md` §4, §7, §8.
 
 > **GUARDRAIL (Google AI guide, May 2026):** Google confirmed query fan-out as the AI Mode
 > retrieval mechanism, but warns that creating separate content for every query variation
@@ -327,14 +350,14 @@ Plus:
 
 **Tier 2 output** (if requested — adds publishing metadata):
 
-For each topic, add: Title Tag, URL Slug, Meta Description, Image URL Slug, Image Alt Text, Internal Link Targets, Schema Type, **Content Format** *(v4.1)*, **Fan-Out Tag** *(v4.1)*.
+For each topic, add: Title Tag, URL Slug, Meta Description, Image URL Slug, Image Alt Text, Internal Link Targets, Schema Type, **Content Format** *(v4.1)*. (Fan-Out Tag is a Tier 1 column, not Tier 2 — schema reconciled v4.9; the three Tier 2 statements in this file now agree.)
 
 > Read `references/procedure-detailed.md` Steps 15–20 for methodology. Read `references/v41-additions.md` Sections G and A for Format and Fan-Out tag guidance.
 
 **Tier 3 output** (if requested — adds production handoff):
 
 - Entity Map with honest `[UNRESOLVED]` markers for any unverified field — include the per-cluster **Author Entity -> Person @id -> sameAs** so `schema-markup-generator` can emit the authorship attribution layer *(v4.6)*
-- Publication plan (order, frequency, priority tiers) — **with velocity governance.** Match the publishing rate to the *site's own baseline and editorial capacity*, not an absolute number: an established property publishing steadily can sustain volume a new domain cannot. Jitter the cadence (avoid identical daily counts and same-day bursts), ramp new corpora gradually, and never dump a whole sprint in one spike. This is the planning-side control for the gate's R44 publish-velocity lens (`algorithmic-authorship-gate` BATCH): a velocity spike relative to baseline (≈10× historical) is a documented SpamBrain scaled-content-abuse signal, independent of per-article quality — and there is no AI-text ranking factor, so what's measured is *sameness/velocity*, not authorship. When a BATCH audit returns a low Fingerprint Diffusion Score driven by D4 (velocity), the fix lives here — throttle and jitter the schedule; it is not a content rewrite. Pair with `seo-blog-generator`'s Step 4 batch-variance directive (vary structure + title/meta across the sprint) so the same set is neither structurally nor temporally fingerprinted.
+- Publication plan (order, frequency, priority tiers) — **with velocity governance.** Match the publishing rate to the *site's own baseline and editorial capacity*, not an absolute number: an established property publishing steadily can sustain volume a new domain cannot. Jitter the cadence (avoid identical daily counts and same-day bursts), ramp new corpora gradually, and never dump a whole sprint in one spike. This is the planning-side control for the gate's R44 publish-velocity lens (`algorithmic-authorship-gate` BATCH): a velocity spike relative to baseline (≈10× historical) is a documented SpamBrain scaled-content-abuse signal, independent of per-article quality — and there is no AI-text ranking factor, so what's measured is *sameness/velocity*, not authorship. When a BATCH audit returns a low Fingerprint Diffusion Score driven by D4 (velocity), the fix lives here — throttle and jitter the schedule; it is not a content rewrite. Pair with `seo-blog-generator`'s Step 4 batch-variance directive (vary structure + title/meta across the sprint) so the same set is neither structurally nor temporally fingerprinted. *(v4.7)* For new/zero-history properties the plan also carries the **ranking-state KPI ladder** (`references/launch-conditions.md` §5): Phase A is measured on daily-impressions velocity with **no click-based edits**, cadence transitions are state-triggered (`semantic-content-network` SCN-SQ-07), and the launch wave runs `algorithmic-authorship-gate` NEW-DOMAIN profile + pre-publish BATCH FDS before day one.
 - Schema.org implementation notes per page type → hand off to `schema-markup-generator` skill
 - **llms.txt** *(v4.1)* — read Section D (non-Google LLMs only — Google officially ignores llms.txt per its May 2026 AI guide; produce for ChatGPT/Perplexity/Claude crawler ecosystems, mark as optional/low priority)
 - **Maintenance KPI Dashboard** *(v4.1)* — read Section E
@@ -349,7 +372,7 @@ Content briefs are NOT produced inside topical-map-creation. Hand off to the `co
 
 ### Phase 8: Maintenance *(v4.1)*
 
-See `references/v41-additions.md` Section E for the Maintenance KPI Dashboard cadence (90-day refresh review, content decay detection, Trending Node sunset rules).
+See `references/v41-additions.md` Section E for the Maintenance KPI Dashboard cadence (90-day refresh review, content decay detection, Trending Node sunset rules). *(v4.7)* New/zero-history properties run the **ranking-state KPI ladder** (`references/launch-conditions.md` §5) as the dashboard's leading section until Phase C (positive state) is reached: impressions velocity + LLM Citation Share as the two launch curves, CNI/DNI ratio as the quality-doubt tripwire, then the standard Section E dashboard takes over. *(v4.8)* Before sunsetting any Trending Node, apply the lifecycle rule from Phase 6: evergreen-ify (dateless URL, post-spike content update, reframe as reference) is the default disposition; sunset only when no evergreen reframe exists.
 
 ### Phase 9: PM Content Plan (Tier 4 — On Request)
 
@@ -383,18 +406,19 @@ See `references/v41-additions.md` Section E for the Maintenance KPI Dashboard ca
 Workbook with sheets organized by tier:
 
 **Tier 1 sheets:**
-1. **Overview:** Source Context, Central Entity, Central Search Intent, Core vs Outer counts, total topics, mode declaration
-2. **Strategic Map:** Core and Outer topics with Tier 1 columns (including AIO Risk Score)
+1. **Overview:** Source Context, Central Entity, Central Search Intent, Core vs Outer counts, total topics, mode declaration, **Key Findings from the Data** *(v4.8)*
+2. **Strategic Map:** Core and Outer topics with Tier 1 columns (including AIO Risk Score and Bridge Tag)
+3. **Reject List** *(v4.8)*: rejected topic categories → example queries with volume → one-sentence topical-border reason each
 
 **Tier 2 adds:**
-3. **Publishing Metadata:** Title tags, URLs, meta descriptions, image slugs/alts, internal links, schema types, Content Format
+4. **Publishing Metadata:** Title tags, URLs, meta descriptions, image slugs/alts, internal links, schema types, Content Format
 
 **Tier 3 adds:**
-4. **Entity Map:** URL → Primary Entity → Wikidata Q-ID (or `[UNRESOLVED]`) → Schema.org Type → sameAs (or `[UNRESOLVED]`) → **Author Entity → Person @id** *(v4.6)*
-5. **Publication Plan:** Order, frequency, priority tiers
-6. **Quality & Trending Nodes:** Identification, connection logic, and fan-out trees
-7. **llms.txt:** Plaintext sheet formatted as llms.txt content (non-Google LLMs only — Google officially ignores llms.txt per its May 2026 AI guide; produce for ChatGPT/Perplexity/Claude crawler ecosystems, mark as optional/low priority)
-8. **Maintenance KPI Dashboard:** Cadence table + KPI tracker
+5. **Entity Map:** URL → Primary Entity → Wikidata Q-ID (or `[UNRESOLVED]`) → Schema.org Type → sameAs (or `[UNRESOLVED]`) → **Author Entity → Person @id** *(v4.6)*
+6. **Publication Plan:** Order, frequency, priority tiers
+7. **Quality & Trending Nodes:** Identification, connection logic, fan-out trees, and Trending Node lifecycle dispositions *(v4.8)*
+8. **llms.txt:** Plaintext sheet formatted as llms.txt content (non-Google LLMs only — Google officially ignores llms.txt per its May 2026 AI guide; produce for ChatGPT/Perplexity/Claude crawler ecosystems, mark as optional/low priority)
+9. **Maintenance KPI Dashboard:** Cadence table + KPI tracker
 
 **Tier 4 — PM Content Plan (separate XLSX workbook):**
 
@@ -404,8 +428,10 @@ See `references/pm-content-plan-spec.md` for the 6-sheet specification.
 
 Structured document with:
 - Header section (Source Context, Central Entity, mode, tier)
-- Core Section topics organized by sub-section
+- Key Findings from the Data — 5–7 insights before the map *(v4.8)*
+- Core Section topics organized by sub-section (or by journey stage, if two-phase intent *(v4.8)*)
 - Outer Section topics organized by sub-section
+- Reject List section with per-category reasons *(v4.8)*
 - Quality/Trending Nodes list with fan-out trees
 - AIO Risk Score column included in topic tables *(v4.3)*
 - Author-entity per cluster + Entity Map author attribution *(v4.6, Tier 3)*
@@ -445,6 +471,14 @@ Before delivering, verify each item and note the evidence. Do not check a box wi
 
 **v4.3 AIO Risk:**
 - [ ] AIO Risk Score assigned per topic → cite `references/aio-risk-score.md` rubric
+
+**v4.7 Launch Conditions (New Build / zero-history only):**
+- [ ] BQA state declared with evidence; launch breadth (NARROW-ROOT / WIDE-FIRST) follows the §2 table → cite Checkpoint 1 block
+- [ ] PoS applied per attribute; every `segment` names its host page; launch URL budget stated and met → cite Phase 4 step 10 output
+- [ ] Ranking-state KPI ladder in the deliverable; 10K/day trigger labeled as Koray heuristic (never a confirmed threshold) → cite §5 honesty rule
+- [ ] Day-one baselines specified: GSC impressions + LLM Citation Share → cite Tier 3 / Phase 8 note
+- [ ] Gate route stated: AAG NEW-DOMAIN profile + pre-launch BATCH FDS → cite §6 handoffs
+- [ ] Expansion origin (node or subfolder-proof cluster) named → cite §7
 - [ ] High/Critical-risk topics have a documented mitigation strategy
 - [ ] Quality Nodes ≤ Medium AIO Risk OR have aggressive mitigation plan
 
@@ -455,6 +489,16 @@ Before delivering, verify each item and note the evidence. Do not check a box wi
 - [ ] Node Function tagged in Notes → mix sanity-checked against the playbook (not 90% Commercial, not zero Retrieval)
 - [ ] Site-type cannibalization watch-out run in Phase 5.6
 - [ ] Retrieval Confidence Map produced (Tier 3) → High-confidence Retrieval nodes front-loaded in sequence
+
+**v4.8 Deliverable Upgrades:**
+- [ ] Key Findings narrative (5–7 insights) placed before the map table → covers noise share, biggest gap, bridge cluster, momentum engine, moat asset
+- [ ] Reject List shipped as a named deliverable → every category has example queries + a topical-border reason
+- [ ] Journey-stage decision documented in Phase 2 → single-phase or two-phase intent, with reasoning; two-phase maps organize Core by stage
+- [ ] Bridge Cluster tagged and priority-weighted → bridge logic stated in Key Findings
+- [ ] Trending Nodes have lifecycle dispositions → dateless URL + evergreen-ify plan, or justified sunset; rolling sections state a cadence
+- [ ] Orphan-reference check passed (Phase 5.7) → every internally-referenced URL is a map row or flagged with disposition; E-E-A-T pages (methodology/about/author) mapped when trust claims are made; Phase-1 spokes have a hub
+- [ ] Cross-source volume verification done (Tool-Assisted/Audit) → 8–12 keywords spot-checked; cluster-inflated, declining, and single-source figures flagged per Honesty Rule 9
+- [ ] Template-separation flags recorded for trust-differentiated page classes
 
 **Integrity:**
 - [ ] RPP filtering applied with stated reasoning → cite Phase 4 output
@@ -496,4 +540,5 @@ The following signals were identified in the 2024 Google Content Warehouse API d
 Also consider the standard audit framework: siteAuthority, contentEffort, rhubarb, clutterScore, siteQualityStddev, directFrac, spambrainLavc, NSR, CRAPS, anchorMismatch. Cross-reference against Google patents (Panda US9031929B1, Information Gain US11354342B2, AI Replacement US12536233B1) — noting that patents describe methods Google may or may not deploy in production.
 
 <!-- 2026-06-07: aligned with Google AI optimization guide (May 2026) + Search Central changelog (FAQ rich result deprecation, spam scope on AI responses, preferred sources, llms.txt mythbust) -->
+<!-- 2026-07-22 v4.8: Reject List + Key Findings first-class deliverables, journey-stage Core organization (Phase 2.5), Bridge Cluster tag (Phase 4.11), Trending Node lifecycle rule, orphan-reference QA (Phase 5.7), cross-source volume verification (Honesty Rule 9), template-separation notes — adopted from the CryptoKiller.org external-map audit (Crypto Killer project). -->
 <!-- 2026-06-08 v4.5: Tier 3 publication-plan velocity governance (cadence jitter, capacity-matching, new-corpus ramp) — planning-side control for algorithmic-authorship-gate v1.3 R44 publish-velocity lens / Fingerprint Diffusion Score D4. Pairs with seo-blog-generator v5.0 batch-variance directive. -->

@@ -15,12 +15,34 @@ export async function GET(request, { params }) {
     if (!content) return Response.json({ error: 'Content not found' }, { status: 404 })
 
     let topic = null
+    let contentBrief = null
     if (content.topic_id) {
       const topicRows = await supaFetch(`/topics?id=eq.${content.topic_id}&select=*&limit=1`)
       topic = Array.isArray(topicRows) ? topicRows[0] : null
+      try {
+        const briefRows = await supaFetch(
+          `/content_briefs?topic_id=eq.${content.topic_id}&select=id,sullivan_ok,content_type,status,brief_id&limit=1`,
+        )
+        contentBrief = Array.isArray(briefRows) ? briefRows[0] : null
+      } catch {
+        contentBrief = null
+      }
     }
 
-    return Response.json({ ...content, topic })
+    return Response.json({
+      ...content,
+      topic,
+      content_brief: contentBrief
+        ? {
+            id: contentBrief.id,
+            brief_id: contentBrief.brief_id,
+            sullivan_ok: !!contentBrief.sullivan_ok,
+            // Sullivan SC-098 — not topics.content_type
+            sullivan_content_type: contentBrief.content_type || null,
+            status: contentBrief.status || null,
+          }
+        : null,
+    })
   } catch (error) {
     if (error.message.includes('Unauthorized')) return unauthorizedResponse()
     return Response.json({ error: error.message }, { status: 500 })

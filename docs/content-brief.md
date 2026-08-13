@@ -3,25 +3,31 @@
 How to produce a content brief in the admin, what every bracketed marker means, and
 which guardrails will refuse you (and why).
 
-Port of the `content-brief-generator` **v1.4** skill (Plan 6). The brief is the
-handoff artifact between the topical map and the writing pipeline:
+Port of the `content-brief-generator` **v1.6** skill (Plan 6 + MVP of Plan 7 + v1.6
+template fields). The brief is the handoff artifact between the topical map and the
+writing pipeline:
 
 ```
-topical-map-creation  →  CONTENT BRIEF  →  seo-blog-generator
-   (topics + SERP)        (this doc)         (the article)
+topical-map-creation  →  CONTENT BRIEF  →  outline / fill  →  seo-blog-generator
+   (topics + SERP)        (this doc)         (gated)            (the article)
 ```
 
-**Next (not shipped yet):** [Plan 7 — skill v1.5 port](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md)
-gates **Generate Outline** on a Sullivan-ok brief, adds on-demand SERP capture for
-imported topics with empty PAA/SERP, and adds per-section `ple_unit`
-(Pixel/Letter/Byte). Until Plan 7 lands, the content editor outline path can still
-run without a brief — use the topical-map clipboard panel for the real 12-section
-brief before writing pillars.
+**Shipped in this MVP:** Sullivan-ok brief required for SEO **Generate Outline** and
+**fill**; full brief injected into outline prompts; `locale` / `orthography_notes`,
+per-heading `ple_unit`, `faq_sweep`; map vs Sullivan `content_type` labels.
+
+**Still backlog:** on-demand topic SERP capture (Plan 7c/7d) — see
+[Plan 7](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md) and
+[v1.6 MVP note](./superpowers/plans/2026-08-10-content-brief-v16-mvp.md).
 
 **Name collision:** `topics.content_type` (`pillar_page`, `guide`, …) is the map /
 page-format field. Sullivan `content_type` on `content_briefs` is the SC-098
 non-commodity path (`case_study`, `original_data_study`, …). Do not treat
 `pillar_page` as a Sullivan value.
+
+**Discover carve-out:** Google Discover drafts (`topics.content_type = discover`)
+skip the Sullivan brief gate — delayed-answer Discover rules fight the brief's
+answer-first skeleton.
 
 ---
 
@@ -32,20 +38,27 @@ Open the topical map dashboard, expand a topic, and click the **clipboard icon**
 
 > **Two different panels, don't confuse them.** The neighbouring document icon is
 > **"Map directives"** — a small read-only summary of what the *outline generator*
-> receives for that topic (format, schema, PAA coverage, AIO directive). It is not
+> also receives for that topic (format, schema, PAA coverage, AIO directive). It is not
 > the brief and has no gate. The clipboard icon is the real 12-section brief.
 
-1. **Pass the Sullivan Gate.** Declare a content type and supply its evidence. Until
-   this passes, no brief is generated. See [The Sullivan Gate](#the-sullivan-gate).
+1. **Pass the Sullivan Gate.** Declare a Sullivan content type and supply its evidence. Until
+   this passes, no brief is generated — and **Generate Outline** / **fill** on the
+   content editor will refuse SEO topics. See [The Sullivan Gate](#the-sullivan-gate).
 2. **Save.** The deterministic brief is assembled from map data — placement,
    keywords, schema, URL, publication week, internal links, entity IDs, measured
-   SERP data. Everything that is *knowable* is filled; everything else gets an
+   SERP data, default `locale` (`en-US`), empty `faq_sweep`, and `ple_unit` scaffolds.
+   Everything that is *knowable* is filled; everything else gets an
    explicit marker.
 3. **Enrich (optional).** "Enrich creative sections (Sonnet)" writes the title tag,
-   meta description, heading skeleton, EAV triplets, claim categories and visual
-   requirements. Measured and human-supplied fields stay locked.
-4. **Export.** Download or copy the YAML and hand it to `seo-blog-generator`.
-5. **Advance the status** — `draft → approved → in-production → published`.
+   meta description, heading skeleton (incl. `ple_unit`), `faq_sweep` items,
+   EAV triplets, claim categories and visual
+   requirements. Measured and human-supplied fields stay locked. Invented FAQ
+   volumes are discarded → `[NO DATA]`.
+4. **Outline / fill.** On `/admin/content/[id]`, Generate Outline injects the approved
+   brief (headings, starting statements, faq_sweep, Sullivan type). Fill also requires
+   a Sullivan-ok brief for non-Discover topics.
+5. **Export.** Download or copy the YAML and hand it to `seo-blog-generator`.
+6. **Advance the status** — `draft → approved → in-production → published`.
 
 ---
 
@@ -58,16 +71,28 @@ prevent.
 
 | Marker | What it means | What to do |
 |---|---|---|
-| `[NO DATA — requires Tool-Assisted mode]` | A tool metric was not available (competitor word counts, DR). | Run the tool, or leave it. **Never estimate it.** |
+| `[NO DATA — requires Tool-Assisted mode]` | A tool metric was not available (competitor word counts, DR, unverified FAQ volumes). | Run the tool, or leave it. **Never estimate it.** |
 | `[UNVERIFIED — editor must locate]` | A claim direction is named but no source is verified. Claim categories are *search targets*, not citations. | An editor finds and verifies a real source. |
 | `[UNRESOLVED — verify at wikidata.org]` | The entity is not in our curated registry, so no Q-ID/sameAs can be asserted. | Look it up manually, or leave unresolved. |
-| `[PENDING — LLM enrichment not run]` | A creative field the enrichment step has not written yet. | Click Enrich, or write it yourself. |
+| `[PENDING — LLM enrichment not run]` | A creative field (incl. `ple_unit` layers) the enrichment step has not written yet. | Click Enrich, or write it yourself. |
 | `[NOT CLASSIFIED — regenerate the map to populate this field]` | A map field (`content_format`, `schema_type`, `search_intent`) is empty because the topic predates migrations 018–021. | Regenerate the map. |
 | `[DERIVED — not SERP-validated]` | Present but not confirmed against live SERP data. | Treat as a hypothesis. |
 
 **Rule of thumb:** if you cannot replace a marker with something *verified*, leave
 the marker. A brief that admits a gap is worth more than one that hides it — the
 downstream writer treats bracketed values as "do not assert."
+
+---
+
+## v1.6 fields (MVP)
+
+| Field | Section | Behaviour |
+|---|---|---|
+| `locale` | 3 | Default `en-US` for Crypto Killer; override via `topics.locale` if set. Protected from enrich. |
+| `orthography_notes` | 3 | Empty by default; set on the topic when a non-default market needs rules. Protected from enrich. |
+| `ple_unit` | 6 (per heading) | `{ pixel, letter, byte }` scaffolded pending; enrich fills. |
+| `faq_sweep` | 6 | `{ carrier_h2, items[] }` — empty until enrich proposes long-tail remainder. Volumes never invented. |
+| Escalation-ladder CTA | 6 final H2 | YMYL closing heading instruction references self-serve → fit → honest limit → emergency path. |
 
 ---
 
@@ -112,7 +137,7 @@ what it tried.
 Blocked, always:
 
 - **Any protected field** — measured metrics, deterministic map data, your Sullivan
-  evidence, identity/lifecycle. The model cannot overwrite `competitor_benchmarks`,
+  evidence, `locale` / `orthography_notes`, identity/lifecycle. The model cannot overwrite `competitor_benchmarks`,
   `entity_wikidata`, `search_intent`, `forcing_inputs`, and so on.
 - **Unverifiable identifiers**, stripped from *every* field: PMIDs, PMCIDs, DOIs,
   URLs with a path, Wikidata Q-IDs, and Ahrefs `DR nn` figures. The descriptive text
@@ -120,6 +145,7 @@ Blocked, always:
   This is deliberately **stricter than the skill**, which allows a PMID "if known
   from session context" — nothing in this pipeline establishes that context, and a
   recalled identifier is how fabricated citations get in.
+- **Invented `faq_sweep` volumes** — replaced with `[NO DATA]`.
 - **Renaming or dropping a measured heading.** H2s seeded from real SERP
   People-Also-Ask data are preserved verbatim. The model may add headings, but they
   are tagged internally as model-invented so provenance stays visible.
@@ -155,10 +181,8 @@ means the guard is doing its job.
 - **Competitor benchmarks are partial.** `competitor_pages_to_beat` uses measured
   SERP URLs (post-migration maps). Word counts and average DR remain `[NO DATA]` —
   nothing in the pipeline measures them yet.
-- **The enrichment path had not been exercised against the live model** at the time
-  of writing — it is unit-tested and build-verified only. Run the first one on a
-  low-stakes topic and read the blocked list to judge whether the guard is
-  calibrated or over-aggressive on real output.
+- **No on-demand SERP capture yet.** Imported topics with empty PAA keep
+  `[DERIVED — not SERP-validated]` heading provenance until Plan 7c lands.
 - **One brief per topic.** Regenerating replaces it; there is no version history.
 
 ---
@@ -171,10 +195,13 @@ means the guard is doing its job.
 | Deterministic assembler (12 sections) | `lib/content-brief/assemble.js` |
 | LLM enrichment + honesty guard | `lib/content-brief/enrich.js` |
 | YAML serializer | `lib/content-brief/yaml.js` |
+| Outline/fill brief gate | `lib/content-brief/gate.js` |
+| Full brief → prompt text | `lib/content-brief/prompt.js` |
 | Gate + brief UI | `app/admin/topical-map/page.js` (`ContentBriefPanel`) |
 | Get / save gate + assemble | `/api/admin/topical-map/topics/[id]/content-brief` |
 | Enrich | `…/content-brief/enrich` |
 | YAML export | `…/content-brief/yaml` |
+| Outline / fill | `/api/admin/content/outline`, `/api/admin/content/fill` |
 | Storage | `content_briefs` table (migration `020`) |
 
 Tests: `test/content-brief/`. The YAML tests round-trip-parse the real output with
@@ -184,10 +211,4 @@ silently destroyed.
 
 Canonical spec: `~/.claude/skills/content-brief-generator/` —
 `references/brief-template.md` (the 12 sections and exact field names, which
-`seo-blog-generator` parses) and `SKILL.md` (honesty rules, Step 1.6 gate;
-v1.5 adds Step 1.5 SERP intel + `ple_unit`).
-
-> Plan 6 scope: no live SERP-intel / consensus-map chain — reuse map-measured SERP;
-> genuine gaps stay `[NO DATA]`. **Plan 7** adds on-demand topic SERP capture +
-> outline gating + `ple_unit` — see
-> [`docs/superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md`](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md).
+`seo-blog-generator` parses) and `SKILL.md` **v1.6**.

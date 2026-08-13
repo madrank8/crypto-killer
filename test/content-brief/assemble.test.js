@@ -69,10 +69,20 @@ test('S3 metadata: deterministic fields filled, creative fields pending (never i
   assert.deepEqual(b.secondary_keywords, ['rug pull signs', 'rug pull recovery'])
   assert.equal(b.schema_type, 'Article')
   assert.equal(b.content_format, 'Evergreen Article')
+  assert.equal(b.locale, 'en-US')
+  assert.equal(b.orthography_notes, '')
   assert.equal(b.word_count_target, 2500)
   assert.equal(b.reading_time_estimate, '~11 min')
   assert.equal(b.title_tag, PLACEHOLDER.PENDING_LLM)
   assert.equal(b.meta_description, PLACEHOLDER.PENDING_LLM)
+})
+
+test('S3 locale prefers explicit topic.locale over site default', () => {
+  assert.equal(build({ topic: { ...TOPIC, locale: 'en-GB' } }).locale, 'en-GB')
+  assert.equal(
+    build({ topic: { ...TOPIC, orthography_notes: 'en-GB: colour spelling' } }).orthography_notes,
+    'en-GB: colour spelling'
+  )
 })
 
 test('S3 search_intent: measured ai_overview promotes to dual GEN intent', () => {
@@ -159,11 +169,26 @@ test('S6 mandatory headings are entries INSIDE heading_structure (template requi
   assert.equal(b.mandatory_headings, undefined) // no non-spec side-list
 })
 
-test('S6 every heading row carries all 8 per-heading fields (never omitted)', () => {
-  const required = ['h2', 'heading_level', 'format', 'starting_statement', 'instruction', 'context_terms', 'inline_link', 'extractive_answer_target', 'source_ledger_seeds']
+test('S6 every heading row carries Option-B fields + ple_unit (never omitted)', () => {
+  const required = ['h2', 'heading_level', 'format', 'starting_statement', 'instruction', 'context_terms', 'inline_link', 'extractive_answer_target', 'source_ledger_seeds', 'ple_unit']
   for (const h of build().heading_structure) {
     for (const f of required) assert.ok(f in h, `heading missing ${f}`)
+    assert.equal(h.ple_unit.pixel, PLACEHOLDER.PENDING_LLM)
+    assert.equal(h.ple_unit.letter, PLACEHOLDER.PENDING_LLM)
+    assert.equal(h.ple_unit.byte, PLACEHOLDER.PENDING_LLM)
   }
+})
+
+test('S6 faq_sweep scaffolds empty items (never invents volume)', () => {
+  const b = build()
+  assert.ok(b.faq_sweep)
+  assert.match(b.faq_sweep.carrier_h2, /Common Questions/)
+  assert.deepEqual(b.faq_sweep.items, [])
+})
+
+test('S6 YMYL CTA heading carries escalation-ladder instruction', () => {
+  const cta = build().heading_structure.find((h) => /Action-Oriented Final H2/.test(h.h2))
+  assert.match(cta.instruction, /escalation ladder/i)
 })
 
 // ── Sections 7/8/11 — honesty-critical ───────────────────────────────────────
@@ -263,8 +288,8 @@ test('S12 llms_txt_tier follows node_function', () => {
 test('S12 versions + dependencies', () => {
   const b = build()
   assert.deepEqual(b.dependencies, ['crypto-scams'])
-  assert.equal(b.seo_blog_generator_version, '5.2.1')
-  assert.equal(b.topical_map_version, '4.6')
+  assert.equal(b.seo_blog_generator_version, '5.4')
+  assert.equal(b.topical_map_version, '4.9')
   assert.equal(b.review_required, true)
 })
 
@@ -286,10 +311,11 @@ test('every template section key is present on the assembled brief', () => {
     'section', 'subsection', 'priority', 'node_type', 'fan_out_tag', 'publication_phase', 'publication_order',
     'title_tag', 'url_slug', 'meta_description', 'primary_keyword', 'secondary_keywords', 'search_intent',
     'ymyl', 'word_count_target', 'reading_time_estimate', 'schema_type', 'content_format',
+    'locale', 'orthography_notes',
     'content_type', 'forcing_inputs',
     'author_required', 'reviewer_required', 'ymyl_level', 'experience_angle', 'expertise_signals', 'safe_answer_required',
     'central_entity', 'entity_wikidata', 'entity_schema_same_as', 'key_entities', 'related_entities', 'ngram_relations', 'predicates',
-    'h1', 'h1_coverage_manifest', 'bluf_target', 'heading_structure',
+    'h1', 'h1_coverage_manifest', 'bluf_target', 'heading_structure', 'faq_sweep',
     'claim_categories', 'passage_independence', 'gen_intent', 'gen_intent_signal', 'key_claim_passages',
     'internal_link_targets', 'outbound_link_targets', 'visual_assets',
     'competitor_pages_to_beat', 'competitor_gap_insight', 'competitor_benchmarks',

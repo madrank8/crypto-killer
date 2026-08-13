@@ -334,6 +334,7 @@ export default function ContentEditorPage({ params }) {
 
   const [content, setContent] = useState(null);
   const [topic, setTopic] = useState(null);
+  const [contentBriefMeta, setContentBriefMeta] = useState(null);
 
   // Editable fields
   const [title, setTitle] = useState('');
@@ -378,6 +379,7 @@ export default function ContentEditorPage({ params }) {
         const data = await res.json();
         setContent(data);
         setTopic(data.topic || null);
+        setContentBriefMeta(data.content_brief || null);
         setTitle(data.title || '');
         setHeadline(data.headline || '');
         setMetaDescription(data.meta_description || '');
@@ -406,6 +408,7 @@ export default function ContentEditorPage({ params }) {
       const data = await res.json();
       setContent(data);
       setTopic(data.topic || null);
+      setContentBriefMeta(data.content_brief || null);
       setTitle(data.title || '');
       setHeadline(data.headline || '');
       setMetaDescription(data.meta_description || '');
@@ -1096,7 +1099,32 @@ export default function ContentEditorPage({ params }) {
               <h2 className="text-lg font-semibold text-white mb-2">Ready to create content</h2>
               <p className="text-gray-500 text-sm mb-6 max-w-md mx-auto">
                 Generate an outline first \u2014 you can review, edit sections, add FAQ topics, and reorder before writing the full article.
+                {topic?.content_type !== 'discover' && (
+                  <> SEO outlines require a Sullivan-ok content brief on the topical map (clipboard icon).</>
+                )}
               </p>
+              {topic?.content_type !== 'discover' && contentBriefMeta && !contentBriefMeta.sullivan_ok && (
+                <div className="mb-4 mx-auto max-w-md rounded-lg border border-amber-600/40 bg-amber-900/20 px-4 py-3 text-left text-sm text-amber-200">
+                  <p className="font-medium text-amber-300">Pass Sullivan on the map first</p>
+                  <p className="text-xs text-amber-200/80 mt-1">
+                    Map page format is <span className="text-white">{topic?.content_type?.replace(/_/g, ' ') || '—'}</span> — that is not a Sullivan type.
+                    Open the topical map, click the clipboard icon on this topic, declare SC-098 + forcing inputs, then Save.
+                  </p>
+                  {topic?.map_id && (
+                    <a
+                      href={`/admin/topical-map?map_id=${encodeURIComponent(topic.map_id)}`}
+                      className="inline-block mt-2 text-xs text-amber-100 underline hover:text-white"
+                    >
+                      Open topical map
+                    </a>
+                  )}
+                </div>
+              )}
+              {topic?.content_type !== 'discover' && contentBriefMeta?.sullivan_ok && (
+                <p className="mb-4 text-xs text-emerald-400">
+                  Sullivan brief ready ({contentBriefMeta.sullivan_content_type || 'ok'}) — outline can use the full brief.
+                </p>
+              )}
               <button
                 type="button"
                 onClick={generateOutline}
@@ -1116,7 +1144,17 @@ export default function ContentEditorPage({ params }) {
               <p className="text-xs text-gray-500">Volume: {topic?.search_volume ?? '\u2014'}</p>
               <p className="text-xs text-gray-500">KD: {topic?.keyword_difficulty ?? '\u2014'}</p>
               <p className="text-xs text-gray-500">Priority: {topic?.priority_score ?? '\u2014'}</p>
-              <p className="text-xs text-gray-500">Type: {topic?.content_type?.replace(/_/g, ' ') || '\u2014'}</p>
+              <p className="text-xs text-gray-500">Type: {topic?.content_type?.replace(/_/g, ' ') || '\u2014'} <span className="text-gray-600">(map page format)</span></p>
+              <p className="text-xs text-gray-500">
+                Sullivan brief:{' '}
+                {topic?.content_type === 'discover'
+                  ? 'n/a (Discover carve-out)'
+                  : contentBriefMeta?.sullivan_ok
+                    ? `ok (${contentBriefMeta.sullivan_content_type || 'SC-098'})`
+                    : contentBriefMeta
+                      ? 'incomplete — pass gate on map'
+                      : 'missing — pass gate on map'}
+              </p>
             </div>
             <div className="rounded-xl border border-gray-800/60 bg-gray-900/40 p-4">
               <h3 className="text-xs uppercase tracking-wide text-gray-500 mb-1">Slug</h3>

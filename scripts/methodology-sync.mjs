@@ -12,6 +12,7 @@ const SRC = path.join(os.homedir(), '.claude', 'skills', 'topical-map-creation')
 const DEST = path.join(process.cwd(), 'lib', 'topical-map', 'methodology')
 
 // Only the files the Tool-Assisted / Tier 1-3 port needs (see spec section 4).
+// Extended through v4.9: launch conditions, v4.1/v4.8 addenda, changelog.
 const FILES = [
   'SKILL.md',
   'references/step-overview.md',
@@ -22,8 +23,12 @@ const FILES = [
   'references/dataforseo.md',
   'references/supplementary.md',
   'references/author-cluster-assignment.md',
+  'references/launch-conditions.md',
+  'references/v41-additions.md',
+  'references/v48-additions.md',
+  'references/changelog.md',
 ]
-const VERSION = '4.6'
+const VERSION = '4.9'
 
 if (!fs.existsSync(SRC)) {
   console.error(`Source skill not found at ${SRC}. Run this on a workstation with the skill installed.`)
