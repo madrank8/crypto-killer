@@ -15,11 +15,11 @@ Base commit before Task 1: 4bdf055e4373679197f40c752b0004a7c34e86f8
 | 4 Research helper | complete | commit 6cae3d6, 2/2 tests pass |
 | 5 Orchestrator | complete | commits 6cae3d6..7c7c18f, review clean after load-bearing fix |
 | 6 Content adapter+route | complete | commit 16f7b4e; DONE_WITH_CONCERNS: unit tests pass; live curl smoke not run |
-| 7 Content UI | pending | |
-| 8 Review adapter+route | pending | |
-| 9 Review UI | pending | |
-| 10 Pipeline hooks | pending | |
-| 11 Regression | pending | |
+| 7 Content UI | complete | commits f2c1e1b..b21a1e5, review clean |
+| 8 Review adapter+route | complete | commits b21a1e5..ae0c0ad, review clean after ready/audit_hard_fail fix |
+| 9 Review UI | complete | commits ae0c0ad..6cc6eb0, review clean |
+| 10 Pipeline hooks | complete | commits 6cc6eb0..3c4c1d4, review clean |
+| 11 Regression | complete | 40/40 quality-fix after final-review fixes; live smoke deferred; QUALITY_FIX_AUTO default off |
 
 ## Minor findings roll-up
 

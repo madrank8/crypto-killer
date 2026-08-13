@@ -20,11 +20,10 @@ import { runReviewQualityFix } from '@/lib/quality-fix-review'
 // generation_status='polished' so the UI unblocks.
 export const maxDuration = 300
 
-/** Env QUALITY_FIX_AUTO: `0`/`false` → off; default on. */
+/** Env QUALITY_FIX_AUTO: default off until live smoke; enable with `1`/`true`/`yes`. */
 function qualityFixAutoEnabled() {
-  const v = process.env.QUALITY_FIX_AUTO
-  if (v === '0' || v === 'false') return false
-  return true // default on per spec after smoke; set false in preview if needed
+  const v = String(process.env.QUALITY_FIX_AUTO || '').trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes'
 }
 
 const PIPELINE_VERSION = 'multi-agent-v1.1-split'
