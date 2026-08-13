@@ -46,6 +46,54 @@ test('insert_ledger_link only allows existing source URLs', () => {
   assert.ok(bad.rejected.length > 0)
 })
 
+test('rejects set_section_body that invents a new URL host', () => {
+  const row = {
+    sections: [{ heading: 'Risks', body: '<p>Scammers use pressure tactics.</p>' }],
+    sources: [{ url: 'https://ic3.gov/a' }],
+  }
+  const { rejected } = applySurgicalPatches(row, [
+    {
+      op: 'set_section_body',
+      index: 0,
+      body: '<p>See https://evil.example/report for details.</p>',
+    },
+  ])
+  assert.ok(rejected.some((r) => /url|host/i.test(r.why)))
+})
+
+test('rejects set_section_body that invents a new multi-digit number', () => {
+  const row = {
+    sections: [{ heading: 'Losses', body: '<p>Victims reported large losses.</p>' }],
+    sources: [],
+  }
+  const { rejected } = applySurgicalPatches(row, [
+    {
+      op: 'set_section_body',
+      index: 0,
+      body: '<p>Victims reported $950000 in losses.</p>',
+    },
+  ])
+  assert.ok(rejected.some((r) => /number|stat/i.test(r.why)))
+})
+
+test('accepts set_section_body safe rewrite without new hosts or numbers', () => {
+  const row = {
+    sections: [{ heading: 'Summary', body: '<p>Lost $2M last year.</p>' }],
+    sources: [],
+  }
+  const { patch, applied, rejected } = applySurgicalPatches(row, [
+    {
+      op: 'set_section_body',
+      index: 0,
+      body: '<p>Victims reported large losses last year.</p>',
+    },
+  ])
+  assert.equal(rejected.length, 0)
+  assert.equal(applied.length, 1)
+  assert.match(patch.sections[0].body, /Victims reported large losses/)
+  assert.doesNotMatch(patch.sections[0].body, /\$2M/)
+})
+
 test('remove_source_urls drops matching sources', () => {
   const row = {
     full_article: '<p>x</p>',
