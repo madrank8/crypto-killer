@@ -74,6 +74,34 @@ test('resolveReviewHardFails synthesizes from audit_hard_fail_reason keys', asyn
   assert.match(fails[0].reason, /SEC EDGAR/)
 })
 
+test('resolveReviewHardFails keeps integrity veto when LLM hard_fail_checks look clean', async () => {
+  const { resolveReviewHardFails } = require('../lib/quality-fix-review')
+  const fails = resolveReviewHardFails({
+    audit_hard_fail: true,
+    audit_hard_fail_reason: 'integrity veto',
+    item_reviewed: { type: 'FinancialProduct', name: 'X' },
+    ai_audit: {
+      hard_fail_checks: {
+        // FAIL_WHEN_TRUE → false; FAIL_WHEN_FALSE → true; counts → 0
+        fabricated_source_or_stat: false,
+        fake_or_unmarked_freshness: false,
+        fabricated_reviews_or_testimonials: false,
+        missing_risk_or_ftc_disclosure: false,
+        commodity_no_information_gain: false,
+        not_for_you_block_present: true,
+        item_reviewed_typed: true,
+        unverified_claims_in_article: 0,
+        source_ledger_claims_without_links: 0,
+        any_hard_fail: false,
+        hard_fail_reason: null,
+      },
+    },
+  })
+  assert.ok(fails.length > 0, 'expected non-empty hardFails when audit_hard_fail is true')
+  assert.equal(fails[0].key, 'integrity')
+  assert.match(fails[0].reason, /integrity veto/)
+})
+
 test('remediateReviewDeterministic appends disclaimer for missing disclosure', async () => {
   const { remediateReviewDeterministic } = require('../lib/quality-fix-review')
   const { patch, applied, unfixable } = remediateReviewDeterministic(
