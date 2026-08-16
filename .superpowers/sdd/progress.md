@@ -27,3 +27,9 @@ Base commit before Task 1: 4bdf055e4373679197f40c752b0004a7c34e86f8
 - Task 1 Minor: test only asserts maxTokens>=8192 not exact 16384/label
 - Task 3 Minor: set_field guard tests thin; prompt instructions still name replace_span only
 - Task 6 Concern: no live SSE curl (no local server / route not deployed)
+
+
+## Final review
+- Critical URL host-only → fixed in ebb41ba (exact URL allowlist)
+- QUALITY_FIX_AUTO default off until smoke (ebb41ba)
+- Remaining Important deferred: 300s budget, ready≠publish readiness UX, review UI on publishIssues strip, HEAD≠claim support
