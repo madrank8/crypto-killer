@@ -246,7 +246,10 @@ auto_publish) → `done` | `needs_review`
    re-audits, publishes or returns precise unfixable actions.
 2. Review with dead citation + disclosure miss → same via review route.
 3. Commodity / first-party-only fail → unfixable, not published.
-4. Post-gen hook: one agent cycle only; no second loop.
+4. Post-gen hook: one agent invocation only (deterministic → surgical → research →
+   soften → reaudit); no recursive second Fix & Publish call.
+5. Soften clears auditor-named claim spans without inventing; commodity stays human-only.
+6. `QUALITY_FIX_AUTO` defaults on (opt out with `0`/`false`/`off`).
 
 ### Rollout
 
@@ -254,6 +257,7 @@ auto_publish) → `done` | `needs_review`
 2. Review route/UI + polish hook.
 3. Enable fill/polish auto hooks behind `QUALITY_FIX_AUTO` (default on after smoke).
 4. Keep override button; do not remove.
+5. Publish readiness loop: expand deterministic remediations + fail-closed soften + human-only panel.
 
 ### Success criteria
 
