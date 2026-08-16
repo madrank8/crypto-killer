@@ -1,7 +1,7 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
-import { truncateAtBoundary } from '@/lib/sync-shape';
+import { truncateAtBoundary } from '@/lib/review-sync-safety';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
