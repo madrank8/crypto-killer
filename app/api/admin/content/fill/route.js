@@ -15,10 +15,10 @@ import { runContentQualityFix } from '@/lib/quality-fix-content'
 
 export const maxDuration = 300
 
-/** Env QUALITY_FIX_AUTO: default off until live smoke; enable with `1`/`true`/`yes`. */
+/** Env QUALITY_FIX_AUTO: default ON after readiness loop; set `0`/`false`/`no`/`off` to disable. */
 function qualityFixAutoEnabled() {
-  const v = String(process.env.QUALITY_FIX_AUTO || '').trim().toLowerCase()
-  return v === '1' || v === 'true' || v === 'yes'
+  const v = String(process.env.QUALITY_FIX_AUTO ?? '1').trim().toLowerCase()
+  return !(v === '0' || v === 'false' || v === 'no' || v === 'off')
 }
 
 /**

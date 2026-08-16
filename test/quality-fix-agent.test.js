@@ -9,7 +9,12 @@ function baseDeps(overrides = {}) {
     runSurgicalModel: async () => ({ patches: [], load_bearing_claims: [] }),
     applySurgicalPatches: () => ({ patch: {}, applied: [], rejected: [] }),
     researchSourcesForClaims: async () => ({ sources: [], rejected: [] }),
-    persistPatch: async (patch) => ({ id: '1', full_article: patch.full_article || '', ai_audit: {} }),
+    persistPatch: async (patch) => ({
+      id: '1',
+      ...patch,
+      full_article: patch.full_article || '',
+      ai_audit: {},
+    }),
     reaudit: async (row) => ({ row, hardFails: [] }),
     publish: async () => ({ ok: true, status: 200 }),
     send: () => {},
@@ -306,4 +311,65 @@ test('empty research softens load-bearing claim after deferred remove is withhel
     false,
     'original load-bearing claim text should be gone after soften',
   )
+})
+
+test('readiness loop: soften pass clears remaining fail then publishes', async () => {
+  let reauditCalls = 0
+  const out = await runQualityFixAgent({
+    kind: 'content',
+    row: {
+      id: '1',
+      full_article: '<p>Intro. "73% of victims lose everything" according to a blog. Outro.</p>',
+    },
+    hardFails: [{ key: 'fabricated_source_or_stat', reason: 'Claim "73% of victims lose everything" is fabricated' }],
+    autoPublish: true,
+    deps: baseDeps({
+      remediateDeterministic: () => ({ patch: {}, applied: [], unfixable: [] }),
+      runSurgicalModel: async () => ({ patches: [], load_bearing_claims: [] }),
+      reaudit: async (row) => {
+        reauditCalls += 1
+        const html = String(row.full_article || '')
+        if (html.includes('73%')) {
+          return {
+            row,
+            hardFails: [
+              {
+                key: 'fabricated_source_or_stat',
+                reason: 'Claim "73% of victims lose everything" is fabricated',
+              },
+            ],
+          }
+        }
+        return { row, hardFails: [] }
+      },
+    }),
+  })
+  assert.equal(out.ok, true)
+  assert.equal(out.ready, true)
+  assert.equal(out.published, true)
+  assert.ok(reauditCalls >= 2, 'expected reaudit after soften')
+  assert.equal(out.quality_fix.soften_pass, true)
+  assert.ok(out.applied.some((a) => a.key === 'soften_pass'))
+})
+
+test('readiness loop: remaining fails become human_only unfixable', async () => {
+  const out = await runQualityFixAgent({
+    kind: 'content',
+    row: { id: '1', full_article: '<p>Commodity fluff only.</p>' },
+    hardFails: [{ key: 'commodity_no_information_gain', reason: 'no evidence' }],
+    deps: baseDeps({
+      remediateDeterministic: () => ({ patch: {}, applied: [], unfixable: [] }),
+      reaudit: async (row) => ({
+        row,
+        hardFails: [{ key: 'commodity_no_information_gain', reason: 'no evidence' }],
+      }),
+      publish: async () => {
+        throw new Error('publish must not be called')
+      },
+    }),
+  })
+  assert.equal(out.published, false)
+  assert.equal(out.ready, false)
+  assert.equal(out.human_only, true)
+  assert.ok(out.unfixable.some((u) => u.key === 'commodity_no_information_gain'))
 })

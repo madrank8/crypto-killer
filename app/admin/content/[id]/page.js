@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAdmin } from '@/lib/admin-context';
 import SeoAeoAudit from '@/components/SeoAeoAudit';
@@ -329,6 +329,7 @@ export default function ContentEditorPage({ params }) {
   // a single opaque "Publish blocked by quality gate" string.
   const [publishGate, setPublishGate] = useState(null);
   const [fixingQuality, setFixingQuality] = useState(false);
+  const fixingQualityRef = useRef(false);
   const [qualityFixReport, setQualityFixReport] = useState(null);
   const [aeoFixing, setAeoFixing] = useState(false);
   const [aeoFixingId, setAeoFixingId] = useState(null);
@@ -603,6 +604,8 @@ export default function ContentEditorPage({ params }) {
   /* -- Quality Fix Agent: safe auto-fixes → reaudit → publish if hard fails clear -- */
   const fixAndPublish = async () => {
     if (!token || !id) return;
+    if (fixingQualityRef.current || fixingQuality) return; // ignore double-clicks (two in-flight runs race-wipe body)
+    fixingQualityRef.current = true;
     setFixingQuality(true);
     setQualityFixReport(null);
     setError('');
@@ -660,6 +663,7 @@ export default function ContentEditorPage({ params }) {
       setError(e.message);
       setMsg('');
     } finally {
+      fixingQualityRef.current = false;
       setFixingQuality(false);
     }
   };
@@ -1188,7 +1192,11 @@ export default function ContentEditorPage({ params }) {
           )}
           {Array.isArray(qualityFixReport.unfixable) && qualityFixReport.unfixable.length > 0 && (
             <div className="space-y-1">
-              <p className="text-xs text-amber-400 font-medium">Unfixable ({qualityFixReport.unfixable.length})</p>
+              <p className="text-xs text-amber-400 font-medium">
+                {qualityFixReport.human_only || qualityFixReport.step === 'needs_review'
+                  ? 'Unfixable — human only'
+                  : `Unfixable (${qualityFixReport.unfixable.length})`}
+              </p>
               <ul className="text-xs text-amber-200/90 space-y-1.5 list-disc pl-5">
                 {qualityFixReport.unfixable.map((item, i) => (
                   <li key={i}>
@@ -1206,6 +1214,11 @@ export default function ContentEditorPage({ params }) {
           )}
           {(!qualityFixReport.applied?.length && !qualityFixReport.unfixable?.length) && (
             <p className="text-xs text-gray-500">No fixes applied.</p>
+          )}
+          {(qualityFixReport.human_only || (qualityFixReport.step === 'needs_review' && !qualityFixReport.published)) && (
+            <p className="text-xs text-red-300/90 border-t border-gray-800/60 pt-2">
+              Readiness loop finished without a publishable draft. Edit the named claims above — do not use publish override.
+            </p>
           )}
         </div>
       )}

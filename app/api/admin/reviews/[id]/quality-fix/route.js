@@ -49,6 +49,7 @@ export async function POST(request, { params }) {
             audit_summary: result.audit_summary,
             reasons: result.reasons,
             quality_fix: result.quality_fix,
+            human_only: Boolean(result.human_only || (!result.ready && !result.published)),
           })
         } catch (e) {
           send({
