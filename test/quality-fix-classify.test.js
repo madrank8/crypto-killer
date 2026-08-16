@@ -10,6 +10,10 @@ test('unverified claims → research_candidate', () => {
   assert.equal(classifyFail({ key: 'unverified_claims_in_article' }).tactic, 'research_candidate')
 })
 
+test('source ledger claims without links → deterministic', () => {
+  assert.equal(classifyFail({ key: 'source_ledger_claims_without_links' }).tactic, 'deterministic')
+})
+
 test('commodity → unfixable with operator_action', () => {
   const c = classifyFail({ key: 'commodity_no_information_gain', reason: 'no IG' })
   assert.equal(c.tactic, 'unfixable')
