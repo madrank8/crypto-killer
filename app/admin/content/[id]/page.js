@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAdmin } from '@/lib/admin-context';
 import SeoAeoAudit from '@/components/SeoAeoAudit';
@@ -329,6 +329,7 @@ export default function ContentEditorPage({ params }) {
   // a single opaque "Publish blocked by quality gate" string.
   const [publishGate, setPublishGate] = useState(null);
   const [fixingQuality, setFixingQuality] = useState(false);
+  const fixingQualityRef = useRef(false);
   const [qualityFixReport, setQualityFixReport] = useState(null);
   const [aeoFixing, setAeoFixing] = useState(false);
   const [aeoFixingId, setAeoFixingId] = useState(null);
@@ -603,6 +604,8 @@ export default function ContentEditorPage({ params }) {
   /* -- Quality Fix Agent: safe auto-fixes → reaudit → publish if hard fails clear -- */
   const fixAndPublish = async () => {
     if (!token || !id) return;
+    if (fixingQualityRef.current || fixingQuality) return; // ignore double-clicks (two in-flight runs race-wipe body)
+    fixingQualityRef.current = true;
     setFixingQuality(true);
     setQualityFixReport(null);
     setError('');
@@ -660,6 +663,7 @@ export default function ContentEditorPage({ params }) {
       setError(e.message);
       setMsg('');
     } finally {
+      fixingQualityRef.current = false;
       setFixingQuality(false);
     }
   };

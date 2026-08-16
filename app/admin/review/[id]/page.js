@@ -858,6 +858,7 @@ export default function ReviewEditor({ params }) {
   /* -- Quality Fix Agent: safe auto-fixes → reaudit → publish if hard fails clear -- */
   const fixAndPublish = async () => {
     if (!token || !id) return;
+    if (fixingQuality) return; // ignore double-clicks (two in-flight runs race-wipe body)
     setFixingQuality(true);
     setQualityFixReport(null);
     setPublishError('');

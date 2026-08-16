@@ -182,3 +182,30 @@ test('remove_source_urls drops matching sources', () => {
   assert.equal(patch.sources.length, 1)
   assert.equal(patch.sources[0].url, 'https://ok.example/b')
 })
+
+test('returns diff-only patch without row identity fields', () => {
+  const row = {
+    id: 'keep-me',
+    slug: 'ai-bot',
+    status: 'draft',
+    full_article: '<p>Lost $2M last year.</p>',
+    sources: [{ url: 'https://ic3.gov/a' }],
+    ai_audit: { overall_score: 1 },
+  }
+  const { patch, applied, rejected } = applySurgicalPatches(row, [
+    {
+      op: 'replace_span',
+      field: 'full_article',
+      find: 'Lost $2M last year.',
+      replace: 'Victims reported large losses.',
+    },
+  ])
+  assert.equal(rejected.length, 0)
+  assert.equal(applied.length, 1)
+  assert.equal(patch.id, undefined)
+  assert.equal(patch.slug, undefined)
+  assert.equal(patch.status, undefined)
+  assert.equal(patch.ai_audit, undefined)
+  assert.match(patch.full_article, /Victims reported large losses/)
+  assert.equal(Object.keys(patch).sort().join(','), 'full_article')
+})

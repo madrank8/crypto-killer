@@ -9,7 +9,12 @@ function baseDeps(overrides = {}) {
     runSurgicalModel: async () => ({ patches: [], load_bearing_claims: [] }),
     applySurgicalPatches: () => ({ patch: {}, applied: [], rejected: [] }),
     researchSourcesForClaims: async () => ({ sources: [], rejected: [] }),
-    persistPatch: async (patch) => ({ id: '1', full_article: patch.full_article || '', ai_audit: {} }),
+    persistPatch: async (patch) => ({
+      id: '1',
+      ...patch,
+      full_article: patch.full_article || '',
+      ai_audit: {},
+    }),
     reaudit: async (row) => ({ row, hardFails: [] }),
     publish: async () => ({ ok: true, status: 200 }),
     send: () => {},
