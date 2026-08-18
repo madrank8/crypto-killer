@@ -164,3 +164,64 @@ test('the disclosure carries both risk framing and a not-advice line', () => {
   assert.match(patch.full_article, /not financial, investment, legal, or tax advice/i)
   assert.match(patch.full_article, /high risk of total loss/i)
 })
+
+test('links bare ScamAdviser and IC3 mentions to ledger URLs', () => {
+  const row = {
+    full_article: '<p>ScamAdviser has documented fee loops. The FBI\'s IC3 has tied billions in losses.</p>',
+    sections: [{ heading: 'A', body: 'ScamAdviser never sees the wallet.' }],
+    sources: [
+      { url: 'https://www.scamadviser.com/', title: 'ScamAdviser' },
+      { url: 'https://www.ic3.gov/', title: 'IC3' },
+    ],
+  }
+  const { patch, applied, unfixable } = remediateContent(row, [
+    { key: 'source_ledger_claims_without_links', reason: '2 claims without links' },
+  ])
+  assert.equal(unfixable.length, 0)
+  assert.equal(applied.length, 1)
+  assert.match(patch.full_article, /href="https:\/\/www\.scamadviser\.com\/">ScamAdviser</)
+  assert.match(patch.full_article, /href="https:\/\/www\.ic3\.gov\/">IC3</)
+  assert.match(patch.sections[0].body, /href="https:\/\/www\.scamadviser\.com\/">ScamAdviser</)
+})
+
+test('does not double-link names already inside anchors', () => {
+  const row = {
+    full_article: '<p><a href="https://www.scamadviser.com/">ScamAdviser</a> already linked.</p>',
+    sources: [{ url: 'https://www.scamadviser.com/', title: 'ScamAdviser' }],
+  }
+  const { applied, unfixable } = remediateContent(row, [
+    { key: 'source_ledger_claims_without_links', reason: '1' },
+  ])
+  assert.equal(applied.length, 0)
+  assert.equal(unfixable.length, 1)
+})
+
+test('scrubs visual placeholder tokens from bodies', () => {
+  const row = {
+    full_article: '<p>Intro.</p><p>[CHART NEEDED: fee flow]</p><p>Outro.</p>',
+    sections: [{ heading: 'A', body: 'Text [IMAGE NEEDED] more.' }],
+  }
+  const { patch, applied, unfixable } = remediateContent(row, [
+    { key: 'gate_0', reason: 'visual placeholder [CHART NEEDED] remains' },
+  ])
+  assert.equal(unfixable.length, 0)
+  assert.ok(applied.some((a) => a.key === 'visual_placeholder'))
+  assert.doesNotMatch(patch.full_article, /CHART NEEDED/)
+  assert.doesNotMatch(patch.sections[0].body, /IMAGE NEEDED/)
+})
+
+test('drops dead source URLs named in the fail reason', () => {
+  const dead = 'https://example.com/dead-page'
+  const row = {
+    full_article: `<p>See <a href="${dead}">this report</a> for details.</p>`,
+    sources: [{ url: dead, title: 'Dead' }, { url: 'https://www.ic3.gov/', title: 'IC3' }],
+  }
+  const { patch, applied } = remediateContent(row, [
+    { key: 'gate_1', reason: `dead source blocked url ${dead}` },
+  ])
+  assert.ok(applied.some((a) => a.key === 'dead_source'))
+  assert.equal(patch.sources.length, 1)
+  assert.equal(patch.sources[0].url, 'https://www.ic3.gov/')
+  assert.doesNotMatch(patch.full_article, /href="https:\/\/example.com\/dead-page"/)
+  assert.match(patch.full_article, /this report/)
+})

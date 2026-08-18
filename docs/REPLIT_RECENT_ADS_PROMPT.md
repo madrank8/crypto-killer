@@ -33,11 +33,12 @@ When you're done:
    - Language code badge (`es`, `it`, etc.)
    - "X days ago" date from `first_seen_at`
    - Ad copy excerpt from `main_text` (truncated to ~120 chars in the card; full text in tooltip/expanded view)
-   - Landing domain from `link_domain` (e.g., `senviks.world`)
-   - **"View Facebook post ↗"** link to `post_url` (if present) opening in new tab, with `rel="nofollow noopener"`
+   - Landing domain from `link_domain` (e.g., `senviks.world`) — **display only**, never as an href
+   - CTA from **`cta_url` / `cta_label` / `cta_rel`** (preferred). Fallback: `post_url` only if it is a Facebook permalink. **Never** use SpyOwl `link_url`, brand `landing_urls`, or archive live fallbacks as the CTA href (see `docs/REPLIT_ADS_CTA_SAFETY_HANDOFF.md`).
 4. Cards in a **responsive grid** — 3-4 per row desktop, 2 per row tablet, 1 per row mobile. Each card around 220-260px wide.
 5. **Cookie-consent boilerplate filtered out** of `link_text` (see Filtering rules below). `main_text` is generally clean and doesn't need filtering.
 6. Page renders cleanly with **no errors** when `recent_ads_sample` is missing or empty (older payloads from Vercel pre-this-feature won't include it).
+7. **Zero** CTA hrefs containing `/click`, `token_fb`, `fbclid`, or `pixel_fb`.
 
 ## Phase 1 — DISCOVERY (do this first, report back)
 
@@ -77,7 +78,10 @@ Here's the exact shape of `review.recent_ads_sample` in the incoming `/api/sync/
         "link_text": null,
         "link_domain": "senviks.world",
         "post_url": "https://www.facebook.com/100063654715787/posts/24850267551337102/",
-        "fp_link": "https://www.facebook.com/profile.php?id=100063654715787"
+        "fp_link": "https://www.facebook.com/profile.php?id=100063654715787",
+        "cta_url": "https://www.facebook.com/100063654715787/posts/24850267551337102/",
+        "cta_label": "View Facebook post",
+        "cta_rel": "nofollow noopener"
       },
       {
         "creative_id": "6a06dfd00d3636d0340fe97a",
@@ -133,8 +137,12 @@ Here's the exact shape of `review.recent_ads_sample` in the incoming `/api/sync/
 Notes:
 - `recent_ads_sample` may be `[]` (no ads in last 7d) or absent on legacy payloads — handle both.
 - Up to 20 entries, ordered newest-first by `first_seen_at`.
-- `celebrity_name`, `link_text`, `link_domain`, `post_url` may each independently be `null` — render conditionally.
+- `celebrity_name`, `link_text`, `link_domain`, `post_url`, `cta_url` may each independently be `null` — render conditionally.
+- **`link_url` is never present** in the sync payload. Do not reconstruct landing CTAs from scrapers or DB joins.
+- Prefer `cta_url` for the button. If `cta_url` is null and `post_url` is missing, omit the CTA (show `link_domain` as plain text only). When `post_url` is missing, Vercel may still set `cta_url` to a Meta Ad Library search for the brand.
 - `main_text` is already truncated to 280 chars upstream; the card should truncate further to ~120 for compact display but make the full thing accessible (tooltip, line-clamp + expand, or a `title=""` attribute).
+
+**Safety handoff:** `docs/REPLIT_ADS_CTA_SAFETY_HANDOFF.md` (Peak Luxentria audit — mandatory).
 
 ## Phase 3 — FILTERING RULES
 
@@ -168,9 +176,11 @@ Card mockup (~240px wide):
 │  todos los españoles pueden res… " │
 │                                    │
 │ 🔗 senviks.world                   │
-│ View Facebook post ↗               │
+│ View Facebook post ↗  (cta_url)    │
 └────────────────────────────────────┘
 ```
+
+CTA href = `ad.cta_url` only. Label = `ad.cta_label`. Rel = `ad.cta_rel`. Never “View archived ad” → live lander.
 
 Section heading (above the grid):
 

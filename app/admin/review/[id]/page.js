@@ -1,7 +1,7 @@
 'use client';
 
 import { useAdmin } from '@/lib/admin-context';
-import { truncateAtBoundary } from '@/lib/sync-shape';
+import { truncateAtBoundary } from '@/lib/review-sync-safety';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -223,7 +223,7 @@ function EvidenceImagesCard({ images, onRemoveImage, onRegenerate, regenerating 
             {/* Remove button */}
             <button
               onClick={() => onRemoveImage(img.url)}
-              className="absolute top-1.5 right-1.5 z-10 w-6 h-6 rounded-full bg-black/70 hover:bg-red-600 text-gray-400 hover:text-white flex items-center justify-center text-xs transition opacity-0 group-hover:opacity-100"
+              className="absolute top-1.5 right-1.5 z-10 w-6 h-6 rounded-full bg-black/70 hover:bg-red-600 text-white/80 hover:text-white flex items-center justify-center text-xs transition opacity-0 group-hover:opacity-100"
               title="Remove this image from article"
             >
               ✕
@@ -484,6 +484,8 @@ export default function ReviewEditor({ params }) {
   const [publishIssues, setPublishIssues] = useState([]);
   const [publishOverridable, setPublishOverridable] = useState(false);
   const [autoFixing, setAutoFixing] = useState(false);
+  const [fixingQuality, setFixingQuality] = useState(false);
+  const [qualityFixReport, setQualityFixReport] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState('');
   const [regeneratingImages, setRegeneratingImages] = useState(false);
@@ -850,6 +852,78 @@ export default function ReviewEditor({ params }) {
       setPublishError(err?.message || 'Network error while publishing');
     } finally {
       setPublishing(false);
+    }
+  };
+
+  /* -- Quality Fix Agent: safe auto-fixes → reaudit → publish if hard fails clear -- */
+  const fixAndPublish = async () => {
+    if (!token || !id) return;
+    if (fixingQuality) return; // ignore double-clicks (two in-flight runs race-wipe body)
+    setFixingQuality(true);
+    setQualityFixReport(null);
+    setPublishError('');
+    setSyncMsg('Running quality fix…');
+    try {
+      const saveOk = await handleSave();
+      if (!saveOk) {
+        setPublishError('Save failed. Fix errors before quality fix.');
+        setSyncMsg('');
+        return;
+      }
+      const res = await fetch(`/api/admin/reviews/${id}/quality-fix`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_publish: true }),
+      });
+      if (!res.ok || !res.body) throw new Error('Quality fix failed to start');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let final = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        for (const part of parts) {
+          const line = part.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.step === 'done' || data.step === 'needs_review' || data.step === 'error') {
+              final = data;
+            } else if (data.message) {
+              setSyncMsg(data.message);
+            }
+          } catch {
+            /* ignore malformed SSE lines */
+          }
+        }
+      }
+      setQualityFixReport(final);
+      if (final?.published) {
+        setPublishIssues([]);
+        setPublishOverridable(false);
+        setSyncMsg('Published after quality fix');
+        await fetchReview();
+        setEditorKey((k) => k + 1);
+      } else if (final?.step === 'error') {
+        setPublishError(final.message || 'Quality fix failed');
+        setSyncMsg('');
+      } else if (final) {
+        setSyncMsg(final.message || 'Quality fix finished — still needs review before publish');
+        await fetchReview();
+        setEditorKey((k) => k + 1);
+      } else {
+        setPublishError('Quality fix returned no result');
+        setSyncMsg('');
+      }
+    } catch (err) {
+      setPublishError(err?.message || 'Quality fix failed');
+      setSyncMsg('');
+    } finally {
+      setFixingQuality(false);
     }
   };
 
@@ -1245,8 +1319,76 @@ export default function ReviewEditor({ params }) {
               <p className="text-xs text-red-300/70 mt-2">
                 Fix the flagged issues (edit the content or the brand data), then re-run <b>Polish</b> to re-audit. Publish stays blocked until the audit passes.
               </p>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={fixAndPublish}
+                  disabled={publishing || saving || fixingQuality || autoFixing}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+                  title="Applies safe automatic fixes, re-runs the audit, and publishes only if hard fails clear."
+                >
+                  {fixingQuality ? 'Fixing…' : 'Fix & Publish'}
+                </button>
+              </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Quality Fix Agent report — applied (green) / unfixable (amber) */}
+      {qualityFixReport && (Array.isArray(qualityFixReport.applied) || Array.isArray(qualityFixReport.unfixable)) && (
+        <div className="rounded-lg border border-gray-700/50 bg-gray-900/40 px-4 py-3 space-y-3">
+          <p className="text-xs font-semibold text-gray-300 uppercase tracking-wide">
+            Quality fix report
+            {qualityFixReport.published ? (
+              <span className="ml-2 normal-case font-normal text-green-400">· published</span>
+            ) : qualityFixReport.step === 'needs_review' ? (
+              <span className="ml-2 normal-case font-normal text-amber-400">· needs review</span>
+            ) : null}
+          </p>
+          {Array.isArray(qualityFixReport.applied) && qualityFixReport.applied.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-green-400 font-medium">Applied ({qualityFixReport.applied.length})</p>
+              <ul className="text-xs text-green-300/90 space-y-1 list-disc pl-5">
+                {qualityFixReport.applied.map((item, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-[10px] text-green-500/80">{item.key || 'fix'}</span>
+                    {item.what ? ` — ${item.what}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {Array.isArray(qualityFixReport.unfixable) && qualityFixReport.unfixable.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-amber-400 font-medium">
+                {qualityFixReport.human_only || qualityFixReport.step === 'needs_review'
+                  ? 'Unfixable — human only'
+                  : `Unfixable (${qualityFixReport.unfixable.length})`}
+              </p>
+              <ul className="text-xs text-amber-200/90 space-y-1.5 list-disc pl-5">
+                {qualityFixReport.unfixable.map((item, i) => (
+                  <li key={i}>
+                    <span className="font-mono text-[10px] text-amber-500/80">{item.key || 'unknown'}</span>
+                    {item.reason ? ` — ${item.reason}` : ''}
+                    {item.operator_action ? (
+                      <span className="block text-amber-300/80 mt-0.5 pl-0">
+                        Operator: {item.operator_action}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(!qualityFixReport.applied?.length && !qualityFixReport.unfixable?.length) && (
+            <p className="text-xs text-gray-500">No fixes applied.</p>
+          )}
+          {(qualityFixReport.human_only || (qualityFixReport.step === 'needs_review' && !qualityFixReport.published)) && (
+            <p className="text-xs text-red-300/90 border-t border-gray-800/60 pt-2">
+              Readiness loop finished without a publishable draft. Edit the named claims above — do not use publish override.
+            </p>
+          )}
         </div>
       )}
 

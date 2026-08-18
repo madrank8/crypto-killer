@@ -10,6 +10,7 @@ import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
 import { generateArticleImages } from '@/lib/images'
+import { runReviewQualityFix } from '@/lib/quality-fix-review'
 
 // Phase B of the split review-generation pipeline:
 //   visuals (Imagen) → audit → hero/content images → revalidate.
@@ -18,6 +19,12 @@ import { generateArticleImages } from '@/lib/images'
 // that fails is logged and skipped — the whole run still lands at
 // generation_status='polished' so the UI unblocks.
 export const maxDuration = 300
+
+/** Env QUALITY_FIX_AUTO: default ON after readiness loop; set `0`/`false`/`no`/`off` to disable. */
+function qualityFixAutoEnabled() {
+  const v = String(process.env.QUALITY_FIX_AUTO ?? '1').trim().toLowerCase()
+  return !(v === '0' || v === 'false' || v === 'no' || v === 'off')
+}
 
 const PIPELINE_VERSION = 'multi-agent-v1.1-split'
 
@@ -42,6 +49,8 @@ export async function POST(request, { params }) {
       return Response.json({ error: 'review id required' }, { status: 400 })
     }
 
+    const authorization = request.headers.get('authorization')
+    const origin = new URL(request.url).origin
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
@@ -444,6 +453,42 @@ export async function POST(request, { params }) {
 
           await patchReview(id, polishPatch)
 
+          // One-shot Quality Fix Agent when audit VETO remains (no recurse).
+          let qualityFixResult = null
+          if (hardFail && qualityFixAutoEnabled()) {
+            send({
+              step: 'quality_fix',
+              progress: 95,
+              message: 'Running quality fix agent after audit VETO…',
+            })
+            try {
+              qualityFixResult = await runReviewQualityFix(id, {
+                authorization,
+                send,
+                autoPublish: true,
+                origin,
+              })
+              send({
+                step: 'quality_fix',
+                progress: 98,
+                message: qualityFixResult?.published
+                  ? 'Quality fix cleared hard fails and published.'
+                  : 'Quality fix finished — remaining fails need operator review.',
+                published: Boolean(qualityFixResult?.published),
+                applied: qualityFixResult?.applied,
+                unfixable: qualityFixResult?.unfixable,
+              })
+            } catch (fixErr) {
+              console.error('[polish] Quality fix failed:', fixErr.message)
+              send({
+                step: 'quality_fix',
+                progress: 98,
+                message: `Quality fix failed: ${fixErr.message}`,
+                error: true,
+              })
+            }
+          }
+
           // Visible update provenance (2026-07-08): only when this run
           // actually changed what readers see (new inline visuals or new
           // hero/content imagery) — a pure re-audit leaves no entry.
@@ -470,9 +515,11 @@ export async function POST(request, { params }) {
             // previously the banner said "Polish complete!" even when the
             // audit hard-failed, and the user only discovered the veto when
             // Publish errored — the review looked silently "stuck".
-            message: hardFail
-              ? `Polish complete — but the quality audit VETOED publish: ${hardFailReason}`
-              : 'Polish complete!',
+            message: qualityFixResult?.published
+              ? 'Polish complete — quality fix published.'
+              : hardFail
+                ? `Polish complete — but the quality audit VETOED publish: ${hardFailReason}`
+                : 'Polish complete!',
             result: {
               review_id: id,
               brand_slug: review.slug,
@@ -480,8 +527,9 @@ export async function POST(request, { params }) {
               visuals_rendered: finalStats.visuals,
               audit_grade: auditReport?.grade || 'skipped',
               audit_score: auditReport?.overall_score || null,
-              audit_hard_fail: hardFail,
+              audit_hard_fail: hardFail && !qualityFixResult?.published,
               audit_hard_fail_reason: hardFailReason,
+              quality_fix_published: Boolean(qualityFixResult?.published),
               hero_image: heroImageResult?.url || null,
               pipeline_version: PIPELINE_VERSION,
               models_used: {
