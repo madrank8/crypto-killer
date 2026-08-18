@@ -1,4 +1,4 @@
-# 23-Step Procedure Overview
+# 31-Step Procedure Overview
 
 Reference for the topical-map-creation skill. Read before or during execution for a bird's-eye view of the full procedure.
 

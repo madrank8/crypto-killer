@@ -263,8 +263,8 @@ test('S12 llms_txt_tier follows node_function', () => {
 test('S12 versions + dependencies', () => {
   const b = build()
   assert.deepEqual(b.dependencies, ['crypto-scams'])
-  assert.equal(b.seo_blog_generator_version, '5.2.1')
-  assert.equal(b.topical_map_version, '4.6')
+  assert.equal(b.seo_blog_generator_version, '5.4')
+  assert.equal(b.topical_map_version, '4.9')
   assert.equal(b.review_required, true)
 })
 

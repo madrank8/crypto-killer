@@ -10,7 +10,7 @@ This file adapts the topical map to the **kind of site** being mapped, and codif
 
 A topical map for a 6-page local plumber, a 40k-SKU store, and a sweepstakes affiliate are not the same artifact, even in the same niche. They differ in which **node functions** dominate, which **page types win** the SERP, how aggressively to chase **AI retrieval**, and where **cannibalization** bites. v4.3 and earlier declared an *execution* mode (Manual/Tool/Audit) but had no *site-type* lens. This file supplies it.
 
-The playbooks do **not** change the 23-step procedure or the checkpoints. They bias the defaults inside it.
+The playbooks do **not** change the 31-step procedure or the checkpoints. They bias the defaults inside it.
 
 ---
 

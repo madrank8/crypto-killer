@@ -12,6 +12,6 @@ test('vendored methodology matches its committed manifest', () => {
   assert.deepEqual(diffManifests(committed, actual), { added: [], removed: [], changed: [] })
 })
 
-test('vendored VERSION is 4.6', () => {
-  assert.equal(fs.readFileSync(path.join(DIR, 'VERSION'), 'utf8').trim(), '4.6')
+test('vendored VERSION is 4.9', () => {
+  assert.equal(fs.readFileSync(path.join(DIR, 'VERSION'), 'utf8').trim(), '4.9')
 })

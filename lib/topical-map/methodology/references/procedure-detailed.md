@@ -1,6 +1,6 @@
-# Procedure Detailed — 23-Step Topical Map Methodology
+# Procedure Detailed — 31-Step Topical Map Methodology
 
-This is the deep-dive reference for the 23-step procedure described at high level in SKILL.md and `step-overview.md`. Read the relevant phase before executing it.
+This is the deep-dive reference for the 31-step procedure described at high level in SKILL.md and `step-overview.md`. Read the relevant phase before executing it.
 
 Source: Koray Tugberk Gubur's *Semantic SEO for Topical Authority* course (2023–2025) and supplementary teachings (2024–2026), as interpreted and operationalized by the Madrank/GODRANK methodology stack. Where Koray's framework is extended or adapted, those extensions are marked `[extension]`.
 
@@ -125,8 +125,17 @@ Systematic generation by combining the Central Entity with modifier tokens:
 - **Definitional:** [what is, definition, meaning]
 - **Negative:** [avoid, dangers of, problems with]
 - **Quantitative:** [top 10, best 5, list of]
+- **Polarity/Condition** *(v4.9)*: [with X, without X, painless / X-free, after Y, during Y]
+  — enumerate BOTH poles of every searched attribute. "Without" queries are distinct
+  intents with their own demand, not synonyms of the base query: "red spots without
+  itching" and "red spots without pain" (720/mo) carry different differential meaning
+  than their "with" counterparts, and the searcher holding the absent symptom is a
+  different searcher. Situational triggers (after sex, after exercise, after a new
+  product, during pregnancy) are poles of the temporal-cause attribute.
 
 For each modifier × Central Entity combination, ask: "Is this a query someone would actually run?" Discard nonsense pairs. Keep plausible ones.
+
+**Symptom-variant expander (v4.9 — condition/symptom/side-effect entities only):** run the Polarity/Condition axis once per symptom attribute, not once per entity. For a condition with attributes {itching, pain, discharge, timing, location}, that yields with/without itching, with/without pain, with/without discharge, after-[trigger], and per-location variants — a matrix, not a list. Every matrix cell with real volume becomes a topic (or an H3/`faq_sweep` item in the page-level brief via `content-brief-generator` v1.6); cells without volume are discarded, and un-run cells are the miss class this axis exists to eliminate.
 
 ### Step 8.3 — Database Finding
 
@@ -399,7 +408,7 @@ See `pm-content-plan-spec.md` for the full XLSX workbook specification. Tier 4 i
 
 | Need | Reference |
 |------|-----------|
-| 23-step bird's-eye view | `step-overview.md` |
+| 31-step bird's-eye view | `step-overview.md` |
 | Mode guards for Steps 8.1, 13, 14, 23 | `procedure-addendum.md` |
 | Quantitative claims rule | `procedure-addendum.md` |
 | DataForSEO pipeline detail | `dataforseo.md` |
