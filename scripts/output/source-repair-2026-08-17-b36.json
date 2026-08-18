@@ -1,0 +1,18 @@
+{
+  "ranAt": "2026-08-17T05:11:07.714Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "ai-crypto-trading-bot",
+      "total": 8,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scams/",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

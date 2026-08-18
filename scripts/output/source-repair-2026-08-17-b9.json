@@ -1,0 +1,30 @@
+{
+  "ranAt": "2026-08-17T05:09:20.575Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "investment-pressure-tactics",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "guaranteed-returns-crypto",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-job-posting-scams",
+      "total": 3,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://web.archive.org/web/20240928145350/https://www.ic3.gov/Media/Y2024/PSA240604",
+          "detail": "HTTP 503"
+        }
+      ]
+    }
+  ]
+}
