@@ -210,6 +210,20 @@ test('scrubs visual placeholder tokens from bodies', () => {
   assert.doesNotMatch(patch.sections[0].body, /IMAGE NEEDED/)
 })
 
+test('scrubs dashed ck-visual--placeholder figures the publish gate used to miss', () => {
+  const row = {
+    full_article: '<p>Intro.</p><figure class="ck-visual ck-visual--placeholder"><p>fabricated dashboard</p></figure><p>Outro.</p>',
+    sections: [],
+  }
+  const { patch, applied, unfixable } = remediateContent(row, [
+    { key: 'gate_0', reason: 'full_article contains ck-visual--placeholder fallback boxes' },
+  ])
+  assert.equal(unfixable.length, 0)
+  assert.ok(applied.some((a) => a.key === 'visual_placeholder'))
+  assert.doesNotMatch(patch.full_article, /ck-visual--placeholder/)
+  assert.doesNotMatch(patch.full_article, /fabricated dashboard/)
+})
+
 test('drops dead source URLs named in the fail reason', () => {
   const dead = 'https://example.com/dead-page'
   const row = {

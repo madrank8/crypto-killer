@@ -3,6 +3,7 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
 import { processVisuals, processVisualsSections, stripVerifyTags } from '@/lib/visual-generator'
+import { sanitizeVisualHtml } from '@/lib/visual-placeholders'
 import { generateArticleImages, injectImagesIntoHtml } from '@/lib/images'
 import { selectPersona, getPersonaPrompts, getPersonaMetadata } from '@/lib/writer-personas'
 import { runArticlePipeline } from '@/lib/article-pipeline'
@@ -381,6 +382,8 @@ export async function POST(request) {
                 progress: 84,
                 message: `Article visuals rendered: ${htmlVisualResult.stats.succeeded}/${htmlVisualResult.stats.total}`,
               })
+            } else if (htmlVisualResult.html) {
+              fullArticleHtml = htmlVisualResult.html
             }
           } catch (htmlVizErr) {
             // Non-fatal here — but the publish gate blocks on any surviving
@@ -388,6 +391,8 @@ export async function POST(request) {
             console.error('[content/fill] HTML visual pass failed:', htmlVizErr.message)
             send({ step: 'visuals_html', progress: 84, message: `Visual rendering failed: ${htmlVizErr.message} — publish gate will block until re-run` })
           }
+
+          fullArticleHtml = sanitizeVisualHtml(fullArticleHtml)
 
           // Quality audit
           send({ step: 'audit', progress: 84, message: 'Running quality audit...' })

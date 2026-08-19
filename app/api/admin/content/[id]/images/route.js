@@ -150,34 +150,35 @@ export async function POST(request, { params }) {
             aiHelpers: { callModel, extractJSON },
           })
 
-          if (vizResult.stats.total > 0) {
-            // Update the full_article with rendered visuals
-            const cleanedHtml = stripVerifyTags(vizResult.html)
+          const cleanedHtml = stripVerifyTags(vizResult.html)
+          const htmlChanged = cleanedHtml !== fullArticle
+          if (vizResult.stats.total > 0 || htmlChanged) {
+            const payload = {
+              full_article: cleanedHtml,
+              updated_at: new Date().toISOString(),
+            }
+            if (vizResult.stats.total > 0) payload.visual_meta = vizResult.visuals
             await supaFetch(`/content?id=eq.${id}`, {
               method: 'PATCH',
               headers: { Prefer: 'return=minimal' },
-              body: JSON.stringify({
-                full_article: cleanedHtml,
-                visual_meta: vizResult.visuals,
-                updated_at: new Date().toISOString(),
-              }),
+              body: JSON.stringify(payload),
             })
-
-            results.visuals = {
-              success: true,
-              total: vizResult.stats.total,
-              succeeded: vizResult.stats.succeeded,
-              failed: vizResult.stats.failed,
-              visuals: vizResult.visuals.map(v => ({
-                type: v.type,
-                description: v.description,
-                url: v.url,
-                succeeded: v.succeeded,
-              })),
-            }
-          } else {
-            results.visuals = { success: true, total: 0, message: 'No visual placeholders found' }
           }
+
+          results.visuals = vizResult.stats.total > 0
+            ? {
+                success: true,
+                total: vizResult.stats.total,
+                succeeded: vizResult.stats.succeeded,
+                failed: vizResult.stats.failed,
+                visuals: vizResult.visuals.map(v => ({
+                  type: v.type,
+                  description: v.description,
+                  url: v.url,
+                  succeeded: v.succeeded,
+                })),
+              }
+            : { success: true, total: 0, message: 'No visual placeholders found', unwrapped: htmlChanged }
         }
       } catch (err) {
         results.visuals = { success: false, error: err.message }
