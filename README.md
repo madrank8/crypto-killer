@@ -80,8 +80,9 @@ SPYOWL_COOKIE=
 Living growth agent (defaults: runner on, autopublish off):
 
 ```
-AGENT_RUNNER=          # set to 0 to pause Work Plan execution AND map autodraft
+AGENT_RUNNER=          # set to 0 to pause Work Plan execution AND map autodraft/Sullivan
 AGENT_AUTODRAFT=       # set to 0 to pause topical-map autodraft only (default on)
+AGENT_SULLIVAN=        # set to 0 to pause Sullivan evidence cron only (default on)
 AGENT_AUTOPUBLISH=0    # must be 1 to allow gated publish
 AGENT_AUTOPUBLISH_ALLOWLIST=   # comma-separated content/review slugs
 ADMIN_SECRET=

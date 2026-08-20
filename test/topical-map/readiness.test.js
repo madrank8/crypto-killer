@@ -71,6 +71,50 @@ describe('proposeSullivanType', () => {
     assert.equal(proposeSullivanType(undefined), null)
     assert.equal(proposeSullivanType({}), null)
   })
+
+  it('/alerts/ and /safety/ map to firsthand_review', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Circle K Bitcoin ATM Scam', url_path: '/alerts/circle-k/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Coinbase Text Message Scam', url_path: '/safety/coinbase-text/' }),
+      'firsthand_review'
+    )
+  })
+
+  it('/guides/ recovery/report/checklist titles map to firsthand_review', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Crypto Recovery Checklist After a Scam', url_path: '/guides/crypto-recovery-checklist/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'How to Report a Crypto Scam to IC3', url_path: '/guides/report-ic3/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Beginner Wallet Setup', url_path: '/guides/wallet-setup/' }),
+      null
+    )
+  })
+
+  it('/check/ and /tools/ map to infrastructure', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Check Any Crypto Platform', url_path: '/check/platform/' }),
+      'infrastructure'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Wallet Safety Tools', url_path: '/tools/wallet-safety/' }),
+      'infrastructure'
+    )
+  })
+
+  it('/scams/ type pages stay unclassified (no forced data study)', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Pig Butchering Scams Explained', url_path: '/scams/pig-butchering/' }),
+      null
+    )
+  })
 })
 
 // ── gatherStackEvidence: infrastructure ──────────────────────────────────────
@@ -235,7 +279,7 @@ describe('gatherStackEvidence: firsthand_review', () => {
     assert.equal(out.sources.length, 0)
   })
 
-  it('field_observation_count and recurring_pattern always stay missing (no honest stack source)', async () => {
+  it('field_observation_count stays missing when SpyOwl returns no brand rows', async () => {
     const html = reviewHtmlWithQuotes([
       '"Quote one that is long enough to count as an anecdote here."',
       '"Quote two that is long enough to count as an anecdote here too."',
@@ -250,6 +294,90 @@ describe('gatherStackEvidence: firsthand_review', () => {
     assert.equal(out.forcing_inputs.recurring_pattern, undefined)
     assert.ok(out.missing.includes('field_observation_count'))
     assert.ok(out.missing.includes('recurring_pattern'))
+  })
+
+  it('fills field_observation_count from a cited SpyOwl brand query (never a generic boast)', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"Quote one that is long enough to count as an anecdote here."',
+      '"Quote two that is long enough to count as an anecdote here too."',
+      '"Quote three that is long enough to count as an anecdote as well."',
+    ])
+    const brands = [
+      { id: 'b1', geo_list: ['US'] },
+      { id: 'b2', geo_list: ['US'] },
+      { id: 'b3', geo_list: ['US'] },
+    ]
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Quantum AI Review',
+        target_keyword: 'quantum ai',
+        content_type: 'brand_review',
+        url_path: '/review/quantum-ai/',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/scam_brands')) return brands
+        if (path.startsWith('/reviews?slug=')) {
+          return [{ id: 'r-1', slug: 'quantum-ai', full_article: html, author_credentials: 'Lead investigator' }]
+        }
+        return []
+      },
+    })
+    assert.match(out.forcing_inputs.field_observation_count, /3 SpyOwl brand rows/)
+    assert.match(out.forcing_inputs.field_observation_count, /quantum ai/)
+    assert.match(out.forcing_inputs.recurring_pattern, /geo US/)
+    assert.ok(out.sources.some((s) => s.field === 'field_observation_count' && /quantum ai/.test(s.quote)))
+    assert.ok(!out.missing.includes('field_observation_count'))
+  })
+
+  it('fills anecdotes from overlapping published content (slug/keyword match)', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"I sent them 400 dollars and never heard back again after that day."',
+      '"Support stopped responding within twenty four hours of my withdrawal request."',
+      '"The platform locked my account the moment I asked to cash out my balance."',
+    ])
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Circle K Bitcoin ATM Scam',
+        target_keyword: 'circle k bitcoin',
+        url_path: '/alerts/circle-k/',
+        slug: 'circle-k',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/content?status=eq.published')) {
+          return [{ id: 'c-1', slug: 'circle-k-atm', title: 'Circle K Bitcoin ATM alert', full_article: html }]
+        }
+        return []
+      },
+    })
+    assert.equal(out.forcing_inputs.direct_anecdotes.length, 3)
+    assert.ok(out.sources.some((s) => s.field === 'direct_anecdotes'))
+    assert.ok(!out.missing.includes('direct_anecdotes'))
+  })
+
+  it('never invents a third anecdote when overlapping content only has two quotes', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"I sent them 400 dollars and never heard back again after that day."',
+      '"Support stopped responding within twenty four hours of my withdrawal request."',
+    ])
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Circle K Bitcoin ATM Scam',
+        target_keyword: 'circle k bitcoin',
+        url_path: '/alerts/circle-k/',
+        slug: 'circle-k',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/content?status=eq.published')) {
+          return [{ id: 'c-1', slug: 'circle-k-atm', title: 'Circle K Bitcoin ATM alert', full_article: html }]
+        }
+        return []
+      },
+    })
+    assert.equal(out.forcing_inputs.direct_anecdotes, undefined)
+    assert.ok(out.missing.includes('direct_anecdotes'))
   })
 
   it('falls back to a live fetch when no DB row exists', async () => {

@@ -109,6 +109,17 @@ Import assigns `topics.scheduled_for` from Phase/`publication_wave` at the **gro
 cadence (5/week) starting on the import UTC date. Cadence and start date are stored on
 `topical_maps.stats.publication` and can be re-saved from the Publication Plan panel.
 
+`GET /api/cron/map-sullivan` (minutes 5, 25, 45) classifies + gathers Sullivan evidence
+for **one** writable due (or soonest upcoming) topic. It never publishes and never
+writes article drafts. Autodraft will not pick a topic until `content_briefs.sullivan_ok`
+is true.
+
+- Kill switch: `AGENT_SULLIVAN=0` or `AGENT_RUNNER=0` (default on)
+- Path/format rules first; constrained Gemini Flash may return a type or `"none"`
+- Gather from the stack only (published content/reviews, SpyOwl counts, Wikidata registry)
+- Failures enqueue Work Plan `sullivan_evidence` as **blocked** with the missing field list
+- Never overrides a human `content_type` or human forcing inputs
+
 `GET /api/cron/map-writer` (every 20 minutes) then advances **one** due writable topic
 one stage (create stub → outline → fill) into a **draft**. It never publishes.
 
