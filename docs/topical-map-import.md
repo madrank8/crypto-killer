@@ -149,4 +149,14 @@ forcing inputs or human-declared content types.
 
 ## Linking already-published pages
 
-On sheet import, `persistImportedMap` matches each topic's Suggested URL / `url_path` leaf slug (then `slug`) against published `content.slug` and `reviews.slug`. Hits are inserted as `content_status: published` with `content_id` or `review_id` set so the admin UI treats them as already written. Misses stay `planned`. Map readiness skips already-linked published topics (no duplicate brief churn). Matching is leaf-slug only: no fuzzy title matching.
+On sheet import, `persistImportedMap` matches each topic against already-written
+`content` and `reviews` rows (published **and** draft). Hits are inserted as
+`content_status: published` (or `draft` if the live row is still a draft) with
+`content_id` or `review_id` set so the admin UI shows **Edit** instead of **Write**.
+Misses stay `planned`. Map readiness skips already-linked published topics (no
+duplicate brief churn).
+
+Matching is slug-based: Suggested URL leaf, topic slug, slugified Primary Query
+Cluster, slugified title before `:`, plus `-scam`/`-scams` variants. Cluster
+folders never match. Each live article can attach to at most one imported topic.
+No fuzzy title matching.

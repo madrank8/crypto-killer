@@ -1177,7 +1177,7 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
           </svg>
         </button>
       )}
-      {topic.content_type === 'brand_review' ? (
+      {topic.content_type === 'brand_review' && !topic.content_id && !topic.review_id ? (
         <Link
           href="/admin/brands"
           className="text-[11px] px-2 py-1 rounded-md border border-gray-700/60 text-gray-400 hover:text-white hover:border-gray-500 transition"
@@ -1187,6 +1187,13 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
       ) : topic.content_id ? (
         <Link
           href={`/admin/content/${topic.content_id}`}
+          className="text-[11px] px-2 py-1 rounded-md border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/50 transition"
+        >
+          Edit
+        </Link>
+      ) : topic.review_id ? (
+        <Link
+          href={`/admin/review/${topic.review_id}`}
           className="text-[11px] px-2 py-1 rounded-md border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/50 transition"
         >
           Edit
