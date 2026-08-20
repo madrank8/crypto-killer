@@ -31,6 +31,27 @@ hub pages and cluster hub pages are exempt from this requirement.
 
 ---
 
+## Category / seed-folder URLs
+
+Import does **not** invent slugified grouping URLs (`/victim-journey/`, `/safe-crypto-education/`).
+Koray seed folders are assigned as follows:
+
+| Node | `url_path` |
+|------|------------|
+| Crypto Scams pillar (network Root) | `/crypto-scams/` |
+| Scam Type Wiki cluster | `/scams/` |
+| Scam Alerts pillar | `/alerts/` |
+| Exchange Safety pillar | `/safety/` |
+| Data & Link Magnets pillar | `/research/` |
+| Checker / AI-bot hubs | sheet hub (`/check/`, `/scams/ai-trading-bots/`) |
+| Victim Journey, Education, Recover/Report folders | `null` (grouping only) |
+
+Leaf pages keep the sheet **Suggested URL**. `/guides/…` leaves are not rewritten; that prefix is a how-to template, not a Seed.
+
+Blank **KD** is stored as null (not 0) so priority is not inflated. A Primary Query Cluster that is only a parenthetical note falls back to the title text before `:`.
+
+---
+
 ## Hard-fail vs Warn Rules
 
 ### Hard-fail (422 - entire import is rejected)
