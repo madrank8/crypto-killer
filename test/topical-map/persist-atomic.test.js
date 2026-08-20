@@ -170,6 +170,7 @@ describe('persistImportedMap atomicity', () => {
       { return: [{ id: 't-cluster', slug: 'c1' }] }, // cluster insert
       { return: [{ id: 't-supp', slug: 's1' }] }, // supporting insert
       { return: [{ id: 't-pillar' }, { id: 't-cluster' }, { id: 't-supp' }] }, // count verify: matches
+      { return: null }, // scheduled_for PATCH (supporting only)
       { return: null }, // stats PATCH
     ])
 
@@ -195,6 +196,29 @@ describe('persistImportedMap atomicity', () => {
     assert.equal(body.stats.pillar_count, 1)
     assert.equal(body.stats.cluster_count, 1)
     assert.equal(body.stats.supporting_count, 1)
+    assert.equal(body.stats.publication.cadence, 'growing')
+    assert.equal(body.stats.publication.scheduled_count, 1)
+    assert.equal(body.stats.publication.start_date, new Date().toISOString().slice(0, 10))
+
+    const schedulePatch = supaFetch.calls.find(
+      (c) =>
+        c.path.includes('/topics?id=eq.t-supp') &&
+        c.opts.method === 'PATCH' &&
+        c.opts.body &&
+        JSON.parse(c.opts.body).scheduled_for
+    )
+    assert.ok(schedulePatch, 'expected scheduled_for PATCH on writable supporting topic')
+    assert.equal(
+      supaFetch.calls.some(
+        (c) =>
+          c.path.includes('/topics?id=eq.t-cluster') &&
+          c.opts.method === 'PATCH' &&
+          c.opts.body &&
+          Object.prototype.hasOwnProperty.call(JSON.parse(c.opts.body), 'scheduled_for')
+      ),
+      false,
+      'cluster folders must not get a write date'
+    )
   })
 
   it('links supporting topic to published content by url_path leaf', async () => {

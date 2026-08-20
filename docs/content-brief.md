@@ -3,7 +3,7 @@
 How to produce a content brief in the admin, what every bracketed marker means, and
 which guardrails will refuse you (and why).
 
-Port of the `content-brief-generator` **v1.4** skill (Plan 6). The brief is the
+Port of the `content-brief-generator` **v1.6** skill (Plan 6 + v1.5/v1.6 field ports). The brief is the
 handoff artifact between the topical map and the writing pipeline:
 
 ```
@@ -11,12 +11,13 @@ topical-map-creation  →  CONTENT BRIEF  →  seo-blog-generator
    (topics + SERP)        (this doc)         (the article)
 ```
 
-**Next (not shipped yet):** [Plan 7 — skill v1.5 port](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md)
-gates **Generate Outline** on a Sullivan-ok brief, adds on-demand SERP capture for
-imported topics with empty PAA/SERP, and adds per-section `ple_unit`
-(Pixel/Letter/Byte). Until Plan 7 lands, the content editor outline path can still
-run without a brief — use the topical-map clipboard panel for the real 12-section
-brief before writing pillars.
+**Shipped in this port:** Sullivan Gate (v1.4), `ple_unit` per heading (v1.5), `locale` /
+`orthography_notes`, `faq_sweep`, YMYL escalation-ladder CTA instruction, `anti_mistake` scaffold
+(v1.6). YAML header targets `seo-blog-generator` **v5.4**.
+
+**Not ported (writer/auditor still lag the skill):** Step 6.7b `brief-fidelity-gate`, Step 6.9c
+`helpful-content-gate`, YMYL TIER ledger lines, locale scan SC-105/106. Plan 7 (live SERP capture +
+human outline gate on `sullivan_ok`) remains backlog; autodraft already requires `sullivan_ok`.
 
 **Name collision:** `topics.content_type` (`pillar_page`, `guide`, …) is the map /
 page-format field. Sullivan `content_type` on `content_briefs` is the SC-098
@@ -185,9 +186,10 @@ silently destroyed.
 Canonical spec: `~/.claude/skills/content-brief-generator/` —
 `references/brief-template.md` (the 12 sections and exact field names, which
 `seo-blog-generator` parses) and `SKILL.md` (honesty rules, Step 1.6 gate;
-v1.5 adds Step 1.5 SERP intel + `ple_unit`).
+v1.6 adds `faq_sweep`, locale/orthography, escalation-ladder CTAs).
 
 > Plan 6 scope: no live SERP-intel / consensus-map chain — reuse map-measured SERP;
-> genuine gaps stay `[NO DATA]`. **Plan 7** adds on-demand topic SERP capture +
-> outline gating + `ple_unit` — see
+> genuine gaps stay `[NO DATA]`. **Plan 7** (human outline gate + on-demand SERP)
+> is still backlog — see
 > [`docs/superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md`](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md).
+> Autodraft (`/api/cron/map-writer`) already refuses to write without `sullivan_ok`.

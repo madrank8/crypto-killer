@@ -34,6 +34,10 @@ function runnerDisabled(env) {
   return env.AGENT_RUNNER === '0'
 }
 
+function autodraftDisabled(env) {
+  return env.AGENT_AUTODRAFT === '0' || env.AGENT_RUNNER === '0'
+}
+
 function parseToolsFromMessage(message) {
   const tools = []
   const re = /\[\[tool:(\w+)\s+([^\]]+)\]\]/g
@@ -119,6 +123,12 @@ test('AGENT_RUNNER=0 disables runner', () => {
   assert.equal(runnerDisabled({ AGENT_RUNNER: '0' }), true)
   assert.equal(runnerDisabled({}), false)
   assert.equal(runnerDisabled({ AGENT_RUNNER: '1' }), false)
+})
+
+test('AGENT_AUTODRAFT=0 or AGENT_RUNNER=0 disables map autodraft', () => {
+  assert.equal(autodraftDisabled({}), false)
+  assert.equal(autodraftDisabled({ AGENT_AUTODRAFT: '0' }), true)
+  assert.equal(autodraftDisabled({ AGENT_RUNNER: '0' }), true)
 })
 
 test('parseToolsFromMessage extracts allowlisted tool tags', () => {

@@ -103,7 +103,21 @@ ADMIN_SECRET
 
 ---
 
-## Post-import: Sullivan Readiness
+## Post-import: publication dates + autodraft
+
+Import assigns `topics.scheduled_for` from Phase/`publication_wave` at the **growing**
+cadence (5/week) starting on the import UTC date. Cadence and start date are stored on
+`topical_maps.stats.publication` and can be re-saved from the Publication Plan panel.
+
+`GET /api/cron/map-writer` (every 20 minutes) then advances **one** due writable topic
+one stage (create stub → outline → fill) into a **draft**. It never publishes.
+
+- Kill switch: `AGENT_AUTODRAFT=0` or `AGENT_RUNNER=0`
+- Requires `content_briefs.sullivan_ok = true` (see readiness below)
+- Folders, synthetic hubs, and already-linked articles are skipped
+- Apply `migrations/026_topics_scheduled_for.sql` in Supabase
+
+---
 
 After a successful import, the system automatically starts a **readiness check** in the
 background. This pipeline:
@@ -149,4 +163,14 @@ forcing inputs or human-declared content types.
 
 ## Linking already-published pages
 
-On sheet import, `persistImportedMap` matches each topic's Suggested URL / `url_path` leaf slug (then `slug`) against published `content.slug` and `reviews.slug`. Hits are inserted as `content_status: published` with `content_id` or `review_id` set so the admin UI treats them as already written. Misses stay `planned`. Map readiness skips already-linked published topics (no duplicate brief churn). Matching is leaf-slug only: no fuzzy title matching.
+On sheet import, `persistImportedMap` matches each topic against already-written
+`content` and `reviews` rows (published **and** draft). Hits are inserted as
+`content_status: published` (or `draft` if the live row is still a draft) with
+`content_id` or `review_id` set so the admin UI shows **Edit** instead of **Write**.
+Misses stay `planned`. Map readiness skips already-linked published topics (no
+duplicate brief churn).
+
+Matching is slug-based: Suggested URL leaf, topic slug, slugified Primary Query
+Cluster, slugified title before `:`, plus `-scam`/`-scams` variants. Cluster
+folders never match. Each live article can attach to at most one imported topic.
+No fuzzy title matching.

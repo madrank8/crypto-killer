@@ -82,7 +82,7 @@ export default function WorkPlanPage() {
         <div>
           <h1 className="text-xl font-semibold text-white">Work Plan</h1>
           <p className="text-xs text-gray-500 mt-1">
-            Queue fed by Advisor + chat. Runner drafts/redirects only unless AGENT_AUTOPUBLISH is on.
+            Queue fed by Advisor, chat, and map autodraft. Writer fills drafts only — publish stays manual unless AGENT_AUTOPUBLISH is on.
           </p>
         </div>
         <div className="flex gap-2">
@@ -141,7 +141,9 @@ export default function WorkPlanPage() {
                         <span className={`text-[10px] font-bold ${PRI[item.priority] || 'text-gray-400'}`}>
                           {item.priority}
                         </span>
-                        <span className="text-[10px] text-gray-600 truncate">{item.action_type}</span>
+                        <span className="text-[10px] text-gray-600 truncate">
+                          {item.action_type === 'write_content' ? 'write_content · autodraft' : item.action_type}
+                        </span>
                       </div>
                       <p className="text-white text-sm mt-1 font-medium leading-snug">{item.title}</p>
                       {item.why && <p className="text-xs text-gray-500 mt-1 line-clamp-3">{item.why}</p>}

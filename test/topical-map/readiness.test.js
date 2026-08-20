@@ -40,6 +40,13 @@ describe('proposeSullivanType', () => {
     )
   })
 
+  it('/research/ url_path maps to original_data_study', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Ad Spend Report', url_path: '/research/ad-spend/' }),
+      'original_data_study'
+    )
+  })
+
   it('proprietary dataset / n= / survey signal maps to original_data_study', () => {
     assert.equal(
       proposeSullivanType({ title: 'Our Survey of 500 Victims', notes: 'proprietary dataset, n=512' }),
@@ -148,6 +155,16 @@ describe('gatherStackEvidence: infrastructure', () => {
     })
     assert.deepEqual(out.forcing_inputs.sub_entities, ['Pig Butchering', 'Romance Scam', 'Rug Pull'])
     assert.ok(!out.missing.includes('sub_entities'))
+  })
+
+  it('fills semantic_role from glossary/FAQ/definition title signals', async () => {
+    const out = await gatherStackEvidence({
+      topic: { title: 'Crypto Scam Glossary', internal_links_to: ['/a/', '/b/', '/c/'] },
+      proposeType: 'infrastructure',
+      supaFetch: async () => [],
+    })
+    assert.equal(out.forcing_inputs.semantic_role, 'glossary')
+    assert.ok(!out.missing.includes('semantic_role'))
   })
 
   it('leaves sub_entities missing when fewer than 3 real linked child titles exist', async () => {
@@ -281,19 +298,32 @@ describe('gatherStackEvidence: no proposal', () => {
     assert.equal(out.content_type, 'firsthand_review')
   })
 
-  it('an unhandled but valid Sullivan type (original_data_study) reports every field missing, never invents', async () => {
+  it('fills original_data_study from a real SpyOwl brand sample (n>=100), never invents n', async () => {
+    const brands = Array.from({ length: 120 }, (_, i) => ({
+      id: `b${i}`,
+      last_seen_at: '2026-08-01T00:00:00Z',
+      scam_score: i < 30 ? 90 : 40,
+    }))
     const out = await gatherStackEvidence({
-      topic: { title: 'Our Survey of 500 Victims', notes: 'proprietary dataset, n=512' },
+      topic: { title: 'Ad Spend Report', url_path: '/research/ad-spend/' },
       proposeType: 'original_data_study',
-      supaFetch: async () => [],
+      supaFetch: async (path) => (path.startsWith('/scam_brands') ? brands : []),
     })
-    assert.equal(out.content_type, 'original_data_study')
+    assert.equal(out.forcing_inputs.dataset_source, 'internal_db')
+    assert.equal(out.forcing_inputs.n_size, 120)
+    assert.equal(out.forcing_inputs.collection_date, '2026-08-01')
+    assert.match(out.forcing_inputs.novel_finding, /120 tracked brands/)
+    assert.ok(!out.missing.includes('n_size'))
+  })
+
+  it('leaves original_data_study missing when the corpus sample is below n=100', async () => {
+    const out = await gatherStackEvidence({
+      topic: { title: 'Ad Spend Report', url_path: '/research/ad-spend/' },
+      proposeType: 'original_data_study',
+      supaFetch: async () => [{ id: 'b1', last_seen_at: '2026-08-01', scam_score: 90 }],
+    })
     assert.deepEqual(out.forcing_inputs, {})
-    assert.ok(out.missing.includes('dataset_source'))
     assert.ok(out.missing.includes('n_size'))
-    assert.ok(out.missing.includes('methodology'))
-    assert.ok(out.missing.includes('novel_finding'))
-    assert.ok(out.missing.includes('collection_date'))
   })
 })
 
