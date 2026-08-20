@@ -10,6 +10,7 @@ const { consolidateKoray, isGrowthPartnerShape } = require('../../lib/topical-ma
 const { mapPageRow, normalizeSection, buildTopicFields } = require('../../lib/topical-map/import/field-map')
 const { validateImportedPages } = require('../../lib/topical-map/import/validate-sheet')
 const { assertImportCoverage } = require('../../lib/topical-map/import/coverage')
+const { isWritableContentTopic } = require('../../lib/topical-map/writable-topic')
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'page-map-sample.csv')
 
@@ -192,6 +193,21 @@ describe('koray consolidator', () => {
     assert.ok(!invented.includes('/victim-journey/'))
     assert.ok(!invented.includes('/exchange-safety-reports/'))
     assert.ok(!invented.includes('/data-link-magnets/'))
+  })
+
+  it('marks Koray folders as not writeable and sheet hubs as writeable', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+    const { structure } = consolidateKoray(pages)
+    const crypto = structure.pillars.find((b) => /crypto scams/i.test(b.pillar.title))
+    assert.equal(isWritableContentTopic(crypto.pillar), true)
+    const spokes = (crypto.clusters || []).find((c) => /entity & hub/i.test(c.title))
+    assert.ok(spokes)
+    assert.equal(isWritableContentTopic(spokes), false)
+    const victim = structure.pillars.find((b) => /victim journey/i.test(b.pillar.title))
+    assert.equal(isWritableContentTopic(victim.pillar), false)
+    const flags = (victim.pillar.qa_flags || []).map((f) => f.type || f)
+    assert.ok(flags.includes('synthetic_hub'))
   })
 
   it('resolves sheet nickname internal links including branch-scoped Pillar', () => {

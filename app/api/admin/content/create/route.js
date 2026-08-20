@@ -1,5 +1,6 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
+import { isWritableContentTopic } from '@/lib/topical-map/writable-topic'
 
 /**
  * POST /api/admin/content/create
@@ -102,7 +103,7 @@ export async function POST(request) {
     if (body?.topic_id) {
       // Mode 1: legacy topic-driven
       const topicRows = await supaFetch(
-        `/topics?id=eq.${body.topic_id}&select=id,title,target_keyword,content_type,content_id&limit=1`,
+        `/topics?id=eq.${body.topic_id}&select=id,title,target_keyword,content_type,content_id,topic_type,qa_flags,notes&limit=1`,
       )
       topic = Array.isArray(topicRows) ? topicRows[0] : null
       if (!topic) {
@@ -116,6 +117,18 @@ export async function POST(request) {
           existing: true,
           topic_id: topic.id,
         })
+      }
+
+      if (!isWritableContentTopic(topic)) {
+        return Response.json(
+          {
+            error:
+              topic.topic_type === 'cluster'
+                ? 'Cluster folders are not writeable — pick a supporting page'
+                : 'Structural hub topics are not writeable — pick a sheet keyword page',
+          },
+          { status: 422 },
+        )
       }
     } else if (body?.title && body?.content_type) {
       // Mode 2: free-form (Phase 4)

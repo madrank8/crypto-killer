@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CADENCES, DEFAULT_CADENCE, buildPublicationPlan } from '@/lib/topical-map/publication-plan';
+import { isWritableContentTopic } from '@/lib/topical-map/writable-topic';
 import { CONTENT_TYPES, CONTENT_TYPE_LABELS, FORCING_INPUT_SPECS, validateSullivanGate } from '@/lib/content-brief/sullivan';
 
 // ─── Color Systems ───
@@ -1190,7 +1191,7 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
         >
           Edit
         </Link>
-      ) : (
+      ) : isWritableContentTopic(topic) ? (
         <button
           type="button"
           onClick={() => onWriteArticle(topic)}
@@ -1199,6 +1200,17 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
         >
           {writingId === topic.id ? '\u2026' : 'Write'}
         </button>
+      ) : (
+        <span
+          className="text-[10px] px-2 py-1 rounded-md border border-gray-800 text-gray-600"
+          title={
+            topic.topic_type === 'cluster'
+              ? 'Cluster folder — expand and Write a supporting page'
+              : 'Structural hub — not a sheet keyword page'
+          }
+        >
+          {topic.topic_type === 'cluster' ? 'Folder' : 'Hub'}
+        </span>
       )}
     </div>
   );
@@ -1867,6 +1879,14 @@ export default function TopicalMapPage() {
 
   const writeArticle = async (topic) => {
     if (!token || !topic?.id) return;
+    if (!isWritableContentTopic(topic)) {
+      showToast(
+        topic.topic_type === 'cluster'
+          ? 'Clusters are folders — open a supporting page to Write'
+          : 'This hub is structural (not a sheet page) — Write a supporting topic instead'
+      );
+      return;
+    }
     setWritingId(topic.id);
     try {
       const res = await fetch('/api/admin/content/create', {
