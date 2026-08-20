@@ -28,6 +28,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Local search index
+.context-brain.db
+
 # IDE
 .vscode/
 .idea/
