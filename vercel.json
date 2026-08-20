@@ -33,6 +33,10 @@
       "schedule": "*/20 * * * *"
     },
     {
+      "path": "/api/cron/map-writer",
+      "schedule": "*/20 * * * *"
+    },
+    {
       "path": "/api/cron/content-maintenance",
       "schedule": "*/15 * * * *"
     },
@@ -43,6 +47,9 @@
   ],
   "functions": {
     "app/api/cron/content-maintenance/route.js": {
+      "maxDuration": 700
+    },
+    "app/api/cron/map-writer/route.js": {
       "maxDuration": 700
     },
     "app/api/cron/scrape/route.js": {

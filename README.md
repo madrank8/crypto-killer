@@ -80,15 +80,17 @@ SPYOWL_COOKIE=
 Living growth agent (defaults: runner on, autopublish off):
 
 ```
-AGENT_RUNNER=          # set to 0 to pause Work Plan execution
+AGENT_RUNNER=          # set to 0 to pause Work Plan execution AND map autodraft
+AGENT_AUTODRAFT=       # set to 0 to pause topical-map autodraft only (default on)
 AGENT_AUTOPUBLISH=0    # must be 1 to allow gated publish
 AGENT_AUTOPUBLISH_ALLOWLIST=   # comma-separated content/review slugs
 ADMIN_SECRET=
 CRON_SECRET=
 ```
 
-Apply Supabase migration before using chat/work-plan:
-`migrations/024_agent_chat_and_work_plan.sql` on project Crypto Killer (`rqyfuioazbdixflqngcs`).
+Apply Supabase migrations before using chat/work-plan/autodraft:
+`migrations/024_agent_chat_and_work_plan.sql` and `migrations/026_topics_scheduled_for.sql`
+on project Crypto Killer (`rqyfuioazbdixflqngcs`).
 
 ## Deployment
 

@@ -721,19 +721,48 @@ function ContentBriefPanel({ topic, token }) {
 // ─── Publication Plan (Step 22) ───
 // Computed entirely from the already-loaded topics array — no API round-trip.
 // startDate is passed explicitly so the plan module never reads a clock.
-function PublicationPlanPanel({ topics }) {
+function PublicationPlanPanel({ topics, mapId, token, initialCadence, initialStartDate, onSaved }) {
   const [open, setOpen] = useState(false);
-  const [cadence, setCadence] = useState(DEFAULT_CADENCE);
-  const [startDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cadence, setCadence] = useState(initialCadence || DEFAULT_CADENCE);
+  const [startDate, setStartDate] = useState(
+    () => initialStartDate || new Date().toISOString().slice(0, 10)
+  );
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null);
+
+  useEffect(() => {
+    if (initialCadence) setCadence(initialCadence);
+  }, [initialCadence]);
+  useEffect(() => {
+    if (initialStartDate) setStartDate(initialStartDate);
+  }, [initialStartDate]);
 
   const plan = useMemo(
     () => buildPublicationPlan(topics, { cadence, startDate }),
     [topics, cadence, startDate]
   );
 
-  // Always render the header — hiding the panel when nothing is left to schedule
-  // would make the "all caught up" state unreachable after a reload (no toggle to
-  // click), which is exactly the kind of dead-end this dashboard must not have.
+  const persistPlan = async () => {
+    if (!token || !mapId) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch(`/api/admin/topical-map/maps/${mapId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ cadence, start_date: startDate }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setSaveMsg(`Saved ${data.publication?.scheduled_count ?? 0} dates`);
+      if (onSaved) await onSaved();
+    } catch (e) {
+      setSaveMsg(e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-gray-800/60 bg-gray-900/40">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -746,6 +775,14 @@ function PublicationPlanPanel({ topics }) {
               : `${plan.total} unpublished · ${plan.weeks.length} week${plan.weeks.length === 1 ? '' : 's'}`}
           </span>
         </button>
+        <input
+          type="date"
+          value={startDate}
+          onChange={(e) => setStartDate(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          className="search-input text-xs py-1"
+          title="Week 1 start date (UTC)"
+        />
         <select
           value={cadence}
           onChange={(e) => setCadence(e.target.value)}
@@ -757,10 +794,19 @@ function PublicationPlanPanel({ topics }) {
             <option key={c.key} value={c.key}>{c.label} — {c.rangeLabel}</option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); persistPlan(); }}
+          disabled={saving || !mapId}
+          className="text-[11px] px-2 py-1 rounded-md border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save dates'}
+        </button>
       </div>
 
       {open && (
         <div className="border-t border-gray-800/40 px-4 py-3 space-y-2 max-h-96 overflow-y-auto">
+          {saveMsg && <p className="text-[11px] text-gray-400">{saveMsg}</p>}
           {plan.cadence.note && <p className="text-[11px] text-amber-300/70">{plan.cadence.note}</p>}
           {plan.cadence.refreshesPerWeek > 0 && (
             <p className="text-[11px] text-gray-500">
@@ -939,6 +985,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
               <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
+              <EvidenceBadge outcome={readinessTopics?.[topic.id]?.outcome} />
             </div>
             <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-3 flex-wrap">
               {topic.target_keyword && <span className="text-gray-400">{topic.target_keyword}</span>}
@@ -962,6 +1009,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               onToggleBrief={() => setBriefOpen(o => !o)}
               cbOpen={cbOpen}
               onToggleContentBrief={() => setCbOpen(o => !o)}
+              readinessOutcome={readinessTopics?.[topic.id]?.outcome}
             />
             <ChevronToggle expanded={expanded} />
           </div>
@@ -1019,6 +1067,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
               <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
               <MetaBadges topic={topic} />
               <StatusBadge status={topic.content_status} />
+              <EvidenceBadge outcome={readinessTopics?.[topic.id]?.outcome} />
               <span className="text-[10px] text-gray-600 tabular-nums">{children.length} sub</span>
             </div>
             <div className="mt-0.5 flex items-center gap-2 flex-wrap">
@@ -1038,6 +1087,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             onToggleBrief={() => setBriefOpen(o => !o)}
             cbOpen={cbOpen}
             onToggleContentBrief={() => setCbOpen(o => !o)}
+            readinessOutcome={readinessTopics?.[topic.id]?.outcome}
           />
         </div>
 
@@ -1088,6 +1138,11 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
             <RoleBadge role={topic.content_role} expandsSlug={topic.expands_content_slug} />
             <MetaBadges topic={topic} />
             <EvidenceBadge outcome={readinessTopics?.[topic.id]?.outcome} />
+            {topic.scheduled_for && topic.content_status !== 'published' && (
+              <span className="text-[10px] text-gray-600 tabular-nums" title="Scheduled write date">
+                {String(topic.scheduled_for).slice(0, 10)}
+              </span>
+            )}
           </div>
           {(topic.target_keyword && topic.target_keyword !== topic.title) || hasMetricChips(topic) ? (
             <div className="mt-0.5 flex items-center gap-2 flex-wrap">
@@ -1109,6 +1164,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
           onToggleBrief={() => setBriefOpen(o => !o)}
           cbOpen={cbOpen}
           onToggleContentBrief={() => setCbOpen(o => !o)}
+          readinessOutcome={readinessTopics?.[topic.id]?.outcome}
         />
       </div>
 
@@ -1135,7 +1191,7 @@ function TopicRow({ topic, depth, byParent, token, onPatch, onDelete, onWriteArt
 
 // ─── Action Buttons ───
 
-function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief, cbOpen, onToggleContentBrief }) {
+function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, onWriteArticle, writingId, compact, briefOpen, onToggleBrief, cbOpen, onToggleContentBrief, readinessOutcome }) {
   const editing = editingId === topic.id;
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -1189,7 +1245,7 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
           href={`/admin/content/${topic.content_id}`}
           className="text-[11px] px-2 py-1 rounded-md border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/50 transition"
         >
-          Edit
+          {topic.content_status === 'published' ? 'Edit' : 'Draft / Edit'}
         </Link>
       ) : topic.review_id ? (
         <Link
@@ -1199,14 +1255,24 @@ function TopicActions({ topic, descendants, editingId, setEditingId, onDelete, o
           Edit
         </Link>
       ) : isWritableContentTopic(topic) ? (
-        <button
-          type="button"
-          onClick={() => onWriteArticle(topic)}
-          disabled={writingId === topic.id}
-          className="text-[11px] px-2 py-1 rounded-md border border-green-500/30 text-green-300 hover:text-white hover:border-green-400/50 transition disabled:opacity-50"
-        >
-          {writingId === topic.id ? '\u2026' : 'Write'}
-        </button>
+        <>
+          {readinessOutcome === 'needs_evidence' && (
+            <span
+              className="text-[10px] px-2 py-1 rounded-md border border-amber-500/20 text-amber-400"
+              title="Autodraft blocked until Sullivan evidence passes"
+            >
+              Needs evidence
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => onWriteArticle(topic)}
+            disabled={writingId === topic.id}
+            className="text-[11px] px-2 py-1 rounded-md border border-green-500/30 text-green-300 hover:text-white hover:border-green-400/50 transition disabled:opacity-50"
+          >
+            {writingId === topic.id ? '\u2026' : 'Write'}
+          </button>
+        </>
       ) : (
         <span
           className="text-[10px] px-2 py-1 rounded-md border border-gray-800 text-gray-600"
@@ -2078,7 +2144,16 @@ export default function TopicalMapPage() {
       )}
 
       {/* ── Publication plan (Step 22) ── */}
-      {mapId && topics.length > 0 && <PublicationPlanPanel topics={topics} />}
+      {mapId && topics.length > 0 && (
+        <PublicationPlanPanel
+          topics={topics}
+          mapId={mapId}
+          token={token}
+          initialCadence={selectedMap?.stats?.publication?.cadence}
+          initialStartDate={selectedMap?.stats?.publication?.start_date}
+          onSaved={async () => { await loadTopics(); await loadMaps(); }}
+        />
+      )}
 
       {/* ── Search ── */}
       {mapId && topics.length > 0 && (

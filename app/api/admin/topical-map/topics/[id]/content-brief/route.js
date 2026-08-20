@@ -5,7 +5,7 @@ import { assembleBrief } from '@/lib/content-brief/assemble'
 import { buildPublicationPlan } from '@/lib/topical-map/publication-plan'
 
 /**
- * Full 12-section content brief for a topic (content-brief-generator v1.4).
+ * Full 12-section content brief for a topic (content-brief-generator v1.6).
  *
  *   GET  → { brief_row, gate }              current state + Sullivan Gate verdict
  *   PUT  → body { content_type, forcing_inputs }

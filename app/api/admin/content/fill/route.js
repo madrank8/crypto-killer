@@ -130,6 +130,7 @@ export async function POST(request) {
     if (!contentId) {
       return Response.json({ error: 'content_id is required' }, { status: 400 })
     }
+    const autoPublish = body?.auto_publish !== false
     const authorization = request.headers.get('authorization')
     const origin = new URL(request.url).origin
     const encoder = new TextEncoder()
@@ -617,7 +618,7 @@ export async function POST(request) {
                 qualityFixResult = await runContentQualityFix(contentId, {
                   authorization,
                   send,
-                  autoPublish: true,
+                  autoPublish,
                   origin,
                 })
                 send({

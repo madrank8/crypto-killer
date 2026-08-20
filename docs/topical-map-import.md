@@ -103,7 +103,21 @@ ADMIN_SECRET
 
 ---
 
-## Post-import: Sullivan Readiness
+## Post-import: publication dates + autodraft
+
+Import assigns `topics.scheduled_for` from Phase/`publication_wave` at the **growing**
+cadence (5/week) starting on the import UTC date. Cadence and start date are stored on
+`topical_maps.stats.publication` and can be re-saved from the Publication Plan panel.
+
+`GET /api/cron/map-writer` (every 20 minutes) then advances **one** due writable topic
+one stage (create stub → outline → fill) into a **draft**. It never publishes.
+
+- Kill switch: `AGENT_AUTODRAFT=0` or `AGENT_RUNNER=0`
+- Requires `content_briefs.sullivan_ok = true` (see readiness below)
+- Folders, synthetic hubs, and already-linked articles are skipped
+- Apply `migrations/026_topics_scheduled_for.sql` in Supabase
+
+---
 
 After a successful import, the system automatically starts a **readiness check** in the
 background. This pipeline:
