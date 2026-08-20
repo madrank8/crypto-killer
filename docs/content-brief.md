@@ -193,3 +193,5 @@ v1.6 adds `faq_sweep`, locale/orthography, escalation-ladder CTAs).
 > is still backlog — see
 > [`docs/superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md`](./superpowers/plans/2026-07-29-plan7-content-brief-v15-port.md).
 > Autodraft (`/api/cron/map-writer`) already refuses to write without `sullivan_ok`.
+> The Sullivan evidence cron (`/api/cron/map-sullivan`) classifies + gathers cited
+> stack evidence only; it never invents anecdotes or publishes.

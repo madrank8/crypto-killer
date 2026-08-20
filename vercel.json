@@ -33,6 +33,10 @@
       "schedule": "*/20 * * * *"
     },
     {
+      "path": "/api/cron/map-sullivan",
+      "schedule": "5,25,45 * * * *"
+    },
+    {
       "path": "/api/cron/map-writer",
       "schedule": "*/20 * * * *"
     },
@@ -51,6 +55,9 @@
     },
     "app/api/cron/map-writer/route.js": {
       "maxDuration": 700
+    },
+    "app/api/cron/map-sullivan/route.js": {
+      "maxDuration": 300
     },
     "app/api/cron/scrape/route.js": {
       "maxDuration": 300

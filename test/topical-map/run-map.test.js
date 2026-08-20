@@ -56,6 +56,9 @@ function buildMockSupaFetch({ topics, briefsByTopic, reviewsBySlug, mapStats }) 
       const review = reviewsBySlug[slug]
       return review ? [review] : []
     }
+    if (path.startsWith('/content?status=eq.published')) return []
+    if (path.startsWith('/reviews?status=eq.published')) return []
+    if (path.startsWith('/scam_brands?')) return []
     if (path.startsWith('/topical_maps?id=eq.') && path.includes('select=stats')) {
       return [{ stats: savedStats.current }]
     }
@@ -222,6 +225,37 @@ describe('startMapReadiness', () => {
 
     assert.deepEqual(summary, { processed: 1, sullivan_ok: 0, needs_evidence: 0, skipped: 1 })
     assert.equal(supaFetch.briefWrites.length, 0)
+  })
+
+  it('classifyType is used when no human brief type exists, but never replaces a saved type', async () => {
+    const { processTopic } = require('../../lib/topical-map/readiness/run-map')
+    const writes = []
+    const supaFetch = async (path, opts = {}) => {
+      if (path.startsWith('/content_briefs') && (opts.method === 'PATCH' || opts.method === 'POST')) {
+        writes.push({ method: opts.method || 'GET', body: JSON.parse(opts.body) })
+        return null
+      }
+      if (path.startsWith('/content_briefs?topic_id=')) return []
+      if (path.startsWith('/content?status=eq.published')) return []
+      if (path.startsWith('/reviews?status=eq.published')) return []
+      if (path.startsWith('/reviews?slug=')) return []
+      if (path.startsWith('/scam_brands?')) return []
+      return []
+    }
+    const out = await processTopic({
+      topic: {
+        id: 't-cls',
+        title: 'Circle K Bitcoin ATM Scam',
+        url_path: '/learn/circle-k/',
+        content_status: 'planned',
+      },
+      mapId: 'map-cls',
+      supaFetch,
+      classifyType: 'firsthand_review',
+    })
+    assert.equal(out.content_type, 'firsthand_review')
+    assert.equal(out.outcome, 'needs_evidence')
+    assert.equal(writes[0].body.content_type, 'firsthand_review')
   })
 
   it('a human-declared content_type on an existing brief overrides the deterministic proposal', async () => {

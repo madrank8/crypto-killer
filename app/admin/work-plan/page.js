@@ -142,7 +142,11 @@ export default function WorkPlanPage() {
                           {item.priority}
                         </span>
                         <span className="text-[10px] text-gray-600 truncate">
-                          {item.action_type === 'write_content' ? 'write_content · autodraft' : item.action_type}
+                          {item.action_type === 'write_content'
+                            ? 'write_content · autodraft'
+                            : item.action_type === 'sullivan_evidence'
+                              ? 'sullivan_evidence · classify'
+                              : item.action_type}
                         </span>
                       </div>
                       <p className="text-white text-sm mt-1 font-medium leading-snug">{item.title}</p>
