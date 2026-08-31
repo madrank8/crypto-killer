@@ -5,7 +5,7 @@ import { checkReviewIntegrity } from '@/lib/review-integrity'
 import { callModel, extractJSON } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { qualityAuditorPrompt } from '@/lib/review-prompts'
-import { dedupeCelebrityList, classifyThreat } from '@/lib/threat-score'
+import { dedupeCelebrityList, classifyThreat, brandEvidence } from '@/lib/threat-score'
 import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { resolveAdEvidence } from '@/lib/ad-evidence'
 import { processVisuals } from '@/lib/visual-generator'
@@ -240,7 +240,7 @@ export async function POST(request, { params }) {
               longevityDays,
               // Keep schema polarity aligned with the stored tier instead of
               // buildReviewSchema's internal fallback.
-              threat: classifyThreat(brandData.scam_score ?? 0),
+              threat: classifyThreat(brandData.scam_score ?? 0, brandEvidence(brandData), { override: brandData?.classification_override || null }),
               // Enrichment payload from the review row (audit 2026-07-08):
               // without these the rebuilt schema shipped NO Dataset/ItemList/
               // citation nodes, so the auditor hard-failed spatialCoverage on

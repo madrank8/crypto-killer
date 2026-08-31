@@ -2,6 +2,13 @@ import Link from 'next/link'
 import { supabaseRequest } from '@/lib/supabase'
 import { notFound } from 'next/navigation'
 import FaqAccordion from './FaqAccordion'
+import { buildInvestigation } from '@/lib/investigation-model'
+import { derivedObservedFindings, normalizeEvidenceItems } from '@/lib/evidence-labels'
+import { buildInvestigationLinks } from '@/lib/internal-links'
+import CurrentAssessment from '@/components/investigation/CurrentAssessment'
+import EvidenceSnapshot from '@/components/investigation/EvidenceSnapshot'
+import { EvidenceLegend, EvidenceList } from '@/components/investigation/EvidenceLabel'
+import { ClassificationBadge } from '@/components/investigation/InvestigationSummary'
 import {
   Shield,
   AlertTriangle,
@@ -219,24 +226,38 @@ function SectionTitle({ icon: Icon, children }) {
   )
 }
 
-function RiskBadge({ score }) {
-  if (score >= 70) {
-    return (
-      <div className="inline-flex items-center gap-2 bg-red-600 text-white text-sm px-3 py-1.5 rounded-full uppercase tracking-widest font-bold">
-        <ShieldAlert size={16} />
-        CONFIRMED SCAM
-      </div>
-    )
-  }
-  if (score >= 50) {
-    return (
-      <div className="inline-flex items-center gap-2 bg-amber-600 text-white text-sm px-3 py-1.5 rounded-full uppercase tracking-widest font-bold">
-        <AlertTriangle size={16} />
-        HIGH RISK
-      </div>
-    )
-  }
-  return null
+// Replaced (Phase 1, 2026-08-31). The previous implementation printed
+// "CONFIRMED SCAM" for any score >= 70 straight from the number — the exact
+// failure the classification module exists to prevent, since the published
+// methodology also requires a regulator warning, multi-jurisdiction
+// enforcement or documented consumer harm before that wording is earned.
+// The badge now renders whatever the canonical record classified, nothing else.
+function RiskBadge({ investigation }) {
+  if (!investigation) return null
+  return (
+    <ClassificationBadge
+      classification={investigation.threat_classification}
+      label={investigation.threat_classification_label}
+      score={investigation.threat_score}
+    />
+  )
+}
+
+// Colour is a function of the CLASSIFICATION, never of a raw score threshold —
+// so a page can never look more severe than its evidence allows.
+const SCORE_TONE = {
+  CONFIRMED: 'text-red-500',
+  HIGH_RISK: 'text-orange-500',
+  ELEVATED_RISK: 'text-amber-500',
+  UNDER_INVESTIGATION: 'text-sky-400',
+  LIMITED_EVIDENCE: 'text-slate-300',
+}
+const BAR_TONE = {
+  CONFIRMED: 'bg-red-600',
+  HIGH_RISK: 'bg-orange-600',
+  ELEVATED_RISK: 'bg-amber-600',
+  UNDER_INVESTIGATION: 'bg-sky-600',
+  LIMITED_EVIDENCE: 'bg-slate-600',
 }
 
 function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
@@ -256,7 +277,7 @@ function StatCard({ icon: Icon, label, value, colorClass = 'text-red-500' }) {
 export default async function ReviewPage({ params }) {
   try {
     const reviews = await supabaseRequest(
-      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at,hero_image_url,hero_image_alt,hero_image_credit,content_images,update_history,stats_synced_at`
+      `/reviews?slug=eq.${params.slug}&status=eq.published&select=id,title,headline,summary,red_flags,how_it_works,verdict,scam_score,schema_json,brand_id,full_article,faq,methodology,sources,author_name,author_credentials,author_bio,experience_signals,expertise_depth,disclaimer,key_takeaways,not_for_you,protection_steps,trust_indicators,review_date,fact_check_status,word_count,published_at,created_at,hero_image_url,hero_image_alt,hero_image_credit,content_images,update_history,stats_synced_at,slug,status,updated_at,author_persona_id,citations,evidence_items,classification_override`
     )
 
     if (!reviews || reviews.length === 0) {
@@ -269,7 +290,7 @@ export default async function ReviewPage({ params }) {
     if (review.brand_id) {
       try {
         const brands = await supabaseRequest(
-          `/scam_brands?id=eq.${review.brand_id}&select=id,slug,name,total_geos,total_creatives,total_celebrities,velocity_trend,velocity_7d,geo_breakdown,scam_score,status,first_seen_at,last_seen_at`
+          `/scam_brands?id=eq.${review.brand_id}&select=id,slug,name,total_geos,total_creatives,total_celebrities,celebrity_list,geo_list,velocity_trend,velocity_7d,geo_breakdown,scam_score,status,review_status,first_seen_at,last_seen_at,lifespan_days,landing_urls,primary_domain,alternate_domains,scam_types,detected_platforms,regulators_checked,regulator_warnings,victim_reports,classification_override`
         )
         if (brands && brands.length > 0) {
           brand = brands[0]
@@ -278,6 +299,17 @@ export default async function ReviewPage({ params }) {
         console.error('Error fetching brand:', err)
       }
     }
+
+    // ── Canonical investigation record (Phase 1, 2026-08-31) ──────────────
+    // Every metric this page displays comes from here. Nothing below
+    // re-derives a number from a raw column — that is how the page ended up
+    // stating three different threat scores for the same brand.
+    const investigation = buildInvestigation({ review, brand })
+
+    // Was: Math.ceil() here and Math.floor() in the sync payload, for the same
+    // fact. Now derived once, in lib/investigation-model.js.
+    const daysActive = Number.isFinite(investigation.days_active) ? investigation.days_active : null
+
 
     // ── Geo pressure: top-5 targeted countries for the flags widget ──
     // Mirrors the geo_pressure field shipped to Replit via sync-shape.js so
@@ -319,7 +351,7 @@ export default async function ReviewPage({ params }) {
       console.error('Error fetching reviews for internal-link flywheel:', err)
     }
 
-    const currentThreat = review.scam_score ?? 0
+    const currentThreat = investigation.threat_score ?? 0
     const inThreatBand = recentReviewsRows.filter(
       (r) => Math.abs((r.scam_score ?? 0) - currentThreat) <= 25
     )
@@ -373,9 +405,14 @@ export default async function ReviewPage({ params }) {
       ? new Date(publishDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : null
 
-    const daysActive = brand && brand.first_seen_at && brand.last_seen_at
-      ? Math.ceil((new Date(brand.last_seen_at) - new Date(brand.first_seen_at)) / 86400000)
-      : null
+    // Evidence-labelled findings. Analyst-authored items take precedence; when
+    // there are none, the OBSERVED findings the surveillance data supports on
+    // its own are generated from the canonical record (never from prose).
+    const authoredEvidence = normalizeEvidenceItems(review.evidence_items)
+    const evidenceFindings = authoredEvidence.length > 0 ? authoredEvidence : derivedObservedFindings(investigation)
+    const evidenceClassesUsed = [...new Set(evidenceFindings.map((e) => e.evidence_class))]
+
+    const { links: contextualLinks } = buildInvestigationLinks(investigation)
 
     // Red flag emojis to cycle through
     const redFlagEmojis = ['🎭', '📢', '🔒', '⚖️', '⏰', '👤', '📞', '🌍']
@@ -410,14 +447,22 @@ export default async function ReviewPage({ params }) {
           <div className="max-w-6xl mx-auto container px-4">
             <div className="mb-8">
               <div className="flex flex-wrap items-center gap-4 mb-6">
-                <h1 className="text-5xl md:text-7xl font-black text-white leading-tight">
-                  {brand?.name || review.title}
+                {/* Question-shaped H1 (Phase 1): the page answers the query a
+                    reader actually types, and names its subject twice so the
+                    heading survives being extracted on its own. */}
+                <h1 className="text-4xl md:text-6xl font-black text-white leading-tight">
+                  {investigation.brand_name} Review: Is {investigation.brand_name} a Scam?
                 </h1>
               </div>
               <div className="flex flex-wrap items-center gap-4">
-                <RiskBadge score={review.scam_score} />
+                <RiskBadge investigation={investigation} />
               </div>
             </div>
+
+            {/* CURRENT ASSESSMENT — the block most likely to be lifted whole by
+                an answer engine. Entirely interpolated from the canonical
+                record, so it cannot disagree with the snapshot table below. */}
+            <CurrentAssessment investigation={investigation} />
 
             {review.headline && (
               <p className="text-xl text-slate-300 max-w-3xl mb-8 leading-relaxed">
@@ -471,16 +516,19 @@ export default async function ReviewPage({ params }) {
             {/* Stats Grid */}
             {brand && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {/* All four read the canonical record, not the raw brand row,
+                    so these cards and the Evidence Snapshot table can never
+                    disagree. */}
                 <StatCard
                   icon={Flame}
-                  label="Ad Creatives"
-                  value={brand.total_creatives?.toLocaleString() || '0'}
+                  label="Creatives Observed"
+                  value={investigation.creatives_observed.toLocaleString()}
                   colorClass="text-red-500"
                 />
                 <StatCard
                   icon={Globe}
                   label="Countries Targeted"
-                  value={brand.total_geos?.toLocaleString() || '0'}
+                  value={investigation.countries_targeted.toLocaleString()}
                   colorClass="text-amber-500"
                 />
                 <StatCard
@@ -491,8 +539,8 @@ export default async function ReviewPage({ params }) {
                 />
                 <StatCard
                   icon={AlertTriangle}
-                  label="Celebrities Abused"
-                  value={brand.total_celebrities?.toLocaleString() || '0'}
+                  label="Public Figures Impersonated"
+                  value={investigation.public_figures_impersonated.toLocaleString()}
                   colorClass="text-blue-500"
                 />
               </div>
@@ -522,8 +570,8 @@ export default async function ReviewPage({ params }) {
                   <div className="flex items-center gap-2 mb-2.5">
                     <Globe size={14} className="text-red-400" />
                     <span className="text-[11px] tracking-[0.12em] font-medium text-slate-400">HEAVIEST-HIT COUNTRIES</span>
-                    {brand.total_creatives > 0 && (
-                      <span className="text-[11px] text-slate-500">· share of {brand.total_creatives.toLocaleString()} scraped ads</span>
+                    {investigation.creatives_observed > 0 && (
+                      <span className="text-[11px] text-slate-500">· share of {investigation.creatives_observed.toLocaleString()} scraped ads</span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -657,6 +705,68 @@ export default async function ReviewPage({ params }) {
                   </div>
                 )}
 
+                {/* ── EVIDENCE SNAPSHOT (Phase 1) ────────────────────────
+                    A semantic table of the canonical record. Machine-readable
+                    (each row carries data-canonical-field), extractable, and
+                    the single place a reader can check any number quoted in
+                    the prose. Fields with no meaningful data are omitted
+                    rather than shown as "0" — an unmade claim must be absent,
+                    not empty. */}
+                <section aria-labelledby="evidence-snapshot-heading" data-block="evidence-snapshot">
+                  <h2
+                    id="evidence-snapshot-heading"
+                    className="text-2xl font-bold text-white mb-6 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500"><FileText size={24} /></span>
+                    Evidence Snapshot
+                  </h2>
+                  <EvidenceSnapshot investigation={investigation} />
+                </section>
+
+                {/* ── WHY WE ASSIGNED THIS SCORE ─────────────────────────── */}
+                <section aria-labelledby="why-this-score-heading" data-block="score-rationale">
+                  <h2
+                    id="why-this-score-heading"
+                    className="text-2xl font-bold text-white mb-6 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500"><Scale size={24} /></span>
+                    Why We Assigned This Score
+                  </h2>
+                  <p className="text-slate-300 leading-relaxed mb-4">
+                    {`Crypto Killer scored ${investigation.brand_name} at ${investigation.threat_score}/100, which places it in the ${investigation.threat_classification_label} band. ${investigation.language_rule}`}
+                  </p>
+                  {investigation.classification_downgraded && Array.isArray(investigation.evidence_shortfall) ? (
+                    <p className="text-slate-300 leading-relaxed mb-4">
+                      {`${investigation.brand_name} scores inside Crypto Killer's confirmed band, but the published methodology additionally requires ${investigation.evidence_shortfall.join(', or ')}. No such record is on file for ${investigation.brand_name}, so this investigation is presented one band lower than the raw score alone would suggest.`}
+                    </p>
+                  ) : null}
+                  <p className="text-sm text-slate-500">
+                    <Link href="/methodology" className="text-red-400 hover:text-red-300">
+                      Read the full scoring methodology
+                    </Link>
+                  </p>
+                </section>
+
+                {/* ── EVIDENCE, LABELLED BY CLASS ─────────────────────────
+                    Every finding states what KIND of evidence it is. An
+                    INFERRED or REPORTED claim is never rendered with the
+                    styling or the wording of an OBSERVED one. */}
+                {evidenceFindings.length > 0 && (
+                  <section aria-labelledby="evidence-findings-heading" data-block="evidence-findings">
+                    <h2
+                      id="evidence-findings-heading"
+                      className="text-2xl font-bold text-white mb-6 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                    >
+                      <span className="text-red-500"><Eye size={24} /></span>
+                      Investigation Findings
+                    </h2>
+                    <div className="mb-5">
+                      <EvidenceLegend classes={evidenceClassesUsed} />
+                    </div>
+                    <EvidenceList items={evidenceFindings} />
+                  </section>
+                )}
+
                 {/* Full Article (with embedded visuals) — takes priority if available */}
                 {review.full_article && review.full_article.includes('ck-visual') ? (
                   <div>
@@ -780,43 +890,31 @@ export default async function ReviewPage({ params }) {
               {/* Sidebar - Col Span 1 */}
               <div className="lg:col-span-1">
                 <div className="space-y-6 lg:sticky lg:top-20">
-                  {/* Threat Score Card */}
+                  {/* Threat Score Card — canonical. The previous version chose
+                      its colour AND its copy from `review.scam_score >= 70`,
+                      which is how "Extreme Risk — Do Not Deposit" could appear
+                      on a page whose evidence did not support it. Both now come
+                      from the classification. */}
                   <div className="bg-slate-900 border border-slate-800 rounded-lg p-6 space-y-4">
                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Threat Score</h3>
                     <div className="text-center py-4">
-                      <div className={`text-6xl font-black ${
-                        review.scam_score >= 70 ? 'text-red-500' : review.scam_score >= 50 ? 'text-amber-500' : 'text-green-500'
-                      }`}>
-                        {review.scam_score || 0}
+                      <div className={`text-6xl font-black ${SCORE_TONE[investigation.threat_classification] || 'text-slate-300'}`}>
+                        {investigation.threat_score ?? '—'}
                       </div>
                       <p className="text-slate-400 text-sm mt-2">/ 100</p>
                     </div>
 
-                    {/* Progress bar */}
                     <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden">
                       <div
-                        className={`h-full rounded-full transition-all ${
-                          review.scam_score >= 70 ? 'bg-red-600' : review.scam_score >= 50 ? 'bg-amber-600' : 'bg-green-600'
-                        }`}
-                        style={{ width: `${Math.min(100, review.scam_score || 0)}%` }}
+                        className={`h-full rounded-full transition-all ${BAR_TONE[investigation.threat_classification] || 'bg-slate-600'}`}
+                        style={{ width: `${Math.min(100, Math.max(0, investigation.threat_score || 0))}%` }}
                       />
                     </div>
 
-                    {/* Risk Level */}
                     <div className="text-center pt-2">
-                      {review.scam_score >= 70 ? (
-                        <span className="text-red-400 text-sm font-bold">
-                          Extreme Risk — Do Not Deposit
-                        </span>
-                      ) : review.scam_score >= 50 ? (
-                        <span className="text-amber-400 text-sm font-bold">
-                          High Risk — Exercise Caution
-                        </span>
-                      ) : (
-                        <span className="text-green-400 text-sm font-bold">
-                          Lower Risk
-                        </span>
-                      )}
+                      <span className="text-sm font-bold text-slate-200">
+                        {investigation.threat_classification_label}
+                      </span>
                     </div>
                   </div>
 
@@ -826,16 +924,16 @@ export default async function ReviewPage({ params }) {
                       <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wide">Threat Intelligence</h3>
                       <div className="space-y-4 text-sm">
                         <div className="flex justify-between items-center">
-                          <span className="text-slate-400">Ad Creatives</span>
-                          <span className="text-white font-semibold">{brand.total_creatives?.toLocaleString() || '0'}</span>
+                          <span className="text-slate-400">Creatives Observed</span>
+                          <span className="text-white font-semibold">{investigation.creatives_observed.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center border-t border-slate-800 pt-4">
                           <span className="text-slate-400">Countries</span>
-                          <span className="text-white font-semibold">{brand.total_geos?.toLocaleString() || '0'}</span>
+                          <span className="text-white font-semibold">{investigation.countries_targeted.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center border-t border-slate-800 pt-4">
-                          <span className="text-slate-400">Celebrities Abused</span>
-                          <span className="text-white font-semibold">{brand.total_celebrities?.toLocaleString() || '0'}</span>
+                          <span className="text-slate-400">Public Figures Impersonated</span>
+                          <span className="text-white font-semibold">{investigation.public_figures_impersonated.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between items-center border-t border-slate-800 pt-4">
                           <span className="text-slate-400">Campaign Duration</span>
@@ -976,6 +1074,33 @@ export default async function ReviewPage({ params }) {
                           {' '}
                           — Threat {(r.scam_score ?? 0)}/100. {truncate(r.verdict || 'Investigation in progress.', 160)}
                         </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
+              {/* ── CONTEXTUAL LINK LAYER (Phase 1) ─────────────────────
+                  Only routes verified to exist on the live site are rendered.
+                  Wanted-but-unbuilt destinations (scam type, country,
+                  impersonated public figure) are collected as Phase 2
+                  opportunities by lib/internal-links.js rather than shipped as
+                  links to 404s or thin placeholder pages. */}
+              {contextualLinks.length > 0 && (
+                <section aria-labelledby="context-links-heading">
+                  <h2
+                    id="context-links-heading"
+                    className="text-xl font-bold text-white mb-4 flex items-center gap-2.5 border-b border-slate-800 pb-3"
+                  >
+                    <span className="text-red-500"><ArrowRight size={20} /></span>
+                    Related reading
+                  </h2>
+                  <ul className="grid gap-2 sm:grid-cols-2">
+                    {contextualLinks.map((l) => (
+                      <li key={l.key}>
+                        <Link href={l.href} className="text-slate-300 hover:text-red-400" data-link-context={l.context}>
+                          {l.label}
+                        </Link>
                       </li>
                     ))}
                   </ul>

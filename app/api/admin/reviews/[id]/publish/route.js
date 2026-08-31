@@ -5,6 +5,7 @@ import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { headCheckUrl } from '@/lib/source-verify'
 import { lintProseFields, detectHtmlPollution } from '@/lib/content-lint'
 import { enqueuePublishOutbox, tryImmediateOutboxDelivery } from '@/lib/publish-outbox'
+import { validateInvestigation } from '@/lib/investigation-validator'
 
 // Live delivery lives in lib/live-sync.js (shared with /sync + outbox worker).
 // Publish quality gates stay in this file; sync is eventually consistent.
@@ -307,6 +308,65 @@ export async function POST(request, { params }) {
     // Unpublish bypasses — we want an emergency unpublish to always work.
     if (action === 'publish' && review) {
       const gate = await validateReviewReadyToPublish(review)
+
+      // ─── Canonical investigation consistency gate (Phase 1, 2026-08-31) ──
+      // The gate above checks the ARTICLE. This one checks the FACTS: that
+      // every metric the page displays traces to one canonical field, that
+      // the chronology is possible, and — the part that matters most on a
+      // YMYL page — that the editorial register the copy uses is one the
+      // evidence actually carries. Critical findings join gate.errors so they
+      // flow through the same 422 + operator-override path as everything else.
+      let investigationValidation = null
+      try {
+        let brandRow = null
+        let landingPages = []
+        if (review.brand_id) {
+          const brandRows = await supaFetch(`/scam_brands?id=eq.${encodeURIComponent(review.brand_id)}&select=*`)
+          brandRow = Array.isArray(brandRows) ? brandRows[0] : null
+          try {
+            const lp = await supaFetch(
+              `/brand_landing_pages?brand_id=eq.${encodeURIComponent(review.brand_id)}&select=live_url,live_hostname&limit=50`
+            )
+            landingPages = Array.isArray(lp) ? lp : []
+          } catch {
+            // Landing pages only feed primary-domain CANDIDATES, which are
+            // advisory. Losing them must not block a publish.
+            landingPages = []
+          }
+        }
+        investigationValidation = validateInvestigation({ review, brand: brandRow, landingPages })
+        for (const c of investigationValidation.critical) {
+          gate.errors.push(`[${c.code}] ${c.field} — ${c.message}`)
+        }
+        for (const w of investigationValidation.warnings) {
+          gate.warnings.push(`[${w.code}] ${w.field} — ${w.message}`)
+        }
+        gate.issues = [
+          ...(gate.issues || []),
+          ...investigationValidation.findings.map((x) => ({
+            code: x.code,
+            field: x.field,
+            severity: x.severity,
+            detail: x.message,
+            current: x.current ?? null,
+          })),
+        ]
+        // Persist what the page asserted and what the validator said about it,
+        // so an audit later can tell whether a claim was checked at the time.
+        updates.canonical_snapshot = investigationValidation.investigation
+        updates.validation_report = {
+          run_at: new Date().toISOString(),
+          can_publish: investigationValidation.canPublish,
+          critical: investigationValidation.critical,
+          warnings: investigationValidation.warnings,
+        }
+      } catch (ivErr) {
+        // A validator that throws must not become a way to publish unchecked
+        // content silently — surface it loudly as a warning.
+        gate.warnings.push(
+          `investigation consistency validator failed to run (${ivErr?.message || ivErr}) — this publish was NOT checked for metric/classification consistency.`
+        )
+      }
       if (gate.errors.length > 0 && !overrideGate) {
         return Response.json(
           {

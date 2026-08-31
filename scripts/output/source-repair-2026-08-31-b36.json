@@ -1,0 +1,36 @@
+{
+  "ranAt": "2026-08-31T08:15:51.897Z",
+  "apply": false,
+  "articles": [
+    {
+      "slug": "ai-crypto-trading-bot",
+      "total": 8,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scams/",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "ai-trading-bot-scams",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-check-if-a-crypto-trading-platform-is-legit",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    }
+  ]
+}

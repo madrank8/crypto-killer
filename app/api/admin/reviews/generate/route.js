@@ -4,7 +4,7 @@ import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildReviewSchema } from '@/lib/review-schema'
 import { sourceResearcherPrompt, contentWriterPrompt } from '@/lib/review-prompts'
 import { stripVerifyTags } from '@/lib/visual-generator'
-import { classifyThreat, computeCategoryScores, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
+import { classifyThreat, brandEvidence, computeCategoryScores, dedupeCelebrityList, pluralize } from '@/lib/threat-score'
 import { appendUpdateHistory, makeEntry } from '@/lib/update-history'
 import { enforceNumericConsistency, validateRedFlagDistinctness } from '@/lib/review-consistency'
 import { remediateReview } from '@/lib/review-remediate'
@@ -383,7 +383,7 @@ export async function POST(request) {
           // its own input — no more "26 celebrities" in the body next to a
           // list of 28 names (the Floventra bug).
           // ═══════════════════════════════════════════════════════════════
-          const threat = classifyThreat(brandData.scam_score)
+          const threat = classifyThreat(brandData.scam_score, brandEvidence(brandData), { override: brandData?.classification_override || null })
           const cleanCelebrityList = dedupeCelebrityList(brandData.celebrity_list)
           brandData.celebrity_list = cleanCelebrityList
 
