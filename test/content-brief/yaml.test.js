@@ -112,6 +112,15 @@ test('the header explains what the bracketed markers mean', () => {
   const y = toYaml(brief())
   assert.match(y, /HONESTY MARKERS/)
   assert.match(y, /\[UNVERIFIED …\]/)
+  assert.match(y, /content-brief-generator v1\.6 port/)
+})
+
+test('v1.6 locale and faq_sweep round-trip', () => {
+  const parsed = roundTrip(brief())
+  assert.equal(parsed.locale, '')
+  assert.ok(parsed.faq_sweep)
+  assert.deepEqual(parsed.faq_sweep.items, [])
+  assert.ok(parsed.heading_structure[0].ple_unit)
 })
 
 test('absent fields are skipped rather than emitted as null noise', () => {

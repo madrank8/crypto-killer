@@ -31,6 +31,27 @@ hub pages and cluster hub pages are exempt from this requirement.
 
 ---
 
+## Category / seed-folder URLs
+
+Import does **not** invent slugified grouping URLs (`/victim-journey/`, `/safe-crypto-education/`).
+Koray seed folders are assigned as follows:
+
+| Node | `url_path` |
+|------|------------|
+| Crypto Scams pillar (network Root) | `/crypto-scams/` |
+| Scam Type Wiki cluster | `/scams/` |
+| Scam Alerts pillar | `/alerts/` |
+| Exchange Safety pillar | `/safety/` |
+| Data & Link Magnets pillar | `/research/` |
+| Checker / AI-bot hubs | sheet hub (`/check/`, `/scams/ai-trading-bots/`) |
+| Victim Journey, Education, Recover/Report folders | `null` (grouping only) |
+
+Leaf pages keep the sheet **Suggested URL**. `/guides/…` leaves are not rewritten; that prefix is a how-to template, not a Seed.
+
+Blank **KD** is stored as null (not 0) so priority is not inflated. A Primary Query Cluster that is only a parenthetical note falls back to the title text before `:`.
+
+---
+
 ## Hard-fail vs Warn Rules
 
 ### Hard-fail (422 - entire import is rejected)
@@ -82,7 +103,32 @@ ADMIN_SECRET
 
 ---
 
-## Post-import: Sullivan Readiness
+## Post-import: publication dates + autodraft
+
+Import assigns `topics.scheduled_for` from Phase/`publication_wave` at the **growing**
+cadence (5/week) starting on the import UTC date. Cadence and start date are stored on
+`topical_maps.stats.publication` and can be re-saved from the Publication Plan panel.
+
+`GET /api/cron/map-sullivan` (minutes 5, 25, 45) classifies + gathers Sullivan evidence
+for **one** writable due (or soonest upcoming) topic. It never publishes and never
+writes article drafts. Autodraft will not pick a topic until `content_briefs.sullivan_ok`
+is true.
+
+- Kill switch: `AGENT_SULLIVAN=0` or `AGENT_RUNNER=0` (default on)
+- Path/format rules first; constrained Gemini Flash may return a type or `"none"`
+- Gather from the stack only (published content/reviews, SpyOwl counts, Wikidata registry)
+- Failures enqueue Work Plan `sullivan_evidence` as **blocked** with the missing field list
+- Never overrides a human `content_type` or human forcing inputs
+
+`GET /api/cron/map-writer` (every 20 minutes) then advances **one** due writable topic
+one stage (create stub → outline → fill) into a **draft**. It never publishes.
+
+- Kill switch: `AGENT_AUTODRAFT=0` or `AGENT_RUNNER=0`
+- Requires `content_briefs.sullivan_ok = true` (see readiness below)
+- Folders, synthetic hubs, and already-linked articles are skipped
+- Apply `migrations/026_topics_scheduled_for.sql` in Supabase
+
+---
 
 After a successful import, the system automatically starts a **readiness check** in the
 background. This pipeline:
@@ -128,4 +174,14 @@ forcing inputs or human-declared content types.
 
 ## Linking already-published pages
 
-On sheet import, `persistImportedMap` matches each topic's Suggested URL / `url_path` leaf slug (then `slug`) against published `content.slug` and `reviews.slug`. Hits are inserted as `content_status: published` with `content_id` or `review_id` set so the admin UI treats them as already written. Misses stay `planned`. Map readiness skips already-linked published topics (no duplicate brief churn). Matching is leaf-slug only: no fuzzy title matching.
+On sheet import, `persistImportedMap` matches each topic against already-written
+`content` and `reviews` rows (published **and** draft). Hits are inserted as
+`content_status: published` (or `draft` if the live row is still a draft) with
+`content_id` or `review_id` set so the admin UI shows **Edit** instead of **Write**.
+Misses stay `planned`. Map readiness skips already-linked published topics (no
+duplicate brief churn).
+
+Matching is slug-based: Suggested URL leaf, topic slug, slugified Primary Query
+Cluster, slugified title before `:`, plus `-scam`/`-scams` variants. Cluster
+folders never match. Each live article can attach to at most one imported topic.
+No fuzzy title matching.

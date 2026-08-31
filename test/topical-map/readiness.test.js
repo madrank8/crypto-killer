@@ -40,6 +40,13 @@ describe('proposeSullivanType', () => {
     )
   })
 
+  it('/research/ url_path maps to original_data_study', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Ad Spend Report', url_path: '/research/ad-spend/' }),
+      'original_data_study'
+    )
+  })
+
   it('proprietary dataset / n= / survey signal maps to original_data_study', () => {
     assert.equal(
       proposeSullivanType({ title: 'Our Survey of 500 Victims', notes: 'proprietary dataset, n=512' }),
@@ -63,6 +70,50 @@ describe('proposeSullivanType', () => {
     assert.equal(proposeSullivanType(null), null)
     assert.equal(proposeSullivanType(undefined), null)
     assert.equal(proposeSullivanType({}), null)
+  })
+
+  it('/alerts/ and /safety/ map to firsthand_review', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Circle K Bitcoin ATM Scam', url_path: '/alerts/circle-k/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Coinbase Text Message Scam', url_path: '/safety/coinbase-text/' }),
+      'firsthand_review'
+    )
+  })
+
+  it('/guides/ recovery/report/checklist titles map to firsthand_review', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Crypto Recovery Checklist After a Scam', url_path: '/guides/crypto-recovery-checklist/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'How to Report a Crypto Scam to IC3', url_path: '/guides/report-ic3/' }),
+      'firsthand_review'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Beginner Wallet Setup', url_path: '/guides/wallet-setup/' }),
+      null
+    )
+  })
+
+  it('/check/ and /tools/ map to infrastructure', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Check Any Crypto Platform', url_path: '/check/platform/' }),
+      'infrastructure'
+    )
+    assert.equal(
+      proposeSullivanType({ title: 'Wallet Safety Tools', url_path: '/tools/wallet-safety/' }),
+      'infrastructure'
+    )
+  })
+
+  it('/scams/ type pages stay unclassified (no forced data study)', () => {
+    assert.equal(
+      proposeSullivanType({ title: 'Pig Butchering Scams Explained', url_path: '/scams/pig-butchering/' }),
+      null
+    )
   })
 })
 
@@ -150,6 +201,16 @@ describe('gatherStackEvidence: infrastructure', () => {
     assert.ok(!out.missing.includes('sub_entities'))
   })
 
+  it('fills semantic_role from glossary/FAQ/definition title signals', async () => {
+    const out = await gatherStackEvidence({
+      topic: { title: 'Crypto Scam Glossary', internal_links_to: ['/a/', '/b/', '/c/'] },
+      proposeType: 'infrastructure',
+      supaFetch: async () => [],
+    })
+    assert.equal(out.forcing_inputs.semantic_role, 'glossary')
+    assert.ok(!out.missing.includes('semantic_role'))
+  })
+
   it('leaves sub_entities missing when fewer than 3 real linked child titles exist', async () => {
     const out = await gatherStackEvidence({
       topic: { id: 't-parent', title: 'Crypto Scam Types' },
@@ -218,7 +279,7 @@ describe('gatherStackEvidence: firsthand_review', () => {
     assert.equal(out.sources.length, 0)
   })
 
-  it('field_observation_count and recurring_pattern always stay missing (no honest stack source)', async () => {
+  it('field_observation_count stays missing when SpyOwl returns no brand rows', async () => {
     const html = reviewHtmlWithQuotes([
       '"Quote one that is long enough to count as an anecdote here."',
       '"Quote two that is long enough to count as an anecdote here too."',
@@ -233,6 +294,90 @@ describe('gatherStackEvidence: firsthand_review', () => {
     assert.equal(out.forcing_inputs.recurring_pattern, undefined)
     assert.ok(out.missing.includes('field_observation_count'))
     assert.ok(out.missing.includes('recurring_pattern'))
+  })
+
+  it('fills field_observation_count from a cited SpyOwl brand query (never a generic boast)', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"Quote one that is long enough to count as an anecdote here."',
+      '"Quote two that is long enough to count as an anecdote here too."',
+      '"Quote three that is long enough to count as an anecdote as well."',
+    ])
+    const brands = [
+      { id: 'b1', geo_list: ['US'] },
+      { id: 'b2', geo_list: ['US'] },
+      { id: 'b3', geo_list: ['US'] },
+    ]
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Quantum AI Review',
+        target_keyword: 'quantum ai',
+        content_type: 'brand_review',
+        url_path: '/review/quantum-ai/',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/scam_brands')) return brands
+        if (path.startsWith('/reviews?slug=')) {
+          return [{ id: 'r-1', slug: 'quantum-ai', full_article: html, author_credentials: 'Lead investigator' }]
+        }
+        return []
+      },
+    })
+    assert.match(out.forcing_inputs.field_observation_count, /3 SpyOwl brand rows/)
+    assert.match(out.forcing_inputs.field_observation_count, /quantum ai/)
+    assert.match(out.forcing_inputs.recurring_pattern, /geo US/)
+    assert.ok(out.sources.some((s) => s.field === 'field_observation_count' && /quantum ai/.test(s.quote)))
+    assert.ok(!out.missing.includes('field_observation_count'))
+  })
+
+  it('fills anecdotes from overlapping published content (slug/keyword match)', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"I sent them 400 dollars and never heard back again after that day."',
+      '"Support stopped responding within twenty four hours of my withdrawal request."',
+      '"The platform locked my account the moment I asked to cash out my balance."',
+    ])
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Circle K Bitcoin ATM Scam',
+        target_keyword: 'circle k bitcoin',
+        url_path: '/alerts/circle-k/',
+        slug: 'circle-k',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/content?status=eq.published')) {
+          return [{ id: 'c-1', slug: 'circle-k-atm', title: 'Circle K Bitcoin ATM alert', full_article: html }]
+        }
+        return []
+      },
+    })
+    assert.equal(out.forcing_inputs.direct_anecdotes.length, 3)
+    assert.ok(out.sources.some((s) => s.field === 'direct_anecdotes'))
+    assert.ok(!out.missing.includes('direct_anecdotes'))
+  })
+
+  it('never invents a third anecdote when overlapping content only has two quotes', async () => {
+    const html = reviewHtmlWithQuotes([
+      '"I sent them 400 dollars and never heard back again after that day."',
+      '"Support stopped responding within twenty four hours of my withdrawal request."',
+    ])
+    const out = await gatherStackEvidence({
+      topic: {
+        title: 'Circle K Bitcoin ATM Scam',
+        target_keyword: 'circle k bitcoin',
+        url_path: '/alerts/circle-k/',
+        slug: 'circle-k',
+      },
+      proposeType: 'firsthand_review',
+      supaFetch: async (path) => {
+        if (path.startsWith('/content?status=eq.published')) {
+          return [{ id: 'c-1', slug: 'circle-k-atm', title: 'Circle K Bitcoin ATM alert', full_article: html }]
+        }
+        return []
+      },
+    })
+    assert.equal(out.forcing_inputs.direct_anecdotes, undefined)
+    assert.ok(out.missing.includes('direct_anecdotes'))
   })
 
   it('falls back to a live fetch when no DB row exists', async () => {
@@ -281,19 +426,32 @@ describe('gatherStackEvidence: no proposal', () => {
     assert.equal(out.content_type, 'firsthand_review')
   })
 
-  it('an unhandled but valid Sullivan type (original_data_study) reports every field missing, never invents', async () => {
+  it('fills original_data_study from a real SpyOwl brand sample (n>=100), never invents n', async () => {
+    const brands = Array.from({ length: 120 }, (_, i) => ({
+      id: `b${i}`,
+      last_seen_at: '2026-08-01T00:00:00Z',
+      scam_score: i < 30 ? 90 : 40,
+    }))
     const out = await gatherStackEvidence({
-      topic: { title: 'Our Survey of 500 Victims', notes: 'proprietary dataset, n=512' },
+      topic: { title: 'Ad Spend Report', url_path: '/research/ad-spend/' },
       proposeType: 'original_data_study',
-      supaFetch: async () => [],
+      supaFetch: async (path) => (path.startsWith('/scam_brands') ? brands : []),
     })
-    assert.equal(out.content_type, 'original_data_study')
+    assert.equal(out.forcing_inputs.dataset_source, 'internal_db')
+    assert.equal(out.forcing_inputs.n_size, 120)
+    assert.equal(out.forcing_inputs.collection_date, '2026-08-01')
+    assert.match(out.forcing_inputs.novel_finding, /120 tracked brands/)
+    assert.ok(!out.missing.includes('n_size'))
+  })
+
+  it('leaves original_data_study missing when the corpus sample is below n=100', async () => {
+    const out = await gatherStackEvidence({
+      topic: { title: 'Ad Spend Report', url_path: '/research/ad-spend/' },
+      proposeType: 'original_data_study',
+      supaFetch: async () => [{ id: 'b1', last_seen_at: '2026-08-01', scam_score: 90 }],
+    })
     assert.deepEqual(out.forcing_inputs, {})
-    assert.ok(out.missing.includes('dataset_source'))
     assert.ok(out.missing.includes('n_size'))
-    assert.ok(out.missing.includes('methodology'))
-    assert.ok(out.missing.includes('novel_finding'))
-    assert.ok(out.missing.includes('collection_date'))
   })
 })
 

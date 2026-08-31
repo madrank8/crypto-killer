@@ -245,6 +245,7 @@ test('prompt states the honesty rules and pins the measured headings verbatim', 
   assert.match(system, /NEVER invent a PMID/)
   assert.match(system, /NEVER output competitor metrics/)
   assert.match(system, /NEVER output a Wikidata Q-ID/)
+  assert.match(system, /Do NOT invent faq_sweep volumes/)
   assert.ok(system.includes(PLACEHOLDER.UNVERIFIED))
   assert.match(user, /What is a rug pull\?/)
   assert.match(user, /keep verbatim/)

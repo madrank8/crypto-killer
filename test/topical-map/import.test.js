@@ -10,6 +10,7 @@ const { consolidateKoray, isGrowthPartnerShape } = require('../../lib/topical-ma
 const { mapPageRow, normalizeSection, buildTopicFields } = require('../../lib/topical-map/import/field-map')
 const { validateImportedPages } = require('../../lib/topical-map/import/validate-sheet')
 const { assertImportCoverage } = require('../../lib/topical-map/import/coverage')
+const { isWritableContentTopic } = require('../../lib/topical-map/writable-topic')
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'page-map-sample.csv')
 
@@ -71,6 +72,43 @@ describe('topical-map sheet import parse', () => {
     assert.equal(row.target_keyword, 'state of crypto scams')
     assert.deepEqual(row.secondary_keywords, [])
   })
+
+  it('falls back to title keyword when Primary Query Cluster is parenthetical-only', () => {
+    const row = mapPageRow({
+      Section: 'OUTER',
+      Cluster: '9. Data & Link Magnets',
+      'Page Title (Title Tag Style)': 'State of Crypto Scams: Annual Report From 22,000+ Tracked Brands',
+      'Suggested URL': '/research/state-of-crypto-scams/',
+      'Primary Query Cluster': '(digital PR asset; journalist queries)',
+      'Lead KW Volume': '',
+      KD: '',
+      'Search Intent': 'Informational',
+      Phase: '2',
+    })
+    assert.equal(row.target_keyword, 'state of crypto scams')
+    assert.equal(row.keyword_difficulty, null)
+    assert.equal(row.search_volume, 0)
+    assert.equal(row.metric_provenance.keyword_difficulty, 'unresolved')
+  })
+
+  it('does not treat blank KD as 0', () => {
+    const row = mapPageRow({
+      Section: 'CORE',
+      Cluster: '2. Scam Type Wiki',
+      'Page Title (Title Tag Style)': 'Crypto Job & Task Scams: Fake Employment Schemes',
+      'Suggested URL': '/scams/job-task/',
+      'Primary Query Cluster': 'crypto job scam',
+      'Lead KW Volume': '20',
+      KD: '',
+      'Search Intent': 'Informational',
+      Phase: '3',
+    })
+    assert.equal(row.search_volume, 20)
+    assert.equal(row.keyword_difficulty, null)
+    assert.equal(row.keyword_data_source, 'spreadsheet')
+    assert.equal(row.metric_provenance.search_volume, 'estimated')
+    assert.equal(row.metric_provenance.keyword_difficulty, 'unresolved')
+  })
 })
 
 describe('koray consolidator', () => {
@@ -86,6 +124,11 @@ describe('koray consolidator', () => {
     assert.ok(crypto, 'Crypto Scams pillar present')
     assert.equal(crypto.section, 'core')
     assert.equal(crypto.pillar.page_role, 'Root')
+    assert.ok(
+      crypto.pillar.internal_links_to.includes('scam-type-wiki') ||
+        crypto.pillar.internal_links_to.includes('verification-tools'),
+      `expected Root hub nicknames resolved, got ${JSON.stringify(crypto.pillar.internal_links_to)}`
+    )
 
     const clusterTitles = (crypto.clusters || []).map((c) => c.title)
     assert.ok(clusterTitles.some((t) => /wiki/i.test(t)), 'Wiki cluster nested under Crypto Scams')
@@ -113,6 +156,72 @@ describe('koray consolidator', () => {
     assert.ok(
       warnings.some((w) => /rolling/i.test(w)) || /rolling/i.test(alerts.pillar.notes || ''),
       'Rolling cadence captured as note/warning'
+    )
+  })
+
+  it('assigns Koray seed-folder URLs and does not invent slugified titles', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+    const { structure } = consolidateKoray(pages)
+
+    const crypto = structure.pillars.find((b) => /crypto scams/i.test(b.pillar.title))
+    assert.equal(crypto.pillar.url_path, '/crypto-scams/')
+    assert.equal(crypto.pillar.page_role, 'Root')
+    const wiki = (crypto.clusters || []).find((c) => /wiki/i.test(c.title))
+    assert.ok(wiki)
+    assert.equal(wiki.url_path, '/scams/')
+
+    const victim = structure.pillars.find((b) => /victim journey/i.test(b.pillar.title))
+    assert.equal(victim.pillar.url_path, null)
+
+    const education = structure.pillars.find((b) => /safe crypto education/i.test(b.pillar.title))
+    assert.ok(education)
+    assert.equal(education.pillar.url_path, null)
+
+    const safety = structure.pillars.find((b) => /exchange safety/i.test(b.pillar.title))
+    assert.ok(safety)
+    assert.equal(safety.pillar.url_path, '/safety/')
+
+    const research = structure.pillars.find((b) => /data & link magnets/i.test(b.pillar.title))
+    assert.ok(research)
+    assert.equal(research.pillar.url_path, '/research/')
+
+    const invented = structure.pillars.flatMap((b) => [b.pillar, ...(b.clusters || [])])
+      .map((n) => n.url_path)
+      .filter(Boolean)
+    assert.ok(!invented.includes('/safe-crypto-education/'))
+    assert.ok(!invented.includes('/victim-journey/'))
+    assert.ok(!invented.includes('/exchange-safety-reports/'))
+    assert.ok(!invented.includes('/data-link-magnets/'))
+  })
+
+  it('marks Koray folders as not writeable and sheet hubs as writeable', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+    const { structure } = consolidateKoray(pages)
+    const crypto = structure.pillars.find((b) => /crypto scams/i.test(b.pillar.title))
+    assert.equal(isWritableContentTopic(crypto.pillar), true)
+    const spokes = (crypto.clusters || []).find((c) => /entity & hub/i.test(c.title))
+    assert.ok(spokes)
+    assert.equal(isWritableContentTopic(spokes), false)
+    const victim = structure.pillars.find((b) => /victim journey/i.test(b.pillar.title))
+    assert.equal(isWritableContentTopic(victim.pillar), false)
+    const flags = (victim.pillar.qa_flags || []).map((f) => f.type || f)
+    assert.ok(flags.includes('synthetic_hub'))
+  })
+
+  it('resolves sheet nickname internal links including branch-scoped Pillar', () => {
+    const csv = fs.readFileSync(FIXTURE, 'utf8')
+    const { pages } = parseSheetInput({ csvText: csv })
+    const { structure } = consolidateKoray(pages)
+    const pig = structure.pillars
+      .flatMap((b) => b.clusters || [])
+      .flatMap((c) => c.supporting || [])
+      .find((s) => /pig butchering/i.test(s.title))
+    assert.ok(pig)
+    assert.ok(
+      pig.internal_links_to.includes('crypto-scams'),
+      `expected Pillar → crypto-scams, got ${JSON.stringify(pig.internal_links_to)}`
     )
   })
 
@@ -177,6 +286,19 @@ describe('field-map section vs page_role', () => {
     )
     assert.equal(leaf.page_role, 'Outer')
     assert.equal(leaf.section, 'core')
+  })
+
+  it('blank KD uses neutral priority instead of a KD=0 boost', () => {
+    const missing = buildTopicFields(
+      { title: 'Job', slug: 'job', search_volume: 20, keyword_difficulty: null, business_value: 60 },
+      { topicType: 'supporting', section: 'core', sortOrder: 0 }
+    )
+    const asZero = buildTopicFields(
+      { title: 'Job', slug: 'job', search_volume: 20, keyword_difficulty: 0, business_value: 60 },
+      { topicType: 'supporting', section: 'core', sortOrder: 0 }
+    )
+    assert.equal(missing.keyword_difficulty, null)
+    assert.ok(missing.priority_score < asZero.priority_score)
   })
 })
 

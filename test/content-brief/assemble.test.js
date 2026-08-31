@@ -75,6 +75,22 @@ test('S3 metadata: deterministic fields filled, creative fields pending (never i
   assert.equal(b.meta_description, PLACEHOLDER.PENDING_LLM)
 })
 
+test('S3 v1.6 locale is empty (never invented) and headings carry ple_unit + faq_sweep', () => {
+  const b = build()
+  assert.equal(b.locale, '')
+  assert.equal(b.orthography_notes, '')
+  assert.ok(b.faq_sweep && Array.isArray(b.faq_sweep.items))
+  assert.equal(b.faq_sweep.items.length, 0)
+  for (const h of b.heading_structure) {
+    assert.equal(h.ple_unit.pixel, PLACEHOLDER.PENDING_LLM)
+    assert.equal(h.ple_unit.letter, PLACEHOLDER.PENDING_LLM)
+    assert.equal(h.ple_unit.byte, PLACEHOLDER.PENDING_LLM)
+  }
+  const cta = b.heading_structure.find((h) => /Action-Oriented Final/.test(h.h2))
+  assert.match(cta.instruction, /escalation ladder/)
+  assert.match(cta.instruction, /ic3\.gov/)
+})
+
 test('S3 search_intent: measured ai_overview promotes to dual GEN intent', () => {
   assert.equal(build().search_intent, 'I + GEN') // informational + measured ai_overview
   const noAio = build({ topic: { ...TOPIC, serp_features: ['people_also_ask'] } })
@@ -263,7 +279,7 @@ test('S12 llms_txt_tier follows node_function', () => {
 test('S12 versions + dependencies', () => {
   const b = build()
   assert.deepEqual(b.dependencies, ['crypto-scams'])
-  assert.equal(b.seo_blog_generator_version, '5.2.1')
+  assert.equal(b.seo_blog_generator_version, '5.4')
   assert.equal(b.topical_map_version, '4.6')
   assert.equal(b.review_required, true)
 })
@@ -286,10 +302,11 @@ test('every template section key is present on the assembled brief', () => {
     'section', 'subsection', 'priority', 'node_type', 'fan_out_tag', 'publication_phase', 'publication_order',
     'title_tag', 'url_slug', 'meta_description', 'primary_keyword', 'secondary_keywords', 'search_intent',
     'ymyl', 'word_count_target', 'reading_time_estimate', 'schema_type', 'content_format',
+    'locale', 'orthography_notes',
     'content_type', 'forcing_inputs',
     'author_required', 'reviewer_required', 'ymyl_level', 'experience_angle', 'expertise_signals', 'safe_answer_required',
     'central_entity', 'entity_wikidata', 'entity_schema_same_as', 'key_entities', 'related_entities', 'ngram_relations', 'predicates',
-    'h1', 'h1_coverage_manifest', 'bluf_target', 'heading_structure',
+    'h1', 'h1_coverage_manifest', 'bluf_target', 'heading_structure', 'faq_sweep', 'anti_mistake',
     'claim_categories', 'passage_independence', 'gen_intent', 'gen_intent_signal', 'key_claim_passages',
     'internal_link_targets', 'outbound_link_targets', 'visual_assets',
     'competitor_pages_to_beat', 'competitor_gap_insight', 'competitor_benchmarks',
