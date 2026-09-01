@@ -7,6 +7,7 @@ import { verifySourceLedger } from '@/lib/source-verify'
 import { auditFreshness } from '@/lib/audit-freshness'
 import { evaluateHardFails } from '@/lib/audit-gate'
 import { enqueuePublishOutbox, tryImmediateOutboxDelivery } from '@/lib/publish-outbox'
+import { hasUnrenderedVisuals, sanitizeVisualHtml } from '@/lib/visual-placeholders'
 
 // ─── Publish quality gate ───
 //
@@ -68,14 +69,12 @@ function validateForPublish(content) {
   // 2b. Unrendered visual placeholders (audit 2026-07-05, A1). The fill
   //     pipeline renders [TYPE NEEDED: …] markers into real charts/images;
   //     if that pass failed (or an old row carries the legacy styled
-  //     placeholder-box markup), the marker/box survives in full_article.
-  //     Publishing a grey placeholder box is never acceptable — block.
+  //     placeholder-box / ck-visual--placeholder markup), the marker/box
+  //     survives in full_article. Publishing a grey placeholder box is
+  //     never acceptable — block.
   const fullArticleStr = String(content.full_article || '')
-  if (/\[\s*(?:CHART|DIAGRAM|IMAGE|SCREENSHOT|PHOTO|INFOGRAPHIC|STEP-BY-STEP)\s*(?:NEEDED)?\s*:/i.test(fullArticleStr)) {
-    reasons.push('full_article contains unrendered visual placeholders ([TYPE NEEDED: …]) — re-run Generate Article (the visual pass failed) or remove the markers')
-  }
-  if (/class="(?:visual-placeholder|placeholder-box)"/i.test(fullArticleStr)) {
-    reasons.push('full_article contains legacy placeholder-box markup (grey editor boxes) — re-run Generate Article to render real visuals')
+  if (hasUnrenderedVisuals(fullArticleStr)) {
+    reasons.push('full_article contains unrendered visual placeholders ([TYPE NEEDED: …] or dashed ck-visual--placeholder boxes) — re-run Generate Images or remove the markers')
   }
 
   // 2c. AI disclosure presence (canon Step 6.8 — MANDATORY; audit 2026-07-05
@@ -338,6 +337,15 @@ export async function POST(request, { params }) {
     const content = Array.isArray(rows) ? rows[0] : null
     if (!content) return Response.json({ error: 'Content not found' }, { status: 404 })
 
+    let visualsSanitized = false
+    if (action === 'publish' && typeof content.full_article === 'string') {
+      const cleaned = sanitizeVisualHtml(content.full_article)
+      if (cleaned !== content.full_article) {
+        content.full_article = cleaned
+        visualsSanitized = true
+      }
+    }
+
     // ── Quality gate (publish only) ──
     // Unpublish is always allowed — bad content must always be removable.
     if (action === 'publish') {
@@ -392,6 +400,10 @@ export async function POST(request, { params }) {
       action === 'publish'
         ? { status: 'published', published_at: nowIso, updated_at: nowIso }
         : { status: 'draft', published_at: null, updated_at: nowIso }
+
+    if (visualsSanitized) {
+      contentUpdates.full_article = content.full_article
+    }
 
     // Persist the override trail onto the row so a bypassed publish is always
     // reconstructable (what was skipped, when) — never a silent flip.
