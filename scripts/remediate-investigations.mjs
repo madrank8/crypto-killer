@@ -55,6 +55,7 @@ const require = createRequire(import.meta.url)
 const { classifyThreat, brandEvidence } = require('../lib/threat-classification.js')
 const { buildInvestigation } = require('../lib/investigation-model.js')
 const { fixScoreLiterals, fixMetricLiterals, fixRegister } = require('../lib/remediation.js')
+const { canonicalizeName } = require('../lib/threat-score.js')
 
 for (const file of ['.env.local', '.env']) {
   const p = path.join(process.cwd(), file)
@@ -239,12 +240,53 @@ function planReview(review, brand) {
     }
   }
 
-  // item_list completion was tried here and REVERTED: the canonical name
-  // list still carries cross-script duplicates for scripts outside the
-  // transliteration map (Greek "\u038f\u03bb\u03bf\u03bd \u039c\u03b1\u03c3\u03ba" next to "Elon Musk") and
-  // occasional truncated artifacts ("Sophie D"), so mechanically appending
-  // the difference would inflate the list with duplicate people. Count
-  // mismatches stay flagged for writer regeneration instead.
+  // item_list completion, second attempt — now with a PROVABLE-identity rule.
+  // The first attempt was reverted because unmapped-script names (Greek
+  // "Elon Musk") could be cross-script duplicates of existing Latin entries.
+  // The rule that makes completion safe: append a missing canonical-list
+  // member ONLY when canonicalizeName() resolves it to a LATIN key — i.e.
+  // the name is Latin, or the transliteration map knows it — because then a
+  // duplicate would already have matched an existing entry by key. Names
+  // whose canonical key stays in a non-Latin script (unmapped) are skipped
+  // and left for a human, since identity cannot be proven mechanically.
+  {
+    const itemListBase = patch.item_list ?? review.item_list
+    if (itemListBase && Array.isArray(itemListBase.items) && inv.public_figure_list_complete && inv.public_figures_named.length > itemListBase.items.length) {
+      const haveKeys = new Set(itemListBase.items.map((x) => canonicalizeName(String(x?.name || ''))).filter(Boolean))
+      const additions = []
+      for (const name of inv.public_figures_named) {
+        const key = canonicalizeName(name)
+        if (!key || haveKeys.has(key)) continue
+        if (!/[a-z0-9]/.test(key)) {
+          log.push({ wave: 'B-skip', field: 'item_list', metric: 'item_list_completion', from: name, to: 'SKIPPED — unmapped non-Latin canonical key; identity not mechanically provable' })
+          continue
+        }
+        // Truncated scraper artifacts ("Sophie D") must not become listed
+        // people. A name whose final token is a single letter, or that is
+        // one very short token, is treated as damaged data and skipped.
+        const tokens = String(name).trim().split(/\s+/)
+        if (/^[A-Za-z]\.?$/.test(tokens[tokens.length - 1]) || (tokens.length === 1 && name.trim().length < 4)) {
+          log.push({ wave: 'B-skip', field: 'item_list', metric: 'item_list_completion', from: name, to: 'SKIPPED — looks truncated/damaged; needs human confirmation' })
+          continue
+        }
+        additions.push(name)
+        haveKeys.add(key)
+      }
+      if (additions.length > 0) {
+        const items = [...itemListBase.items]
+        for (const name of additions) {
+          items.push({
+            name,
+            position: items.length + 1,
+            entitySlug: slugifyName(name) || undefined,
+            description: `Public figure whose likeness appeared in ${inv.brand_name} advertising captured by CryptoKiller surveillance.`,
+          })
+          log.push({ wave: 'B', field: 'item_list', metric: 'item_list_completion', from: '(absent)', to: name })
+        }
+        patch.item_list = { ...itemListBase, items, ...(Number.isFinite(itemListBase.numberOfItems) ? { numberOfItems: items.length } : {}) }
+      }
+    }
+  }
 
   // schema_json: textual score literals only. The graph is rebuilt properly at
   // the next generate/polish; this keeps the rendered page self-consistent
