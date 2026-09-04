@@ -1,6 +1,6 @@
 import { supaFetch } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
-import { callModel, extractJSON } from '@/lib/ai-models'
+import { callModel, extractJSON, getAvailableModels } from '@/lib/ai-models'
 import { buildEnrichmentPrompt, mergeEnrichment } from '@/lib/content-brief/enrich'
 
 /**
@@ -36,10 +36,26 @@ export async function POST(request, { params }) {
 
     const { system, user } = buildEnrichmentPrompt(row.brief, topic)
 
+    // Provider-aware chain: the enrichment quality bar prefers Sonnet, but a
+    // deployment configured with only an OpenAI key must still work rather than
+    // 502 on a hardcoded Anthropic model.
+    const available = getAvailableModels()
+    const chain = [
+      ...(available.anthropic ? ['claude-sonnet'] : []),
+      ...(available.openai ? ['gpt-5.4-mini'] : []),
+      ...(available.anthropic ? ['claude-haiku'] : []),
+    ]
+    if (chain.length === 0) {
+      return Response.json(
+        { error: 'No LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.' },
+        { status: 503 }
+      )
+    }
+
     let parsed = null
     let modelUsed = null
     let lastErr = null
-    for (const model of ['claude-sonnet', 'claude-haiku']) {
+    for (const model of chain) {
       try {
         const result = await callModel(model, system, user, { timeoutMs: 120000 })
         parsed = extractJSON(result.text)
