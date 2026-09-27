@@ -1,0 +1,343 @@
+{
+  "ranAt": "2026-09-22T07:22:57.021Z",
+  "apply": false,
+  "batches": 14,
+  "articles": [
+    {
+      "slug": "ai-crypto-trading-bot-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scam-tracker/",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "fake-trading-profits",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-spot-crypto-scams",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-recovery",
+      "total": 3,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://kalkinemedia.com/us/education/guides/how-to-recover-stolen-crypto-using-legal-and-technical-methods",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "social-media-crypto-scams",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/cryptocurrency-investment-fraud",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.researchgate.net/publication/365518420_An_Analysis_of_Crypto_Scams_during_the_Covid-19_Pandemic_2020-2022",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scammer-list",
+      "total": 4,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scam-tracker/",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "what-to-do-if-you-get-scammed-out-of-crypto",
+      "total": 6,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.ohioattorneygeneral.gov/getmedia/e942c8d2-5a7c-4029-9c59-d8e7c10b65f7/Cryptocurrency-fraud-What-to-do-after-a-financial-loss.aspx",
+          "detail": "network: fetch failed"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.sofi.com/learn/content/how-to-report-crypto-scam/",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://cyberclaims.co/blog/cryptocurrency-scam-recovery",
+          "detail": "network: fetch failed"
+        }
+      ]
+    },
+    {
+      "slug": "crypto-scam-evidence",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scams/how-to-report-crypto-scams/",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "report-scam-to-bank",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-research-crypto-projects",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "celebrity-crypto-ad-verification",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "asset-recovery-scam",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-terms",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-trading-scam-whatsapp",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "fake-crypto-broker-withdrawal-blocked",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-trading-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "list-of-fake-crypto-exchanges",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "fake-crypto-wallet",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "list-of-fake-crypto-trading-websites",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "fake-crypto-website",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-list",
+      "total": 2,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "celebrity-crypto-scam",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-spot-a-deepfake",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "pig-butchering-scam",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-atm-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "paypal-crypto-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scammer",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scams-statistics",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-checker",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "ai-crypto-trading-bot",
+      "total": 8,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://dfpi.ca.gov/crypto-scams/",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "ai-trading-bot-scams",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "how-to-check-if-a-crypto-trading-platform-is-legit",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fca.org.uk/consumers/warning-list-unauthorised-firms",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://moneysmart.gov.au/investment-warnings/crypto-scams",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "bitcoin-scam",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "celebrities-promoting-crypto-scams",
+      "total": 6,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-scam-red-flags",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "romance-scammer-red-flags",
+      "total": 5,
+      "dead": 0,
+      "changes": [
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/how-we-can-help-you/safety-resources/scams-and-safety/common-scams-and-crimes/romance-scams",
+          "detail": "HTTP 403"
+        },
+        {
+          "kind": "soft-flag",
+          "url": "https://www.fbi.gov/contact-us/field-offices/norfolk/news/fbi-norfolk-warns-of-romance-scams-urges-public-to-recognize-red-flags-ahead-of-valentines-day",
+          "detail": "HTTP 403"
+        }
+      ]
+    },
+    {
+      "slug": "investment-pressure-tactics",
+      "total": 4,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "guaranteed-returns-crypto",
+      "total": 5,
+      "dead": 0,
+      "changes": []
+    },
+    {
+      "slug": "crypto-job-posting-scams",
+      "total": 3,
+      "dead": 0,
+      "changes": []
+    }
+  ]
+}
