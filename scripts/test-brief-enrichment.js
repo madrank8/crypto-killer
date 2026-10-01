@@ -34,6 +34,8 @@ const { buildEnrichmentPrompt, mergeEnrichment } = require('../lib/content-brief
 const { toYaml } = require('../lib/content-brief/yaml')
 
 const DRY = process.argv.includes('--dry-run')
+// --model=<key> to pick a provider, e.g. --model=gpt-5.4-mini for an OpenAI key.
+const MODEL_ARG = (process.argv.find((a) => a.startsWith('--model=')) || '').split('=')[1]
 const SHOW_YAML = process.argv.includes('--yaml')
 
 // A realistic post-migration topic (shape matches what stageSave persists).
@@ -109,14 +111,18 @@ async function main() {
   if (DRY) {
     raw = ADVERSARIAL
   } else {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('\nANTHROPIC_API_KEY is not set. Add it to .env.local or export it, or run with --dry-run.')
+    const { callModel, extractJSON, getAvailableModels } = require('../lib/ai-models')
+    const available = getAvailableModels()
+    const model = MODEL_ARG
+      || (available.anthropic ? 'claude-sonnet' : (available.openai ? 'gpt-5.4-mini' : null))
+    if (!model) {
+      console.error('\nNo LLM provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env.local (or export it), or run with --dry-run.')
       process.exit(1)
     }
-    const { callModel, extractJSON } = require('../lib/ai-models')
+    console.log(`providers: anthropic=${available.anthropic} openai=${available.openai} → using ${model}`)
     const started = Date.now()
-    const res = await callModel('claude-sonnet', system, user, { timeoutMs: 120000 })
-    console.log(`model responded in ${((Date.now() - started) / 1000).toFixed(1)}s (${res.resolvedModel || 'claude-sonnet'})`)
+    const res = await callModel(model, system, user, { timeoutMs: 120000 })
+    console.log(`model responded in ${((Date.now() - started) / 1000).toFixed(1)}s (${res.resolvedModel || model})`)
     raw = extractJSON(res.text)
     if (!raw || typeof raw !== 'object') {
       console.error('Model did not return parseable JSON. First 400 chars:\n', String(res.text).slice(0, 400))
