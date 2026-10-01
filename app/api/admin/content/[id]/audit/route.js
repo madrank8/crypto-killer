@@ -33,7 +33,7 @@ export async function POST(request, { params }) {
       return Response.json({ error: 'Invalid content id' }, { status: 400 })
     }
 
-    const rows = await supaFetch(`/content?id=eq.${encodeURIComponent(id)}&select=*&limit=1`)
+    const rows = await supaFetch(`/content?id=eq.${encodeURIComponent(id)}&select=*&limit=1`, { useServiceRole: true })
     const content = Array.isArray(rows) ? rows[0] : null
     if (!content) return Response.json({ error: 'Content not found' }, { status: 404 })
 

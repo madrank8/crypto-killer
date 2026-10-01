@@ -25,7 +25,7 @@ async function loadTopic(id) {
 }
 
 async function loadBriefRow(topicId) {
-  const rows = await supaFetch(`/content_briefs?topic_id=eq.${topicId}&select=*&limit=1`)
+  const rows = await supaFetch(`/content_briefs?topic_id=eq.${topicId}&select=*&limit=1`, { useServiceRole: true })
   return Array.isArray(rows) ? rows[0] : null
 }
 

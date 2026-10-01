@@ -23,7 +23,7 @@ async function loadMap(id) {
 }
 
 async function loadBriefCounts(mapId) {
-  const rows = await supaFetch(`/content_briefs?map_id=eq.${mapId}&select=id,content_type,sullivan_ok`)
+  const rows = await supaFetch(`/content_briefs?map_id=eq.${mapId}&select=id,content_type,sullivan_ok`, { useServiceRole: true })
   const list = Array.isArray(rows) ? rows : []
   return {
     total: list.length,

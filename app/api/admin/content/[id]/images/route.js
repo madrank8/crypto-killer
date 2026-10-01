@@ -36,7 +36,8 @@ export async function POST(request, { params }) {
   try {
     // Fetch content + topic
     const rows = await supaFetch(
-      `/content?id=eq.${id}&select=id,slug,title,headline,summary,full_article,sections,sources,hero_image_url,content_images,visual_meta&limit=1`
+      `/content?id=eq.${id}&select=id,slug,title,headline,summary,full_article,sections,sources,hero_image_url,content_images,visual_meta&limit=1`,
+      { useServiceRole: true }
     )
     const content = Array.isArray(rows) ? rows[0] : null
     if (!content) {

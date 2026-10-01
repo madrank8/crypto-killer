@@ -14,7 +14,8 @@ export async function GET(request, { params }) {
 
     // Fetch review
     const reviewData = await supabaseRequest(
-      `/reviews?id=eq.${id}&select=*`
+      `/reviews?id=eq.${id}&select=*`,
+      { useServiceRole: true }
     )
 
     if (!Array.isArray(reviewData) || reviewData.length === 0) {

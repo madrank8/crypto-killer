@@ -14,7 +14,8 @@ async function fetchAllReviews(pageSize = 1000) {
       // or never existed. Those rows cannot be edited/regenerated (no brand context),
       // so hiding them from the admin list is correct. If orphans need to be surfaced
       // later for cleanup, add a separate /api/admin/reviews/orphans endpoint.
-      `/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&brand_id=not.is.null&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
+      `/reviews?select=id,brand_id,title,slug,status,word_count,updated_at,published_at&brand_id=not.is.null&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
+      { useServiceRole: true }
     )
     if (!Array.isArray(data) || data.length === 0) break
     allRows.push(...data)

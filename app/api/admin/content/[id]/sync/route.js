@@ -23,7 +23,8 @@ export async function POST(request, { params }) {
 
     // Fetch content with all fields
     const contentRows = await supaFetch(
-      `/content?id=eq.${id}&select=*&limit=1`
+      `/content?id=eq.${id}&select=*&limit=1`,
+      { useServiceRole: true }
     );
     const content = contentRows?.[0];
     if (!content) {

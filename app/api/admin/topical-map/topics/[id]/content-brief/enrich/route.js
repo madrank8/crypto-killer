@@ -23,7 +23,7 @@ export async function POST(request, { params }) {
     const { id } = await params
     if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
 
-    const rows = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=*&limit=1`)
+    const rows = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=*&limit=1`, { useServiceRole: true })
     const row = Array.isArray(rows) ? rows[0] : null
     if (!row) return Response.json({ error: 'No content brief yet — save the Sullivan Gate first.' }, { status: 404 })
     if (!row.sullivan_ok) {
@@ -63,7 +63,7 @@ export async function POST(request, { params }) {
       body: JSON.stringify({ brief, updated_at: new Date().toISOString() }),
     })
 
-    const after = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=*&limit=1`)
+    const after = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=*&limit=1`, { useServiceRole: true })
     return Response.json({
       brief_row: Array.isArray(after) ? after[0] : null,
       enriched,

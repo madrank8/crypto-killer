@@ -88,7 +88,8 @@ export async function POST(req) {
   let review
   try {
     const rows = await supabaseRequest(
-      `/reviews?id=eq.${encodeURIComponent(reviewId)}&select=*&limit=1`
+      `/reviews?id=eq.${encodeURIComponent(reviewId)}&select=*&limit=1`,
+      { useServiceRole: true }
     )
     review = Array.isArray(rows) ? rows[0] : null
   } catch (err) {

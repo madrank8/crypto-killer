@@ -29,7 +29,8 @@ export async function POST(request, { params }) {
 
     // Fetch review with all fields
     const reviews = await supaFetch(
-      `/reviews?id=eq.${id}&select=*&limit=1`
+      `/reviews?id=eq.${id}&select=*&limit=1`,
+      { useServiceRole: true }
     );
     const review = reviews?.[0];
     if (!review) {

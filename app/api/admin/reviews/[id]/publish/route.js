@@ -299,7 +299,7 @@ export async function POST(request, { params }) {
     updates.updated_at = new Date().toISOString()
 
     // Fetch the review for revalidation and sync
-    const reviewData = await supaFetch(`/reviews?id=eq.${id}&select=*`)
+    const reviewData = await supaFetch(`/reviews?id=eq.${id}&select=*`, { useServiceRole: true })
     const review = Array.isArray(reviewData) ? reviewData[0] : null
     const reviewSlug = review?.slug
 

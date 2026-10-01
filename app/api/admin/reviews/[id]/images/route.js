@@ -47,7 +47,7 @@ export async function POST(request, { params }) {
     const SPYOWL_COOKIE = await getSpyOwlCookie()
 
     // 1. Fetch the review to get brand_id and current full_article
-    const reviewData = await supabaseRequest(`/reviews?id=eq.${id}&select=id,brand_id,full_article`)
+    const reviewData = await supabaseRequest(`/reviews?id=eq.${id}&select=id,brand_id,full_article`, { useServiceRole: true })
     if (!Array.isArray(reviewData) || reviewData.length === 0) {
       return Response.json({ error: 'Review not found' }, { status: 404 })
     }
@@ -258,7 +258,7 @@ export async function DELETE(request, { params }) {
     }
 
     // Fetch current article
-    const reviewData = await supabaseRequest(`/reviews?id=eq.${id}&select=id,full_article`)
+    const reviewData = await supabaseRequest(`/reviews?id=eq.${id}&select=id,full_article`, { useServiceRole: true })
     if (!Array.isArray(reviewData) || reviewData.length === 0) {
       return Response.json({ error: 'Review not found' }, { status: 404 })
     }

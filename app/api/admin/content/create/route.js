@@ -49,7 +49,7 @@ async function ensureUniqueContentSlug(base) {
   const cleanBase = slugify(base)
   for (let attempt = 0; attempt < 30; attempt++) {
     const candidate = attempt === 0 ? cleanBase : `${cleanBase}-${attempt + 1}`
-    const rows = await supaFetch(`/content?slug=eq.${candidate}&select=id&limit=1`)
+    const rows = await supaFetch(`/content?slug=eq.${candidate}&select=id&limit=1`, { useServiceRole: true })
     if (!Array.isArray(rows) || rows.length === 0) return candidate
   }
   return `${cleanBase}-${Date.now()}`

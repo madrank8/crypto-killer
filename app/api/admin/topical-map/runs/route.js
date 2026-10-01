@@ -56,7 +56,8 @@ export async function GET(request) {
   try {
     verifyAdmin(request)
     const rows = await supaFetch(
-      '/topical_map_runs?select=id,seed_keyword,status,current_stage,map_id,error,created_at,updated_at,stage_log&order=created_at.desc&limit=25'
+      '/topical_map_runs?select=id,seed_keyword,status,current_stage,map_id,error,created_at,updated_at,stage_log&order=created_at.desc&limit=25',
+      { useServiceRole: true }
     )
     return Response.json({ runs: Array.isArray(rows) ? rows : [], stages: STAGES })
   } catch (error) {
