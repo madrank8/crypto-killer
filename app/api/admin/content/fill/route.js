@@ -144,7 +144,7 @@ export async function POST(request) {
           send({ step: 'init', progress: 5, message: 'Loading content with approved outline...' })
 
           // Load content
-          const contentRows = await supaFetch(`/content?id=eq.${contentId}&select=*&limit=1`)
+          const contentRows = await supaFetch(`/content?id=eq.${contentId}&select=*&limit=1`, { useServiceRole: true })
           const content = Array.isArray(contentRows) ? contentRows[0] : null
           if (!content) throw new Error('Content not found')
 

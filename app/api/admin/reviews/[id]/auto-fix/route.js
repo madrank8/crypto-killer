@@ -163,7 +163,7 @@ export async function POST(request, { params }) {
     const issues = Array.isArray(body?.issues) ? body.issues : []
     const citationFixMode = body?.citation_fix_mode === 'replace' ? 'replace' : 'remove'
 
-    const reviewRows = await supabaseRequest(`/reviews?id=eq.${id}&select=*&limit=1`)
+    const reviewRows = await supabaseRequest(`/reviews?id=eq.${id}&select=*&limit=1`, { useServiceRole: true })
     const review = Array.isArray(reviewRows) ? reviewRows[0] : null
     if (!review) {
       return Response.json({ error: 'Review not found' }, { status: 404 })

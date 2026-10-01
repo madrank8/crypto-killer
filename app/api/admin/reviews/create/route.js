@@ -35,7 +35,8 @@ export async function POST(request) {
 
     // Check if review already exists
     const existingReview = await supabaseRequest(
-      `/reviews?brand_id=eq.${brand_id}&select=id`
+      `/reviews?brand_id=eq.${brand_id}&select=id`,
+      { useServiceRole: true }
     )
 
     if (Array.isArray(existingReview) && existingReview.length > 0) {
@@ -54,7 +55,8 @@ export async function POST(request) {
 
     // Check if slug already taken by another brand's review
     const existingBySlug = await supabaseRequest(
-      `/reviews?slug=eq.${slug}&select=id,brand_id`
+      `/reviews?slug=eq.${slug}&select=id,brand_id`,
+      { useServiceRole: true }
     )
     if (Array.isArray(existingBySlug) && existingBySlug.length > 0) {
       // Slug taken — append brand_id fragment to deduplicate
@@ -94,7 +96,8 @@ export async function POST(request) {
       if (insertError.message.includes('23505') || insertError.message.includes('409')) {
         // Slug collision — find and update the conflicting review
         const conflicting = await supabaseRequest(
-          `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id`
+          `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id`,
+          { useServiceRole: true }
         )
         if (Array.isArray(conflicting) && conflicting.length > 0) {
           reviewId = conflicting[0].id

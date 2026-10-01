@@ -67,12 +67,14 @@ export async function GET(request) {
 
     // Find stuck 'polishing' rows
     const stuckPolishing = await supaFetch(
-      `/reviews?generation_status=eq.polishing&updated_at=lt.${encodeURIComponent(polishingCutoff)}&select=id,slug,updated_at`
+      `/reviews?generation_status=eq.polishing&updated_at=lt.${encodeURIComponent(polishingCutoff)}&select=id,slug,updated_at`,
+      { useServiceRole: true }
     )
 
     // Find stuck 'content_generated' rows (orphaned phase-A output)
     const stuckContentGenerated = await supaFetch(
-      `/reviews?generation_status=eq.content_generated&updated_at=lt.${encodeURIComponent(contentGeneratedCutoff)}&select=id,slug,updated_at`
+      `/reviews?generation_status=eq.content_generated&updated_at=lt.${encodeURIComponent(contentGeneratedCutoff)}&select=id,slug,updated_at`,
+      { useServiceRole: true }
     )
 
     const patched = {

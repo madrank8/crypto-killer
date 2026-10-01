@@ -10,7 +10,7 @@ export async function GET(request, { params }) {
     verifyAdmin(request)
     const { id } = await params
 
-    const rows = await supaFetch(`/content?id=eq.${id}&select=*&limit=1`)
+    const rows = await supaFetch(`/content?id=eq.${id}&select=*&limit=1`, { useServiceRole: true })
     const content = Array.isArray(rows) ? rows[0] : null
     if (!content) return Response.json({ error: 'Content not found' }, { status: 404 })
 

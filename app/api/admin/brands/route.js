@@ -94,7 +94,8 @@ export async function GET(request) {
     const reviewPageSize = 1000
     while (true) {
       const batch = await supabaseRequest(
-        `/reviews?select=id,brand_id,status&limit=${reviewPageSize}&offset=${reviewOffset}`
+        `/reviews?select=id,brand_id,status&limit=${reviewPageSize}&offset=${reviewOffset}`,
+        { useServiceRole: true }
       )
       if (!Array.isArray(batch) || batch.length === 0) break
       allReviews.push(...batch)

@@ -1,11 +1,11 @@
 /**
- * Localized review preview — admin-only preview on the Vercel host.
+ * Localized published-review preview on the Vercel host.
  *
  * Production rendering of /it/review/<slug>, /es/review/<slug>, etc. happens
  * on the cryptokiller.org Replit deployment, which reads the same
  * review_translations rows from Supabase. This Vercel route exists so admins
- * can preview translations after creating/editing them WITHOUT waiting for a
- * Replit deploy.
+ * can inspect published translations WITHOUT waiting for a Replit deploy.
+ * This URL has no admin authentication: drafts belong in the protected editor.
  *
  * Therefore this page:
  *   - emits canonical pointing at cryptokiller.org (production canonical, not Vercel)
@@ -57,13 +57,10 @@ export async function generateMetadata({ params }) {
   const loc = normalizeLocale(rawLocale)
   if (!loc) return { title: 'Not found', robots: { index: false, follow: false } }
 
-  // Admin preview: don't require status=published — show drafts too. This is
-  // a noindexed Vercel preview, never a production page; admins WANT to
-  // preview drafts before publishing. useServiceRole bypasses anon RLS
-  // (which only shows published rows).
+  // This route is public. noindex is not authorization: use anon RLS and
+  // an explicit published filter for both metadata and rendered content.
   const transRows = await supabaseRequest(
-    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=title,meta_description,review_id,slug,status`,
-    { useServiceRole: true }
+    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&status=eq.published&select=title,meta_description,review_id,slug,status`
   )
 
   if (!Array.isArray(transRows) || transRows.length === 0) {
@@ -77,7 +74,7 @@ export async function generateMetadata({ params }) {
       `/review_translations?review_id=eq.${trans.review_id}&status=eq.published&select=locale,slug`
     ),
     supabaseRequest(
-      `/reviews?id=eq.${trans.review_id}&select=slug`
+      `/reviews?id=eq.${trans.review_id}&status=eq.published&select=slug`
     ),
   ])
   const masterSlug = Array.isArray(masterRows) && masterRows[0]?.slug
@@ -98,7 +95,7 @@ export async function generateMetadata({ params }) {
     title: trans.title || 'Review',
     description: trans.meta_description || '',
     // Canonical = production URL on cryptokiller.org, NOT this Vercel preview.
-    // The Vercel preview is admin-only; production rendering lives on Replit.
+    // Production rendering lives on Replit; this public preview is published-only.
     alternates: {
       canonical: prodUrl(loc.url, slug),
       ...alternates,
@@ -122,17 +119,16 @@ export default async function LocaleReviewPreview({ params }) {
   if (!loc) notFound()
 
   // Fetch the translation first — we need review_id before we can fetch master.
-  // useServiceRole so the admin preview can render drafts (anon RLS hides them).
+  // Public previews must not bypass RLS to render unpublished translations.
   const transRows = await supabaseRequest(
-    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&select=*`,
-    { useServiceRole: true }
+    `/review_translations?locale=eq.${encodeURIComponent(loc.db)}&slug=eq.${encodeURIComponent(slug)}&status=eq.published&select=*`
   )
   if (!Array.isArray(transRows) || transRows.length === 0) notFound()
   const trans = transRows[0]
 
   // Master + brand in parallel via a single master query.
   const masterRows = await supabaseRequest(
-    `/reviews?id=eq.${trans.review_id}&select=*`
+    `/reviews?id=eq.${trans.review_id}&status=eq.published&select=*`
   )
   const master = Array.isArray(masterRows) && masterRows[0]
   if (!master) notFound()
@@ -151,9 +147,9 @@ export default async function LocaleReviewPreview({ params }) {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100" lang={loc.bcp47}>
-      {/* Admin preview banner */}
+      {/* Published preview banner */}
       <div className="bg-amber-950/70 border-b border-amber-700/40 text-amber-200 text-xs px-4 py-2 text-center">
-        <strong>Admin preview ({langLabel}).</strong>{' '}
+        <strong>Published preview ({langLabel}).</strong>{' '}
         Production renders at{' '}
         <a
           href={`https://cryptokiller.org/${loc.url}/review/${slug}`}

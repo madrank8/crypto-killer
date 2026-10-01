@@ -65,7 +65,8 @@ export async function POST(request, { params }) {
     }
 
     const reviews = await supaFetch(
-      `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id,slug,brand_id,status,full_article,visual_meta&limit=1`
+      `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id,slug,brand_id,status,full_article,visual_meta&limit=1`,
+      { useServiceRole: true }
     )
     const review = Array.isArray(reviews) ? reviews[0] : null
     if (!review) {

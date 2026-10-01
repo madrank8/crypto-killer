@@ -45,7 +45,7 @@ export async function GET(request) {
         '/scam_brands?select=celebrity_list&total_celebrities=gt.0&limit=500&order=total_celebrities.desc'
       ),
       // 7. Review stats
-      supabaseRequest('/reviews?select=id,status'),
+      supabaseRequest('/reviews?select=id,status', { useServiceRole: true }),
     ])
 
     // ─── Aggregate brand stats ───

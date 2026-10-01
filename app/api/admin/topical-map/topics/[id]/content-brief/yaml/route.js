@@ -14,7 +14,7 @@ export async function GET(request, { params }) {
     const { id } = await params
     if (!id) return Response.json({ error: 'id is required' }, { status: 400 })
 
-    const rows = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=brief,brief_id&limit=1`)
+    const rows = await supaFetch(`/content_briefs?topic_id=eq.${id}&select=brief,brief_id&limit=1`, { useServiceRole: true })
     const row = Array.isArray(rows) ? rows[0] : null
     if (!row?.brief) {
       return Response.json({ error: 'No assembled brief for this topic yet.' }, { status: 404 })

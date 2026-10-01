@@ -25,7 +25,7 @@ export async function POST(request, { params }) {
     verifyAdmin(request)
     const { id } = await params
 
-    const rows = await supaFetch(`/topical_map_runs?id=eq.${id}&select=*`)
+    const rows = await supaFetch(`/topical_map_runs?id=eq.${id}&select=*`, { useServiceRole: true })
     const run = Array.isArray(rows) ? rows[0] : null
     if (!run) return Response.json({ error: 'Run not found' }, { status: 404 })
     if (run.status !== 'awaiting_approval') {

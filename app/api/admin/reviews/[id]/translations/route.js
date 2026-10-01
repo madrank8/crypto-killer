@@ -79,7 +79,7 @@ export async function POST(request, { params }) {
     }
 
     // Fetch the master review
-    const masterRows = await supabaseRequest(`/reviews?id=eq.${id}&select=*`)
+    const masterRows = await supabaseRequest(`/reviews?id=eq.${id}&select=*`, { useServiceRole: true })
     if (!Array.isArray(masterRows) || masterRows.length === 0) {
       return Response.json({ error: 'Review not found' }, { status: 404 })
     }

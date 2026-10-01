@@ -106,6 +106,7 @@ export async function POST(request, { params }) {
 
           const reviewRows = await supabaseRequest(
             `/reviews?id=eq.${id}&select=*`,
+            { useServiceRole: true },
           )
           if (!Array.isArray(reviewRows) || reviewRows.length === 0) {
             throw new Error('Review not found')

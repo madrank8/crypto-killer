@@ -35,7 +35,8 @@ export async function POST(request) {
     // ─── Mode 1: Generate for a specific review ───
     if (body.review_id) {
       const reviews = await supabaseRequest(
-        `/reviews?id=eq.${body.review_id}&select=id,slug,hero_image_url`
+        `/reviews?id=eq.${body.review_id}&select=id,slug,hero_image_url`,
+        { useServiceRole: true }
       );
       const review = reviews?.[0];
       if (!review) {
@@ -102,7 +103,8 @@ export async function POST(request) {
     // ─── Mode 2: Generate for a specific content piece ───
     if (body.content_id) {
       const contents = await supabaseRequest(
-        `/content?id=eq.${body.content_id}&select=id,slug,hero_image_url`
+        `/content?id=eq.${body.content_id}&select=id,slug,hero_image_url`,
+        { useServiceRole: true }
       );
       const content = contents?.[0];
       if (!content) {

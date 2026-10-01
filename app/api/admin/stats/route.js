@@ -1,4 +1,4 @@
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase'
+import { fetchAllRows, supabaseCount } from '@/lib/supabase'
 import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 
 // Default Vercel function timeout is 10s. This route does ~13 sequential
@@ -10,63 +10,6 @@ import { verifyAdmin, unauthorizedResponse } from '@/lib/admin-auth'
 // fetchAllRows-then-filter-in-JS with proper count-exact aggregate
 // queries — drag less data over the wire.
 export const maxDuration = 60
-
-/**
- * Lightweight Supabase REST helper with Prefer: count=exact support
- */
-async function supaFetch(path, { head = false, count = false, headers: extra = {} } = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-    apikey: SUPABASE_ANON_KEY,
-    ...extra,
-  }
-  if (count) {
-    headers['Prefer'] = headers['Prefer']
-      ? headers['Prefer'] + ', count=exact'
-      : 'count=exact'
-  }
-
-  const url = `${SUPABASE_URL}/rest/v1${path}`
-  const res = await fetch(url, { method: head ? 'HEAD' : 'GET', headers })
-
-  if (!res.ok) {
-    const error = await res.text()
-    throw new Error(`Supabase ${res.status}: ${error}`)
-  }
-
-  let totalCount = null
-  const range = res.headers.get('content-range')
-  if (range) {
-    const match = range.match(/\/(\d+)$/)
-    if (match) totalCount = parseInt(match[1], 10)
-  }
-
-  if (head) return { data: null, count: totalCount }
-  const text = await res.text()
-  const data = text ? JSON.parse(text) : []
-  return { data, count: totalCount }
-}
-
-/**
- * Paginate through ALL rows from a Supabase REST endpoint.
- * Supabase caps each request at 1000 rows regardless of Range header,
- * so we must page through in batches.
- */
-async function fetchAllRows(basePath, selectFields, pageSize = 1000) {
-  const allRows = []
-  let offset = 0
-  while (true) {
-    const separator = basePath.includes('?') ? '&' : '?'
-    const path = `${basePath}${separator}select=${selectFields}&limit=${pageSize}&offset=${offset}`
-    const { data } = await supaFetch(path)
-    if (!data || data.length === 0) break
-    allRows.push(...data)
-    if (data.length < pageSize) break
-    offset += pageSize
-  }
-  return allRows
-}
 
 /**
  * GET /api/admin/stats
@@ -83,15 +26,15 @@ export async function GET(request) {
       brands,
       reviews,
     ] = await Promise.all([
-      supaFetch('/scam_brands?select=id', { head: true, count: true }),
-      supaFetch('/creatives?select=id', { head: true, count: true }),
+      supabaseCount('/scam_brands?select=id&limit=1'),
+      supabaseCount('/creatives?select=id&limit=1'),
       fetchAllRows('/scam_brands', 'id,velocity_7d,velocity_trend,scam_score'),
-      fetchAllRows('/reviews', 'id,brand_id,status,updated_at,published_at'),
+      fetchAllRows('/reviews', 'id,brand_id,status,updated_at,published_at', 1000, { useServiceRole: true }),
     ])
 
     // ── Core KPIs ──
-    const totalBrands = brandsCount.count || brands.length
-    const totalCreatives = creativesCount.count || 0
+    const totalBrands = brandsCount || brands.length
+    const totalCreatives = creativesCount || 0
     const activeBrands = brands.filter(b => b.velocity_7d > 0).length
 
     // ── Review Pipeline ──

@@ -14,7 +14,8 @@ async function fetchAllContent(pageSize = 1000) {
   let offset = 0
   while (true) {
     const data = await supabaseRequest(
-      `/content?select=id,title,headline,slug,status,content_type,word_count,topic_id,updated_at,published_at&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
+      `/content?select=id,title,headline,slug,status,content_type,word_count,topic_id,updated_at,published_at&order=updated_at.desc&limit=${pageSize}&offset=${offset}`,
+      { useServiceRole: true }
     )
     if (!Array.isArray(data) || data.length === 0) break
     rows.push(...data)

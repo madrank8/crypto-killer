@@ -1482,10 +1482,12 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
     let slug = baseSlug.endsWith('-review') ? baseSlug.replace(/-review$/, '') : baseSlug
     // ─── DEDUPLICATE SLUG (check if slug already taken) ───
     const existingByBrand = await supabaseRequest(
-      `/reviews?brand_id=eq.${brand_id}&select=id,status`
+      `/reviews?brand_id=eq.${brand_id}&select=id,status`,
+      { useServiceRole: true }
     )
     const existingBySlug = await supabaseRequest(
-      `/reviews?slug=eq.${slug}&select=id,status,brand_id`
+      `/reviews?slug=eq.${slug}&select=id,status,brand_id`,
+      { useServiceRole: true }
     )
     // If slug is taken by a DIFFERENT brand, make it unique
     if (
@@ -1741,7 +1743,8 @@ ${notForYouHtml ? `<div style="margin-bottom:24px">${notForYouHtml}</div>` : ''}
           // conflicting row belongs to THIS brand; otherwise retry the
           // INSERT under a brand-suffixed slug.
           const conflicting = await supabaseRequest(
-            `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id,brand_id`
+            `/reviews?slug=eq.${encodeURIComponent(slug)}&select=id,brand_id`,
+            { useServiceRole: true }
           )
           if (Array.isArray(conflicting) && conflicting.length > 0 && conflicting[0].brand_id === brand_id) {
             reviewId = conflicting[0].id
